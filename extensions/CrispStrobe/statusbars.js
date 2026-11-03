@@ -444,8 +444,9 @@
   };
 
   const spriteMenu = (withScreen) => {
-    const items = [{ text: "myself", value: MYSELF }];
-    if (withScreen) items.push({ text: "the screen", value: SCREEN });
+    const items = [{ text: Scratch.translate("myself"), value: MYSELF }];
+    if (withScreen)
+      items.push({ text: Scratch.translate("the screen"), value: SCREEN });
     for (const t of runtime.targets) {
       if (t.isOriginal && !t.isStage) {
         items.push({ text: t.getName(), value: t.getName() });
@@ -469,7 +470,9 @@
           {
             opcode: "create",
             blockType: Scratch.BlockType.COMMAND,
-            text: "create [KIND] bar on [SPRITE] width [WIDTH] height [HEIGHT]",
+            text: Scratch.translate(
+              "create [KIND] bar on [SPRITE] width [WIDTH] height [HEIGHT]"
+            ),
             arguments: {
               KIND: kindArg,
               SPRITE: { type: Scratch.ArgumentType.STRING, menu: "owners" },
@@ -480,7 +483,7 @@
           {
             opcode: "remove",
             blockType: Scratch.BlockType.COMMAND,
-            text: "delete [KIND] bar of [SPRITE]",
+            text: Scratch.translate("delete [KIND] bar of [SPRITE]"),
             arguments: {
               KIND: kindArg,
               SPRITE: { ...spriteArg, menu: "owners" },
@@ -489,12 +492,12 @@
           {
             opcode: "removeAll",
             blockType: Scratch.BlockType.COMMAND,
-            text: "delete all status bars",
+            text: Scratch.translate("delete all status bars"),
           },
           {
             opcode: "exists",
             blockType: Scratch.BlockType.BOOLEAN,
-            text: "[KIND] bar of [SPRITE] exists",
+            text: Scratch.translate("[KIND] bar of [SPRITE] exists"),
             arguments: {
               KIND: kindArg,
               SPRITE: { ...spriteArg, menu: "owners" },
@@ -503,18 +506,20 @@
           {
             opcode: "countOfKind",
             blockType: Scratch.BlockType.REPORTER,
-            text: "number of [KIND] bars",
+            text: Scratch.translate("number of [KIND] bars"),
             arguments: { KIND: kindArg },
           },
           "---",
           {
             blockType: Scratch.BlockType.LABEL,
-            text: "Value",
+            text: Scratch.translate("Value"),
           },
           {
             opcode: "setValue",
             blockType: Scratch.BlockType.COMMAND,
-            text: "set [KIND] bar of [SPRITE] value to [VALUE]",
+            text: Scratch.translate(
+              "set [KIND] bar of [SPRITE] value to [VALUE]"
+            ),
             arguments: {
               KIND: kindArg,
               SPRITE: { ...spriteArg, menu: "owners" },
@@ -524,7 +529,9 @@
           {
             opcode: "changeValue",
             blockType: Scratch.BlockType.COMMAND,
-            text: "change [KIND] bar of [SPRITE] value by [VALUE]",
+            text: Scratch.translate(
+              "change [KIND] bar of [SPRITE] value by [VALUE]"
+            ),
             arguments: {
               KIND: kindArg,
               SPRITE: { ...spriteArg, menu: "owners" },
@@ -534,7 +541,7 @@
           {
             opcode: "setMax",
             blockType: Scratch.BlockType.COMMAND,
-            text: "set [KIND] bar of [SPRITE] max to [MAX]",
+            text: Scratch.translate("set [KIND] bar of [SPRITE] max to [MAX]"),
             arguments: {
               KIND: kindArg,
               SPRITE: { ...spriteArg, menu: "owners" },
@@ -544,7 +551,7 @@
           {
             opcode: "getValue",
             blockType: Scratch.BlockType.REPORTER,
-            text: "[KIND] bar value of [SPRITE]",
+            text: Scratch.translate("[KIND] bar value of [SPRITE]"),
             arguments: {
               KIND: kindArg,
               SPRITE: { ...spriteArg, menu: "owners" },
@@ -553,7 +560,7 @@
           {
             opcode: "getMax",
             blockType: Scratch.BlockType.REPORTER,
-            text: "[KIND] bar max of [SPRITE]",
+            text: Scratch.translate("[KIND] bar max of [SPRITE]"),
             arguments: {
               KIND: kindArg,
               SPRITE: { ...spriteArg, menu: "owners" },
@@ -562,7 +569,7 @@
           {
             opcode: "freeze",
             blockType: Scratch.BlockType.COMMAND,
-            text: "stop [KIND] bar of [SPRITE] transition",
+            text: Scratch.translate("stop [KIND] bar of [SPRITE] transition"),
             arguments: {
               KIND: kindArg,
               SPRITE: { ...spriteArg, menu: "owners" },
@@ -571,12 +578,14 @@
           "---",
           {
             blockType: Scratch.BlockType.LABEL,
-            text: "Display",
+            text: Scratch.translate("Display"),
           },
           {
             opcode: "setColor",
             blockType: Scratch.BlockType.COMMAND,
-            text: "set [KIND] bar of [SPRITE] fill [FILL] background [BACKGROUND] drain [DRAIN]",
+            text: Scratch.translate(
+              "set [KIND] bar of [SPRITE] fill [FILL] background [BACKGROUND] drain [DRAIN]"
+            ),
             arguments: {
               KIND: kindArg,
               SPRITE: { ...spriteArg, menu: "owners" },
@@ -597,7 +606,9 @@
           {
             opcode: "setBorder",
             blockType: Scratch.BlockType.COMMAND,
-            text: "set [KIND] bar of [SPRITE] border width [WIDTH] color [COLOR]",
+            text: Scratch.translate(
+              "set [KIND] bar of [SPRITE] border width [WIDTH] color [COLOR]"
+            ),
             arguments: {
               KIND: kindArg,
               SPRITE: { ...spriteArg, menu: "owners" },
@@ -611,7 +622,9 @@
           {
             opcode: "setLabel",
             blockType: Scratch.BlockType.COMMAND,
-            text: "set [KIND] bar of [SPRITE] label [LABEL] color [COLOR]",
+            text: Scratch.translate(
+              "set [KIND] bar of [SPRITE] label [LABEL] color [COLOR]"
+            ),
             arguments: {
               KIND: kindArg,
               SPRITE: { ...spriteArg, menu: "owners" },
@@ -625,7 +638,9 @@
           {
             opcode: "setFlag",
             blockType: Scratch.BlockType.COMMAND,
-            text: "set [KIND] bar of [SPRITE] [FLAG] to [ON]",
+            text: Scratch.translate(
+              "set [KIND] bar of [SPRITE] [FLAG] to [ON]"
+            ),
             arguments: {
               KIND: kindArg,
               SPRITE: { ...spriteArg, menu: "owners" },
@@ -644,7 +659,9 @@
           {
             opcode: "setSize",
             blockType: Scratch.BlockType.COMMAND,
-            text: "set [KIND] bar of [SPRITE] width [WIDTH] height [HEIGHT]",
+            text: Scratch.translate(
+              "set [KIND] bar of [SPRITE] width [WIDTH] height [HEIGHT]"
+            ),
             arguments: {
               KIND: kindArg,
               SPRITE: { ...spriteArg, menu: "owners" },
@@ -655,12 +672,14 @@
           "---",
           {
             blockType: Scratch.BlockType.LABEL,
-            text: "Attach",
+            text: Scratch.translate("Attach"),
           },
           {
             opcode: "attach",
             blockType: Scratch.BlockType.COMMAND,
-            text: "attach [KIND] bar of [SPRITE] to [TO] padding [PADDING] offset [OFFSET]",
+            text: Scratch.translate(
+              "attach [KIND] bar of [SPRITE] to [TO] padding [PADDING] offset [OFFSET]"
+            ),
             arguments: {
               KIND: kindArg,
               SPRITE: { ...spriteArg, menu: "owners" },
@@ -672,7 +691,9 @@
           {
             opcode: "setPosition",
             blockType: Scratch.BlockType.COMMAND,
-            text: "set [KIND] bar of [SPRITE] position to [DIRECTION]",
+            text: Scratch.translate(
+              "set [KIND] bar of [SPRITE] position to [DIRECTION]"
+            ),
             arguments: {
               KIND: kindArg,
               SPRITE: { ...spriteArg, menu: "owners" },
@@ -686,7 +707,9 @@
           {
             opcode: "setPaddingOffset",
             blockType: Scratch.BlockType.COMMAND,
-            text: "set [KIND] bar of [SPRITE] padding [PADDING] offset [OFFSET]",
+            text: Scratch.translate(
+              "set [KIND] bar of [SPRITE] padding [PADDING] offset [OFFSET]"
+            ),
             arguments: {
               KIND: kindArg,
               SPRITE: { ...spriteArg, menu: "owners" },
@@ -697,19 +720,21 @@
           "---",
           {
             blockType: Scratch.BlockType.LABEL,
-            text: "Events",
+            text: Scratch.translate("Events"),
           },
           {
             opcode: "whenZero",
             blockType: Scratch.BlockType.HAT,
-            text: "when my [KIND] bar reaches zero",
+            text: Scratch.translate("when my [KIND] bar reaches zero"),
             isEdgeActivated: true,
             arguments: { KIND: kindArg },
           },
           {
             opcode: "whenReached",
             blockType: Scratch.BlockType.HAT,
-            text: "when my [KIND] bar is [COMPARISON] [VALUE] [UNIT]",
+            text: Scratch.translate(
+              "when my [KIND] bar is [COMPARISON] [VALUE] [UNIT]"
+            ),
             isEdgeActivated: true,
             arguments: {
               KIND: kindArg,
@@ -741,16 +766,16 @@
             acceptReporters: false,
             items: [
               { text: "on", value: "on" },
-              { text: "off", value: "off" },
+              { text: Scratch.translate("off"), value: "off" },
             ],
           },
           directions: {
             acceptReporters: false,
             items: [
-              { text: "top", value: "top" },
-              { text: "bottom", value: "bottom" },
-              { text: "left", value: "left" },
-              { text: "right", value: "right" },
+              { text: Scratch.translate("top"), value: "top" },
+              { text: Scratch.translate("bottom"), value: "bottom" },
+              { text: Scratch.translate("left"), value: "left" },
+              { text: Scratch.translate("right"), value: "right" },
             ],
           },
           comparisons: {
@@ -764,7 +789,7 @@
             acceptReporters: false,
             items: [
               { text: "%", value: "percent" },
-              { text: "fixed", value: "fixed" },
+              { text: Scratch.translate("fixed"), value: "fixed" },
             ],
           },
         },

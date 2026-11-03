@@ -197,12 +197,12 @@
         blocks: [
           {
             blockType: Scratch.BlockType.LABEL,
-            text: "Numbers",
+            text: Scratch.translate("Numbers"),
           },
           {
             opcode: "writeNumber",
             blockType: Scratch.BlockType.COMMAND,
-            text: "set setting [NAME] to number [VALUE]",
+            text: Scratch.translate("set setting [NAME] to number [VALUE]"),
             arguments: {
               NAME: {
                 type: Scratch.ArgumentType.STRING,
@@ -214,7 +214,7 @@
           {
             opcode: "readNumber",
             blockType: Scratch.BlockType.REPORTER,
-            text: "read setting [NAME] as number",
+            text: Scratch.translate("read setting [NAME] as number"),
             arguments: {
               NAME: {
                 type: Scratch.ArgumentType.STRING,
@@ -225,12 +225,12 @@
           "---",
           {
             blockType: Scratch.BlockType.LABEL,
-            text: "Strings",
+            text: Scratch.translate("Strings"),
           },
           {
             opcode: "writeString",
             blockType: Scratch.BlockType.COMMAND,
-            text: "set setting [NAME] to string [VALUE]",
+            text: Scratch.translate("set setting [NAME] to string [VALUE]"),
             arguments: {
               NAME: { type: Scratch.ArgumentType.STRING, defaultValue: "name" },
               VALUE: {
@@ -242,7 +242,7 @@
           {
             opcode: "readString",
             blockType: Scratch.BlockType.REPORTER,
-            text: "read setting [NAME] as string",
+            text: Scratch.translate("read setting [NAME] as string"),
             arguments: {
               NAME: { type: Scratch.ArgumentType.STRING, defaultValue: "name" },
             },
@@ -250,12 +250,14 @@
           "---",
           {
             blockType: Scratch.BlockType.LABEL,
-            text: "Arrays",
+            text: Scratch.translate("Arrays"),
           },
           {
             opcode: "writeNumberArray",
             blockType: Scratch.BlockType.COMMAND,
-            text: "set setting [NAME] to number array [VALUE]",
+            text: Scratch.translate(
+              "set setting [NAME] to number array [VALUE]"
+            ),
             arguments: {
               NAME: {
                 type: Scratch.ArgumentType.STRING,
@@ -270,7 +272,7 @@
           {
             opcode: "readNumberArray",
             blockType: Scratch.BlockType.REPORTER,
-            text: "read setting [NAME] as number array",
+            text: Scratch.translate("read setting [NAME] as number array"),
             arguments: {
               NAME: {
                 type: Scratch.ArgumentType.STRING,
@@ -281,12 +283,12 @@
           "---",
           {
             blockType: Scratch.BlockType.LABEL,
-            text: "Operations",
+            text: Scratch.translate("Operations"),
           },
           {
             opcode: "remove",
             blockType: Scratch.BlockType.COMMAND,
-            text: "remove setting with name [NAME]",
+            text: Scratch.translate("remove setting with name [NAME]"),
             arguments: {
               NAME: {
                 type: Scratch.ArgumentType.STRING,
@@ -297,7 +299,7 @@
           {
             opcode: "exists",
             blockType: Scratch.BlockType.BOOLEAN,
-            text: "setting with name [NAME] exists",
+            text: Scratch.translate("setting with name [NAME] exists"),
             arguments: {
               NAME: {
                 type: Scratch.ArgumentType.STRING,
@@ -308,22 +310,22 @@
           {
             opcode: "list",
             blockType: Scratch.BlockType.REPORTER,
-            text: "array of all settings names",
+            text: Scratch.translate("array of all settings names"),
           },
           {
             opcode: "clear",
             blockType: Scratch.BlockType.COMMAND,
-            text: "clear all settings",
+            text: Scratch.translate("clear all settings"),
           },
           "---",
           {
             blockType: Scratch.BlockType.LABEL,
-            text: "Storage",
+            text: Scratch.translate("Storage"),
           },
           {
             opcode: "setNamespace",
             blockType: Scratch.BlockType.COMMAND,
-            text: "use settings namespace [NAMESPACE]",
+            text: Scratch.translate("use settings namespace [NAMESPACE]"),
             arguments: {
               NAMESPACE: {
                 type: Scratch.ArgumentType.STRING,
@@ -334,12 +336,12 @@
           {
             opcode: "getNamespace",
             blockType: Scratch.BlockType.REPORTER,
-            text: "settings namespace",
+            text: Scratch.translate("settings namespace"),
           },
           {
             opcode: "isPersistent",
             blockType: Scratch.BlockType.BOOLEAN,
-            text: "settings are saved on this device?",
+            text: Scratch.translate("settings are saved on this device?"),
           },
         ],
       };
