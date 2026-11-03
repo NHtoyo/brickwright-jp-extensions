@@ -79,6 +79,39 @@
       getFirmwareVersion: "hub firmware version",
       getConnectionMode: "connection mode",
       getCommunicationDiagnostics: "communication diagnostics (JSON)",
+      getCommunicationDiagnosticsSummary: "communication diagnostics (text)",
+      "diag.connection": "Bluetooth connection",
+      "diag.connected": "connected",
+      "diag.disconnected": "not connected",
+      "diag.firmware": "Hub OS version",
+      "diag.unavailable": "not received",
+      "diag.notification": "Sensor notification request",
+      "diag.notification.not-requested": "not requested",
+      "diag.notification.pending": "waiting for response",
+      "diag.notification.acknowledged": "acknowledged",
+      "diag.notification.not-acknowledged": "rejected",
+      "diag.notification.timeout": "timed out",
+      "diag.notification.write-error": "write failed",
+      "diag.notification.not-connected": "not connected",
+      "diag.notification.disconnected": "disconnected",
+      "diag.notification.unknown-response-status": "unknown response",
+      "diag.notification.malformed-response": "malformed response",
+      "diag.notification.superseded": "superseded",
+      "diag.notApplicable": "not available for this protocol",
+      "diag.imuCount": "IMU notifications",
+      "diag.lastImu": "Last IMU notification",
+      "diag.angles": "Angles",
+      "diag.pitch": "Pitch",
+      "diag.roll": "Roll",
+      "diag.yaw": "Yaw",
+      "diag.motorPorts": "Motor ports seen in notifications",
+      "diag.motorPosition": "position",
+      "diag.motorSpeed": "speed",
+      "diag.noMotorPorts": "no motor record received",
+      "diag.cobsErrors": "COBS decode errors",
+      "diag.unsupportedRecords": "Unsupported records",
+      "diag.lastError": "Last communication error",
+      "diag.none": "none",
       setConnectionMode: "set connection mode to [MODE]",
       enableStreamingMode: "enable streaming mode",
       disableStreamingMode: "disable streaming mode",
@@ -137,6 +170,8 @@
       resetMotorPosition: "reset [PORT] motor position to [POSITION]",
       // Display
       displayText: "write [TEXT]",
+      displayTextUnsupported:
+        "Text display is unavailable on SPIKE 3.x. No unverified Python command was sent.",
       displayImage: "turn on [MATRIX]",
       displayPattern: "display pattern [PATTERN]",
       displayClear: "turn off pixels",
@@ -230,6 +265,39 @@
       getFirmwareVersion: "ハブのファームウェアバージョン",
       getConnectionMode: "接続モード",
       getCommunicationDiagnostics: "通信診断（JSON）",
+      getCommunicationDiagnosticsSummary: "通信診断（表示用）",
+      "diag.connection": "Bluetooth 接続",
+      "diag.connected": "接続中",
+      "diag.disconnected": "未接続",
+      "diag.firmware": "Hub OS バージョン",
+      "diag.unavailable": "未受信",
+      "diag.notification": "センサー通知要求",
+      "diag.notification.not-requested": "未要求",
+      "diag.notification.pending": "応答待ち",
+      "diag.notification.acknowledged": "応答あり",
+      "diag.notification.not-acknowledged": "拒否",
+      "diag.notification.timeout": "タイムアウト",
+      "diag.notification.write-error": "送信失敗",
+      "diag.notification.not-connected": "未接続",
+      "diag.notification.disconnected": "切断済み",
+      "diag.notification.unknown-response-status": "不明な応答",
+      "diag.notification.malformed-response": "不正な応答",
+      "diag.notification.superseded": "新しい要求に置換",
+      "diag.notApplicable": "この通信方式では対象外",
+      "diag.imuCount": "IMU通知件数",
+      "diag.lastImu": "最終IMU通知",
+      "diag.angles": "角度",
+      "diag.pitch": "Pitch",
+      "diag.roll": "Roll",
+      "diag.yaw": "Yaw",
+      "diag.motorPorts": "通知で検出したモーターポート",
+      "diag.motorPosition": "位置",
+      "diag.motorSpeed": "速度",
+      "diag.noMotorPorts": "モーター通知は未受信",
+      "diag.cobsErrors": "COBS解析エラー",
+      "diag.unsupportedRecords": "未対応レコード",
+      "diag.lastError": "最終通信エラー",
+      "diag.none": "なし",
       setConnectionMode: "接続モードを [MODE] にする",
       enableStreamingMode: "センサー通知を有効にする",
       disableStreamingMode: "センサー通知を無効にする",
@@ -239,6 +307,8 @@
       "mode.webBle": "Web Bluetooth",
       "mode.bridge": "ローカルブリッジ",
       displayText: "ハブに [TEXT] と表示する",
+      displayTextUnsupported:
+        "SPIKE 3.xでは文字表示を利用できません。未検証のPython命令は送信しませんでした。",
     },
     de: {
       // Verbindung & Modi
@@ -1444,8 +1514,9 @@
         .catch((error) => {
           // A failed write means the link is gone; the disconnect handler
           // reports it. Keep the queue usable for a later reconnect and keep
-          // the failure visible to the diagnostics reporter.
+          // the failure visible to the diagnostics reporter and caller.
           if (this._errorCallback) this._errorCallback(error);
+          throw error;
         });
       return this._writeChain;
     }
@@ -2265,11 +2336,11 @@ continuous_sensor_loop()
   // The two differences that matter are hidden here rather than pushed upward:
   //
   //   * sendCommand — the 2.x hub takes JSON-RPC ("scratch.motor_run_timed"
-  //     and friends). The 3.x hub does not. It REJECTS, which is not a failure
-  //     but the point: every caller in this extension is already written as
-  //     `sendCommand(...).catch(() => sendPythonCommand(...))`, because the
-  //     2.x firmware itself was inconsistent about which verbs it knew. A
-  //     rejection here simply takes the Python path, which 3.x does accept.
+  //     and friends). The 3.x hub only implements a subset as native tunnel
+  //     commands. Unsupported methods reject with a typed error; transport
+  //     errors stay distinct so callers do not launch a second command after a
+  //     failed write. A Python TunnelMessage's wire format is documented, but
+  //     Python execution compatibility is not established by that framing.
   //
   //   * portValues — the 3.x device notifications carry different units and a
   //     different layout. They are normalised INTO the 2.x shape, including
@@ -2289,6 +2360,7 @@ continuous_sensor_loop()
       this._streaming = true;
       this._streamingRequested = false;
       this._streamingFallback = null;
+      this._pendingNotificationRequest = null;
 
       this._rateLimiter = new RateLimiter(BTSendRateMax);
       this._portValues = {};
@@ -2386,8 +2458,17 @@ continuous_sensor_loop()
       const request = this._diagnostics.notificationRequest;
       if (request.status === "pending") {
         request.status = "write-error";
-        this._clearNotificationResponseTimeout();
+        this._settleNotificationRequest(error);
       }
+    }
+
+    _settleNotificationRequest(error, responseCode = null) {
+      const pending = this._pendingNotificationRequest;
+      if (!pending) return;
+      this._pendingNotificationRequest = null;
+      this._clearNotificationResponseTimeout();
+      if (error) pending.reject(error);
+      else pending.resolve(responseCode);
     }
 
     _recordMalformedNotification(message) {
@@ -2406,6 +2487,14 @@ continuous_sensor_loop()
         notificationRequest: { ...this._diagnostics.notificationRequest },
         lastImuReceivedAt: this._diagnostics.lastImuReceivedAt,
         imuNotificationCount: this._diagnostics.imuNotificationCount,
+        imuReceived: this._diagnostics.lastImuReceivedAt !== null,
+        angles: { ...this._sensors.angle },
+        motorPorts: Object.fromEntries(
+          Object.entries(this._sensors.motorPositions).map(([port, values]) => [
+            port,
+            { ...values },
+          ])
+        ),
         motorNotificationCount: this._diagnostics.motorNotificationCount,
         matrix5x5NotificationCount:
           this._diagnostics.matrix5x5NotificationCount,
@@ -2504,6 +2593,12 @@ continuous_sensor_loop()
 
     reset() {
       this._clearNotificationResponseTimeout();
+      if (this._pendingNotificationRequest) {
+        this._pendingNotificationRequest.request.status = "disconnected";
+        this._settleNotificationRequest(
+          new Error("disconnected while awaiting device notification response")
+        );
+      }
       if (this._streamingFallback !== null) {
         clearTimeout(this._streamingFallback);
         this._streamingFallback = null;
@@ -2543,16 +2638,15 @@ continuous_sensor_loop()
      * The 2.x hub's JSON-RPC verbs, answered natively where 3.x has an
      * equivalent and rejected where it does not.
      *
-     * Rejecting is not a failure: every caller in this extension is written as
-     * `sendCommand(...).catch(() => sendPythonCommand(...))`, because the 2.x
-     * firmware was itself inconsistent about which verbs it knew. So a verb
-     * with no 3.x equivalent takes the Python path, which the tunnel accepts.
+     * An unsupported verb has a typed rejection so callers can decide whether
+     * a legacy fallback is appropriate. Transport errors use their own error
+     * and must reach the block caller. The 2.x firmware was inconsistent about
+     * its JSON-RPC verbs, so those callers retain their legacy fallback.
      *
-     * What must NOT happen is everything taking the Python path. The 3.x hub
-     * drives its motors from a JSON command on the tunnel — that is what both
-     * BLE extensions sent — and routing motor control through generated
-     * MicroPython instead would be slower, less reliable, and a loss of
-     * fidelity against what those extensions did.
+     * The generic Python TunnelMessage format does not prove that a particular
+     * Python API is safe or supported by a given Hub OS. The display-text block
+     * therefore reports its unsupported state instead of sending that
+     * unverified fallback.
      */
     sendCommand(method, params) {
       const p = params || {};
@@ -2581,7 +2675,9 @@ continuous_sensor_loop()
         default:
           break;
       }
-      return Promise.reject(new Error(`spike3 has no native ${method}`));
+      const error = new Error(`spike3 has no native ${method}`);
+      error.code = "ERR_UNSUPPORTED_HUB_COMMAND";
+      return Promise.reject(error);
     }
 
     _speed(value) {
@@ -2693,9 +2789,11 @@ continuous_sensor_loop()
         clearTimeout(this._streamingFallback);
         this._streamingFallback = null;
       }
-      this.setDeviceNotifications(true).catch((error) =>
-        this._recordTransportError(error)
-      );
+      this.setDeviceNotifications(true).catch((error) => {
+        if (error?.code !== "ERR_NOTIFICATION_REQUEST_SUPERSEDED") {
+          this._recordTransportError(error);
+        }
+      });
     }
 
     /**
@@ -2710,6 +2808,12 @@ continuous_sensor_loop()
       message[0] = SPIKE3.DEVICE_NOTIFICATION_REQUEST;
       message[1] = interval & 0xff;
       message[2] = (interval >> 8) & 0xff;
+      if (this._pendingNotificationRequest) {
+        this._pendingNotificationRequest.request.status = "superseded";
+        const error = new Error("device notification request superseded");
+        error.code = "ERR_NOTIFICATION_REQUEST_SUPERSEDED";
+        this._settleNotificationRequest(error);
+      }
       const request = this._diagnostics.notificationRequest;
       this._clearNotificationResponseTimeout();
       request.enabled = this._streaming;
@@ -2718,21 +2822,40 @@ continuous_sensor_loop()
       request.requestedAt = Date.now();
       request.responseAt = null;
       request.responseCode = null;
+      if (request.status === "not-connected") {
+        return Promise.reject(new Error("not connected to SPIKE hub"));
+      }
+      let resolveResponse;
+      let rejectResponse;
+      const responsePromise = new Promise((resolve, reject) => {
+        resolveResponse = resolve;
+        rejectResponse = reject;
+      });
+      this._pendingNotificationRequest = {
+        request,
+        resolve: resolveResponse,
+        reject: rejectResponse,
+      };
       if (request.status === "pending") {
         this._notificationResponseTimeout = setTimeout(() => {
-          this._notificationResponseTimeout = null;
-          if (request.status === "pending") {
-            request.status = "timeout";
-            this._recordCommunicationError(
-              "device notification response timed out"
-            );
-          }
+          if (this._pendingNotificationRequest?.request !== request) return;
+          request.status = "timeout";
+          const error = new Error("device notification response timed out");
+          this._recordCommunicationError(error);
+          this._settleNotificationRequest(error);
         }, SPIKE3.NOTIFICATION_RESPONSE_TIMEOUT_MS);
       }
-      return this._send(message, false).catch((error) => {
-        this._recordTransportError(error);
-        throw error;
-      });
+      const writePromise = Promise.resolve().then(() =>
+        this._send(message, false)
+      );
+      return Promise.all([writePromise, responsePromise])
+        .then(([, responseCode]) => responseCode)
+        .catch((error) => {
+          if (error?.code !== "ERR_NOTIFICATION_REQUEST_SUPERSEDED") {
+            this._recordTransportError(error);
+          }
+          throw error;
+        });
     }
 
     get streaming() {
@@ -2807,9 +2930,13 @@ continuous_sensor_loop()
     _handleDeviceNotificationResponse(data) {
       if (data.length < 2) {
         this._diagnostics.malformedMessageCount++;
-        this._recordCommunicationError(
-          "truncated device notification response"
-        );
+        const error = new Error("truncated device notification response");
+        this._recordCommunicationError(error);
+        if (this._pendingNotificationRequest) {
+          this._pendingNotificationRequest.request.status =
+            "malformed-response";
+          this._settleNotificationRequest(error);
+        }
         return;
       }
       const request = this._diagnostics.notificationRequest;
@@ -2818,16 +2945,19 @@ continuous_sensor_loop()
       request.responseCode = data[1];
       if (data[1] === 0) {
         request.status = "acknowledged";
+        this._settleNotificationRequest(null, data[1]);
       } else if (data[1] === 1) {
         request.status = "not-acknowledged";
-        this._recordCommunicationError(
-          "hub did not acknowledge device notifications"
-        );
+        const error = new Error("hub did not acknowledge device notifications");
+        this._recordCommunicationError(error);
+        this._settleNotificationRequest(error);
       } else {
         request.status = "unknown-response-status";
-        this._recordCommunicationError(
+        const error = new Error(
           `unknown device notification response status: ${data[1]}`
         );
+        this._recordCommunicationError(error);
+        this._settleNotificationRequest(error);
       }
     }
 
@@ -5211,6 +5341,11 @@ continuous_sensor_loop()
             text: t("getCommunicationDiagnostics"),
           },
           {
+            opcode: "getCommunicationDiagnosticsSummary",
+            blockType: BlockType.REPORTER,
+            text: t("getCommunicationDiagnosticsSummary"),
+          },
+          {
             opcode: "setConnectionMode",
             blockType: BlockType.COMMAND,
             text: t("setConnectionMode"),
@@ -6971,10 +7106,13 @@ continuous_sensor_loop()
             stall: setting.stallDetection,
           }
         );
-        const altCommand = this._peripheral.sendPythonCommand(
-          `import hub; hub.port.${port}.motor.run_for_degrees(${Math.floor(degrees)}, ${setting.speed * direction})`
+        const altCommand = () =>
+          this._peripheral.sendPythonCommand(
+            `import hub; hub.port.${port}.motor.run_for_degrees(${Math.floor(degrees)}, ${setting.speed * direction})`
+          );
+        return standardCommand.catch((error) =>
+          this._sendPythonFallback(error, altCommand)
         );
-        return standardCommand.catch(() => altCommand);
       });
       return Promise.all(promises).then(() => {});
     }
@@ -6992,10 +7130,13 @@ continuous_sensor_loop()
             stall: setting.stallDetection,
           }
         );
-        const altCommand = this._peripheral.sendPythonCommand(
-          `import hub; hub.port.${port}.motor.run_for_time(${Math.floor(seconds * 1000)}, ${setting.speed * direction})`
+        const altCommand = () =>
+          this._peripheral.sendPythonCommand(
+            `import hub; hub.port.${port}.motor.run_for_time(${Math.floor(seconds * 1000)}, ${setting.speed * direction})`
+          );
+        return standardCommand.catch((error) =>
+          this._sendPythonFallback(error, altCommand)
         );
-        return standardCommand.catch(() => altCommand);
       });
       return Promise.all(promises).then(() => {});
     }
@@ -7015,13 +7156,16 @@ continuous_sensor_loop()
           },
           false // needsResponse = false
         );
-        const altCommand = this._peripheral.sendPythonCommand(
-          // The hub module's speed command (percent, regulated), not pwm():
-          // pwm is a duty cycle, so a loaded motor would not hold the speed
-          // the block asks for (pwm is "start motor at % power").
-          `import hub; hub.port.${port}.motor.run_at_speed(${Math.round(setting.speed * direction)})`
+        const altCommand = () =>
+          this._peripheral.sendPythonCommand(
+            // The hub module's speed command (percent, regulated), not pwm():
+            // pwm is a duty cycle, so a loaded motor would not hold the speed
+            // the block asks for (pwm is "start motor at % power").
+            `import hub; hub.port.${port}.motor.run_at_speed(${Math.round(setting.speed * direction)})`
+          );
+        return standardCommand.catch((error) =>
+          this._sendPythonFallback(error, altCommand)
         );
-        return standardCommand.catch(() => altCommand);
       });
       return Promise.all(promises).then(() => {});
     }
@@ -7115,7 +7259,14 @@ continuous_sensor_loop()
         // Python API has not been verified on the reported Hub OS 1.6.62.
         // Do not send it automatically when the native display command is not
         // available; keep the REPL fallback for the legacy protocol only.
-        if (this._peripheral.protocol === "spike3") throw error;
+        if (this._peripheral.protocol === "spike3") {
+          const userError = new Error(t("displayTextUnsupported"));
+          userError.code = error.code;
+          this._peripheral.active._recordCommunicationError(
+            `${userError.message} (${error.message})`
+          );
+          throw userError;
+        }
         return altCommand();
       });
     }
@@ -7175,10 +7326,11 @@ continuous_sensor_loop()
         "scratch.display_clear",
         {}
       );
-      const altCommand = this._peripheral.sendPythonCommand(
-        'import hub; hub.display.show(" ")'
+      const altCommand = () =>
+        this._peripheral.sendPythonCommand('import hub; hub.display.show(" ")');
+      return standardCommand.catch((error) =>
+        this._sendPythonFallback(error, altCommand)
       );
-      return standardCommand.catch(() => altCommand);
     }
 
     setPixel(args) {
@@ -7190,10 +7342,13 @@ continuous_sensor_loop()
         "scratch.display_set_pixel",
         { x: x, y: y, brightness: Math.round((brightness * 9) / 100) }
       );
-      const altCommand = this._peripheral.sendPythonCommand(
-        `import hub; hub.display.pixel(${x}, ${y}, ${Math.round((brightness * 9) / 100)})`
+      const altCommand = () =>
+        this._peripheral.sendPythonCommand(
+          `import hub; hub.display.pixel(${x}, ${y}, ${Math.round((brightness * 9) / 100)})`
+        );
+      return standardCommand.catch((error) =>
+        this._sendPythonFallback(error, altCommand)
       );
-      return standardCommand.catch(() => altCommand);
     }
 
     rotateDisplay(args) {
@@ -7211,10 +7366,13 @@ continuous_sensor_loop()
         "scratch.center_button_lights",
         { color: colorValue }
       );
-      const altCommand = this._peripheral.sendPythonCommand(
-        `import hub; hub.led(${colorValue})`
+      const altCommand = () =>
+        this._peripheral.sendPythonCommand(
+          `import hub; hub.led(${colorValue})`
+        );
+      return standardCommand.catch((error) =>
+        this._sendPythonFallback(error, altCommand)
       );
-      return standardCommand.catch(() => altCommand);
     }
 
     // IMU & Gyro
@@ -7375,10 +7533,13 @@ continuous_sensor_loop()
         "scratch.sound_beep",
         { frequency: frequency, duration: duration }
       );
-      const altCommand = this._peripheral.sendPythonCommand(
-        `import hub; hub.sound.beep(${frequency}, ${duration}, hub.sound.SOUND_SIN)`
+      const altCommand = () =>
+        this._peripheral.sendPythonCommand(
+          `import hub; hub.sound.beep(${frequency}, ${duration}, hub.sound.SOUND_SIN)`
+        );
+      return standardCommand.catch((error) =>
+        this._sendPythonFallback(error, altCommand)
       );
-      return standardCommand.catch(() => altCommand);
     }
     playNote(args) {
       const note = Cast.toNumber(args.NOTE);
@@ -7701,6 +7862,55 @@ continuous_sensor_loop()
       return JSON.stringify(this._peripheral.getCommunicationDiagnostics());
     }
 
+    getCommunicationDiagnosticsSummary() {
+      const diagnostics = this._peripheral.getCommunicationDiagnostics();
+      const unavailable = t("diag.unavailable");
+      const notApplicable = t("diag.notApplicable");
+      const notificationStatus = diagnostics.notificationRequest?.status;
+      const notificationLabel =
+        diagnostics.protocol === "spike3"
+          ? t(`diag.notification.${notificationStatus}`)
+          : notApplicable;
+      const imuReceived = diagnostics.imuReceived === true;
+      const angles = diagnostics.angles || {};
+      const angleSummary = imuReceived
+        ? `${t("diag.pitch")} ${angles.pitch}°, ${t("diag.roll")} ${angles.roll}°, ${t("diag.yaw")} ${angles.yaw}°`
+        : unavailable;
+      const motorPorts = diagnostics.motorPorts || {};
+      const motorSummary = Object.entries(motorPorts)
+        .map(
+          ([port, values]) =>
+            `${port}: ${t("diag.motorPosition")} ${values.relativePosition}°, ${t("diag.motorSpeed")} ${values.speed}°/s`
+        )
+        .join("; ");
+      const formatTimestamp = (timestamp) =>
+        timestamp === null || timestamp === undefined
+          ? unavailable
+          : new Date(timestamp).toLocaleString();
+      return [
+        `${t("diag.connection")}: ${diagnostics.connected ? t("diag.connected") : t("diag.disconnected")}`,
+        `${t("diag.firmware")}: ${diagnostics.firmwareVersion || unavailable}`,
+        `${t("diag.notification")}: ${notificationLabel}`,
+        `${t("diag.imuCount")}: ${diagnostics.imuNotificationCount ?? notApplicable}`,
+        `${t("diag.lastImu")}: ${formatTimestamp(diagnostics.lastImuReceivedAt)}`,
+        `${t("diag.angles")}: ${angleSummary}`,
+        `${t("diag.motorPorts")}: ${motorSummary || t("diag.noMotorPorts")}`,
+        `${t("diag.cobsErrors")}: ${diagnostics.cobsDecodeFailureCount ?? notApplicable}`,
+        `${t("diag.unsupportedRecords")}: ${diagnostics.unsupportedRecordCount ?? notApplicable}`,
+        `${t("diag.lastError")}: ${diagnostics.lastCommunicationError || t("diag.none")}`,
+      ].join("\n");
+    }
+
+    _sendPythonFallback(error, fallbackCommand) {
+      if (
+        this._peripheral.protocol === "spike3" &&
+        error?.code !== "ERR_UNSUPPORTED_HUB_COMMAND"
+      ) {
+        throw error;
+      }
+      return fallbackCommand();
+    }
+
     setConnectionMode(args) {
       this._peripheral.setMode(Cast.toString(args.MODE));
     }
@@ -7714,12 +7924,12 @@ continuous_sensor_loop()
      */
     enableStreamingMode() {
       if (!this._peripheral.supports("streaming")) return;
-      this._peripheral.active.setDeviceNotifications(true);
+      return this._peripheral.active.setDeviceNotifications(true);
     }
 
     disableStreamingMode() {
       if (!this._peripheral.supports("streaming")) return;
-      this._peripheral.active.setDeviceNotifications(false);
+      return this._peripheral.active.setDeviceNotifications(false);
     }
 
     // ========================================================================

@@ -377,13 +377,18 @@ test("Web Bluetooth requests notifications and records the hub acknowledgement",
       .status,
     "pending"
   );
+  const acknowledgedRequest =
+    state.ext._peripheral._spike3.setDeviceNotifications(true);
   state.device.tx.emit(packMessage([0x29, 0x00]));
+  await assert.doesNotReject(acknowledgedRequest);
   const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
   assert.equal(diagnostics.notificationRequest.status, "acknowledged");
   assert.equal(diagnostics.notificationRequest.responseCode, 0);
 
-  await state.ext._peripheral._spike3.setDeviceNotifications(true);
+  const rejectedRequest =
+    state.ext._peripheral._spike3.setDeviceNotifications(true);
   state.device.tx.emit(packMessage([0x29, 0x01]));
+  await assert.rejects(rejectedRequest, /did not acknowledge/);
   assert.equal(
     JSON.parse(state.ext.getCommunicationDiagnostics()).notificationRequest
       .status,
@@ -433,6 +438,27 @@ test("motor position and 5x5 matrix records are parsed from one notification", a
   assert.equal(diagnostics.motorNotificationCount, 1);
   assert.equal(diagnostics.matrix5x5NotificationCount, 1);
   assert.deepEqual(diagnostics.lastMatrix5x5, Array.from(pixels));
+});
+
+test("localized diagnostic summary distinguishes missing IMU data and lists motor positions", async () => {
+  const state = setup({ locale: "ja" });
+  await connect(state);
+  const pending = state.ext.getCommunicationDiagnosticsSummary();
+  assert.match(pending, /Bluetooth 接続: 接続中/);
+  assert.match(pending, /Hub OS バージョン: 1\.6\.62/);
+  assert.match(pending, /IMU通知件数: 0/);
+  assert.match(pending, /角度: 未受信/);
+
+  state.device.tx.emit(packMessage([0x29, 0x00]));
+  state.device.tx.emit(
+    packMessage(notification(imuRecord({ yaw: -9, pitch: 12, roll: -3 })))
+  );
+  state.device.tx.emit(packMessage(notification(motorRecord())));
+  const received = state.ext.getCommunicationDiagnosticsSummary();
+  assert.match(received, /Pitch 12°/);
+  assert.match(received, /Roll -3°/);
+  assert.match(received, /Yaw -9°/);
+  assert.match(received, /A: 位置 -123456°/);
 });
 
 test("split COBS frames and multiple frames in one BLE notification are reassembled", async () => {
@@ -490,7 +516,11 @@ test("broken frames, malformed sizes, and unknown records are diagnosed and reco
 test("a missing notification acknowledgement times out without a hardware write", async () => {
   const state = setup();
   await connect(state);
+  const request = state.ext._peripheral._spike3.setDeviceNotifications(true);
+  await tick();
+  const writesAfterRequest = state.device.writes.length;
   state.clock.advance(2001);
+  await assert.rejects(request, /device notification response timed out/);
   assert.equal(
     JSON.parse(state.ext.getCommunicationDiagnostics()).notificationRequest
       .status,
@@ -498,9 +528,32 @@ test("a missing notification acknowledgement times out without a hardware write"
   );
   assert.equal(
     state.device.writes.length,
-    2,
+    writesAfterRequest,
     "timeout sends no additional command"
   );
+});
+
+test("SPIKE 3.x native motor success does not eagerly send its Python fallback", async () => {
+  const state = setup();
+  await connect(state);
+  state.device.tx.emit(packMessage([0x29, 0x00]));
+  const writesBefore = state.device.writes.length;
+  await state.ext.motorStart({ PORT: "A", DIRECTION: 1 });
+  assert.equal(
+    state.device.writes.length,
+    writesBefore + 1,
+    "only the native tunnel command is sent when it succeeds"
+  );
+  const tunnel = unpackMessage(
+    Uint8Array.from(state.device.writes[writesBefore])
+  );
+  assert.equal(tunnel[0], 0x32);
+  const payloadSize = tunnel[1] | (tunnel[2] << 8);
+  assert.deepEqual(
+    JSON.parse(new TextDecoder().decode(Uint8Array.from(tunnel.slice(3)))),
+    { m: "motor", p: { port: 0, speed: 75 } }
+  );
+  assert.equal(payloadSize, tunnel.length - 3);
 });
 
 test("disconnect clears the partial frame and reconnect starts a fresh diagnostic session", async () => {
@@ -526,11 +579,33 @@ test("a fake-device write failure is surfaced in diagnostics", async () => {
   const state = setup({ failRequestWrite: true });
   await connect(state);
   await tick();
+  await assert.rejects(
+    state.ext._peripheral._spike3.setDeviceNotifications(true),
+    /simulated fake-device write failure/
+  );
   const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
   assert.equal(diagnostics.notificationRequest.status, "write-error");
   assert.match(
     diagnostics.lastCommunicationError,
     /simulated fake-device write failure/
+  );
+});
+
+test("SPIKE 3.x transport write errors propagate without starting Python fallback", async () => {
+  const state = setup();
+  await connect(state);
+  state.device.tx.emit(packMessage([0x29, 0x00]));
+  await tick();
+  const successfulWrites = state.device.writes.length;
+  state.device.rx.failNextWrite = true;
+  await assert.rejects(
+    state.ext.motorStart({ PORT: "A", DIRECTION: 1 }),
+    /simulated fake-device write failure/
+  );
+  assert.equal(
+    state.device.writes.length,
+    successfulWrites,
+    "a transport failure must not trigger a second Python write"
   );
 });
 
@@ -556,18 +631,22 @@ test("SPIKE 3.x native unsupported commands reject; Python tunnel encoding follo
 });
 
 test("SPIKE 3.x display text does not auto-send an unverified Python fallback", async () => {
-  const state = setup();
+  const state = setup({ locale: "ja" });
   await connect(state);
   const writesBefore = state.device.writes.length;
   await assert.rejects(
     state.ext.displayText({ TEXT: "Hello" }),
-    /has no native/
+    /SPIKE 3\.xでは文字表示を利用できません/
   );
   await tick();
   assert.equal(
     state.device.writes.length,
     writesBefore,
     "the failed native command and blocked fallback perform no device write"
+  );
+  assert.match(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).lastCommunicationError,
+    /SPIKE 3\.xでは文字表示を利用できません.*no native scratch\.display_text/
   );
 });
 
