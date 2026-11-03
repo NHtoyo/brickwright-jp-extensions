@@ -38,6 +38,10 @@ jobs:
       # Movement blocks of the unified SPIKE extension, against a stub hub.
       - name: SPIKE movement tests
         run: node development/test-spikeprime-movement.js
+      # SPIKE 3.x framing, Web Bluetooth notifications and diagnostics against
+      # an in-memory fake device; no physical hub is accessed.
+      - name: SPIKE Web Bluetooth transport tests
+        run: node development/test-spikeprime-transport.js
       - name: Native array reference kinds
         run: node --test development/test-array-value-kinds.js
       - name: Named array item, copy and numeric contracts

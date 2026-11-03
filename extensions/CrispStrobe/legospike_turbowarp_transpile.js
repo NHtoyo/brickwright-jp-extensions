@@ -78,6 +78,40 @@
       getHubType: "hub type",
       getFirmwareVersion: "hub firmware version",
       getConnectionMode: "connection mode",
+      getCommunicationDiagnostics: "communication diagnostics (JSON)",
+      getCommunicationDiagnosticsSummary: "communication diagnostics (text)",
+      "diag.connection": "Bluetooth connection",
+      "diag.connected": "connected",
+      "diag.disconnected": "not connected",
+      "diag.firmware": "Hub OS version",
+      "diag.unavailable": "not received",
+      "diag.notification": "Sensor notification request",
+      "diag.notification.not-requested": "not requested",
+      "diag.notification.pending": "waiting for response",
+      "diag.notification.acknowledged": "acknowledged",
+      "diag.notification.not-acknowledged": "rejected",
+      "diag.notification.timeout": "timed out",
+      "diag.notification.write-error": "write failed",
+      "diag.notification.not-connected": "not connected",
+      "diag.notification.disconnected": "disconnected",
+      "diag.notification.unknown-response-status": "unknown response",
+      "diag.notification.malformed-response": "malformed response",
+      "diag.notification.superseded": "superseded",
+      "diag.notApplicable": "not available for this protocol",
+      "diag.imuCount": "IMU notifications",
+      "diag.lastImu": "Last IMU notification",
+      "diag.angles": "Angles",
+      "diag.pitch": "Pitch",
+      "diag.roll": "Roll",
+      "diag.yaw": "Yaw",
+      "diag.motorPorts": "Motor ports seen in notifications",
+      "diag.motorPosition": "position",
+      "diag.motorSpeed": "speed",
+      "diag.noMotorPorts": "no motor record received",
+      "diag.cobsErrors": "COBS decode errors",
+      "diag.unsupportedRecords": "Unsupported records",
+      "diag.lastError": "Last communication error",
+      "diag.none": "none",
       setConnectionMode: "set connection mode to [MODE]",
       enableStreamingMode: "enable streaming mode",
       disableStreamingMode: "disable streaming mode",
@@ -136,6 +170,8 @@
       resetMotorPosition: "reset [PORT] motor position to [POSITION]",
       // Display
       displayText: "write [TEXT]",
+      displayTextUnsupported:
+        "Text display is unavailable on SPIKE 3.x. No unverified Python command was sent.",
       displayImage: "turn on [MATRIX]",
       displayPattern: "display pattern [PATTERN]",
       displayClear: "turn off pixels",
@@ -218,6 +254,62 @@
         "To upload to SPIKE Prime:\n1. Save project as .llsp file\n2. Open in SPIKE Prime app\n3. Upload to hub\n\nOr use Bluetooth file transfer if available.",
       confirmDelete: "Delete {0} from hub?",
     },
+    ja: {
+      extensionName: "LEGO SPIKE Prime",
+      connectionLabel: "🔌 接続",
+      connectHub: "ハブに接続",
+      connectHubAt: "ブリッジに接続 [URL]",
+      disconnectHub: "切断",
+      isConnected: "接続中？",
+      getHubType: "ハブの種類",
+      getFirmwareVersion: "ハブのファームウェアバージョン",
+      getConnectionMode: "接続モード",
+      getCommunicationDiagnostics: "通信診断（JSON）",
+      getCommunicationDiagnosticsSummary: "通信診断（表示用）",
+      "diag.connection": "Bluetooth 接続",
+      "diag.connected": "接続中",
+      "diag.disconnected": "未接続",
+      "diag.firmware": "Hub OS バージョン",
+      "diag.unavailable": "未受信",
+      "diag.notification": "センサー通知要求",
+      "diag.notification.not-requested": "未要求",
+      "diag.notification.pending": "応答待ち",
+      "diag.notification.acknowledged": "応答あり",
+      "diag.notification.not-acknowledged": "拒否",
+      "diag.notification.timeout": "タイムアウト",
+      "diag.notification.write-error": "送信失敗",
+      "diag.notification.not-connected": "未接続",
+      "diag.notification.disconnected": "切断済み",
+      "diag.notification.unknown-response-status": "不明な応答",
+      "diag.notification.malformed-response": "不正な応答",
+      "diag.notification.superseded": "新しい要求に置換",
+      "diag.notApplicable": "この通信方式では対象外",
+      "diag.imuCount": "IMU通知件数",
+      "diag.lastImu": "最終IMU通知",
+      "diag.angles": "角度",
+      "diag.pitch": "Pitch",
+      "diag.roll": "Roll",
+      "diag.yaw": "Yaw",
+      "diag.motorPorts": "通知で検出したモーターポート",
+      "diag.motorPosition": "位置",
+      "diag.motorSpeed": "速度",
+      "diag.noMotorPorts": "モーター通知は未受信",
+      "diag.cobsErrors": "COBS解析エラー",
+      "diag.unsupportedRecords": "未対応レコード",
+      "diag.lastError": "最終通信エラー",
+      "diag.none": "なし",
+      setConnectionMode: "接続モードを [MODE] にする",
+      enableStreamingMode: "センサー通知を有効にする",
+      disableStreamingMode: "センサー通知を無効にする",
+      "mode.auto": "自動検出",
+      "mode.scratchlinkBle": "Scratch Link（BLE）",
+      "mode.scratchlinkBt": "Scratch Link（Bluetooth Classic）",
+      "mode.webBle": "Web Bluetooth",
+      "mode.bridge": "ローカルブリッジ",
+      displayText: "ハブに [TEXT] と表示する",
+      displayTextUnsupported:
+        "SPIKE 3.xでは文字表示を利用できません。未検証のPython命令は送信しませんでした。",
+    },
     de: {
       // Verbindung & Modi
       connectionLabel: "🔌 Verbindung",
@@ -228,6 +320,7 @@
       getHubType: "Hub-Typ",
       getFirmwareVersion: "Hub-Firmware-Version",
       getConnectionMode: "Verbindungsmodus",
+      getCommunicationDiagnostics: "Kommunikationsdiagnose (JSON)",
       setConnectionMode: "Verbindungsmodus auf [MODE] setzen",
       enableStreamingMode: "Streaming-Modus einschalten",
       disableStreamingMode: "Streaming-Modus ausschalten",
@@ -379,6 +472,7 @@
       getHubType: "type de hub",
       getFirmwareVersion: "version du micrologiciel du hub",
       getConnectionMode: "mode de connexion",
+      getCommunicationDiagnostics: "diagnostics de communication (JSON)",
       setConnectionMode: "définir le mode de connexion sur [MODE]",
       enableStreamingMode: "activer le mode diffusion",
       disableStreamingMode: "désactiver le mode diffusion",
@@ -982,6 +1076,7 @@
     DEV_COLOR: 0x0c,
     DEV_DISTANCE: 0x0d,
     DEV_MATRIX_3X3: 0x0e,
+    NOTIFICATION_RESPONSE_TIMEOUT_MS: 2000,
   };
 
   const COBS = {
@@ -1260,17 +1355,26 @@
    * picked as both the discovery result and the connection.
    */
   class WebBLELink {
-    constructor(runtime, extensionId, connectCallback, resetCallback = null) {
+    constructor(
+      runtime,
+      extensionId,
+      connectCallback,
+      resetCallback = null,
+      errorCallback = null
+    ) {
       this._runtime = runtime;
       this._extensionId = extensionId;
       this._connectCallback = connectCallback;
       this._resetCallback = resetCallback;
+      this._errorCallback = errorCallback;
       this._device = null;
       this._server = null;
       this._rx = null;
       this._tx = null;
       this._connected = false;
       this._characteristicDidChangeCallback = null;
+      this._deviceDisconnectListener = null;
+      this._characteristicChangedListener = null;
       this._writeChain = Promise.resolve();
       this._maxPacketSize = 20;
     }
@@ -1291,11 +1395,16 @@
         filters: [{ services: [SPIKE3.SERVICE_LC] }],
         optionalServices: [SPIKE3.SERVICE_LC],
       });
-      this._device.addEventListener("gattserverdisconnected", () => {
+      this._deviceDisconnectListener = () => {
         this._connected = false;
+        this._removeListeners();
         if (this._resetCallback) this._resetCallback();
         this._runtime.emit(this._runtime.constructor.PERIPHERAL_DISCONNECTED);
-      });
+      };
+      this._device.addEventListener(
+        "gattserverdisconnected",
+        this._deviceDisconnectListener
+      );
       return this._device;
     }
 
@@ -1306,7 +1415,7 @@
       this._rx = await service.getCharacteristic(SPIKE3.RX_CHAR_LC);
       this._tx = await service.getCharacteristic(SPIKE3.TX_CHAR_LC);
       await this._tx.startNotifications();
-      this._tx.addEventListener("characteristicvaluechanged", (event) => {
+      this._characteristicChangedListener = (event) => {
         if (!this._characteristicDidChangeCallback) return;
         const view = event.target.value;
         const bytes = new Uint8Array(
@@ -1317,7 +1426,11 @@
         this._characteristicDidChangeCallback(
           Base64Util.uint8ArrayToBase64(bytes)
         );
-      });
+      };
+      this._tx.addEventListener(
+        "characteristicvaluechanged",
+        this._characteristicChangedListener
+      );
       this._connected = true;
       this._runtime.emit(this._runtime.constructor.PERIPHERAL_CONNECTED);
       if (this._connectCallback) this._connectCallback();
@@ -1333,7 +1446,34 @@
         // A disconnect that fails because the device already went away is the
         // outcome we wanted.
       }
+      this._removeListeners();
       this._runtime.emit(this._runtime.constructor.PERIPHERAL_DISCONNECTED);
+    }
+
+    _removeListeners() {
+      if (
+        this._device &&
+        typeof this._device.removeEventListener === "function" &&
+        this._deviceDisconnectListener
+      ) {
+        this._device.removeEventListener(
+          "gattserverdisconnected",
+          this._deviceDisconnectListener
+        );
+      }
+      if (
+        this._tx &&
+        typeof this._tx.removeEventListener === "function" &&
+        this._characteristicChangedListener
+      ) {
+        this._tx.removeEventListener(
+          "characteristicvaluechanged",
+          this._characteristicChangedListener
+        );
+      }
+      this._deviceDisconnectListener = null;
+      this._characteristicChangedListener = null;
+      this._characteristicDidChangeCallback = null;
     }
 
     isConnected() {
@@ -1359,6 +1499,7 @@
           ? Base64Util.base64ToUint8Array(message)
           : Uint8Array.from(message);
       this._writeChain = this._writeChain
+        .catch(() => {})
         .then(async () => {
           if (!this._rx) return;
           for (let i = 0; i < bytes.length; i += this._maxPacketSize) {
@@ -1370,10 +1511,12 @@
             }
           }
         })
-        .catch(() => {
+        .catch((error) => {
           // A failed write means the link is gone; the disconnect handler
-          // reports it. Swallowing here keeps one bad packet from poisoning
-          // every later write in the chain.
+          // reports it. Keep the queue usable for a later reconnect and keep
+          // the failure visible to the diagnostics reporter and caller.
+          if (this._errorCallback) this._errorCallback(error);
+          throw error;
         });
       return this._writeChain;
     }
@@ -2193,11 +2336,11 @@ continuous_sensor_loop()
   // The two differences that matter are hidden here rather than pushed upward:
   //
   //   * sendCommand — the 2.x hub takes JSON-RPC ("scratch.motor_run_timed"
-  //     and friends). The 3.x hub does not. It REJECTS, which is not a failure
-  //     but the point: every caller in this extension is already written as
-  //     `sendCommand(...).catch(() => sendPythonCommand(...))`, because the
-  //     2.x firmware itself was inconsistent about which verbs it knew. A
-  //     rejection here simply takes the Python path, which 3.x does accept.
+  //     and friends). The 3.x hub only implements a subset as native tunnel
+  //     commands. Unsupported methods reject with a typed error; transport
+  //     errors stay distinct so callers do not launch a second command after a
+  //     failed write. A Python TunnelMessage's wire format is documented, but
+  //     Python execution compatibility is not established by that framing.
   //
   //   * portValues — the 3.x device notifications carry different units and a
   //     different layout. They are normalised INTO the 2.x shape, including
@@ -2217,6 +2360,7 @@ continuous_sensor_loop()
       this._streaming = true;
       this._streamingRequested = false;
       this._streamingFallback = null;
+      this._pendingNotificationRequest = null;
 
       this._rateLimiter = new RateLimiter(BTSendRateMax);
       this._portValues = {};
@@ -2235,6 +2379,7 @@ continuous_sensor_loop()
         F: new SpikeMotorSetting(),
       };
       this._resetSensors();
+      this._resetCommunicationDiagnostics();
 
       this.reset = this.reset.bind(this);
       this._onConnect = this._onConnect.bind(this);
@@ -2266,6 +2411,100 @@ continuous_sensor_loop()
           freefall: false,
         },
         motorPositions: {},
+      };
+    }
+
+    _resetCommunicationDiagnostics() {
+      this._diagnostics = {
+        infoResponseReceivedAt: null,
+        notificationRequest: {
+          enabled: false,
+          intervalMs: 0,
+          status: "not-requested",
+          requestedAt: null,
+          responseAt: null,
+          responseCode: null,
+        },
+        lastImuReceivedAt: null,
+        imuNotificationCount: 0,
+        motorNotificationCount: 0,
+        matrix5x5NotificationCount: 0,
+        cobsDecodeFailureCount: 0,
+        malformedMessageCount: 0,
+        malformedNotificationCount: 0,
+        unsupportedRecordCount: 0,
+        lastCommunicationError: "",
+      };
+      this._matrix5x5 = null;
+      this._notificationResponseTimeout = null;
+    }
+
+    _clearNotificationResponseTimeout() {
+      if (this._notificationResponseTimeout !== null) {
+        clearTimeout(this._notificationResponseTimeout);
+        this._notificationResponseTimeout = null;
+      }
+    }
+
+    _recordCommunicationError(error) {
+      this._diagnostics.lastCommunicationError =
+        error instanceof Error
+          ? error.message
+          : String(error || "unknown error");
+    }
+
+    _recordTransportError(error) {
+      this._recordCommunicationError(error);
+      const request = this._diagnostics.notificationRequest;
+      if (request.status === "pending") {
+        request.status = "write-error";
+        this._settleNotificationRequest(error);
+      }
+    }
+
+    _settleNotificationRequest(error, responseCode = null) {
+      const pending = this._pendingNotificationRequest;
+      if (!pending) return;
+      this._pendingNotificationRequest = null;
+      this._clearNotificationResponseTimeout();
+      if (error) pending.reject(error);
+      else pending.resolve(responseCode);
+    }
+
+    _recordMalformedNotification(message) {
+      this._diagnostics.malformedNotificationCount++;
+      this._recordCommunicationError(message);
+    }
+
+    getDiagnostics(connectionMode = "") {
+      return {
+        protocol: "spike3",
+        connected: this.isConnected(),
+        connectionMode,
+        firmwareVersion: this._firmware,
+        rpcVersion: this._rpcVersion,
+        infoResponseReceivedAt: this._diagnostics.infoResponseReceivedAt,
+        notificationRequest: { ...this._diagnostics.notificationRequest },
+        lastImuReceivedAt: this._diagnostics.lastImuReceivedAt,
+        imuNotificationCount: this._diagnostics.imuNotificationCount,
+        imuReceived: this._diagnostics.lastImuReceivedAt !== null,
+        angles: { ...this._sensors.angle },
+        motorPorts: Object.fromEntries(
+          Object.entries(this._sensors.motorPositions).map(([port, values]) => [
+            port,
+            { ...values },
+          ])
+        ),
+        motorNotificationCount: this._diagnostics.motorNotificationCount,
+        matrix5x5NotificationCount:
+          this._diagnostics.matrix5x5NotificationCount,
+        lastMatrix5x5: this._matrix5x5 ? [...this._matrix5x5] : null,
+        cobsDecodeFailureCount: this._diagnostics.cobsDecodeFailureCount,
+        malformedMessageCount: this._diagnostics.malformedMessageCount,
+        malformedNotificationCount:
+          this._diagnostics.malformedNotificationCount,
+        unsupportedRecordCount: this._diagnostics.unsupportedRecordCount,
+        lastCommunicationError: this._diagnostics.lastCommunicationError,
       };
     }
 
@@ -2353,6 +2592,19 @@ continuous_sensor_loop()
     }
 
     reset() {
+      this._clearNotificationResponseTimeout();
+      if (this._pendingNotificationRequest) {
+        this._pendingNotificationRequest.request.status = "disconnected";
+        this._settleNotificationRequest(
+          new Error("disconnected while awaiting device notification response")
+        );
+      }
+      if (this._streamingFallback !== null) {
+        clearTimeout(this._streamingFallback);
+        this._streamingFallback = null;
+      }
+      this._streamingRequested = false;
+      this._diagnostics.notificationRequest.status = "disconnected";
       this._frame = [];
       this._portValues = {};
       this._resetSensors();
@@ -2361,6 +2613,7 @@ continuous_sensor_loop()
       this._replOutput = "";
       this._replHistory = [];
       this._firmware = null;
+      this._rpcVersion = null;
     }
 
     stopAll() {
@@ -2385,16 +2638,15 @@ continuous_sensor_loop()
      * The 2.x hub's JSON-RPC verbs, answered natively where 3.x has an
      * equivalent and rejected where it does not.
      *
-     * Rejecting is not a failure: every caller in this extension is written as
-     * `sendCommand(...).catch(() => sendPythonCommand(...))`, because the 2.x
-     * firmware was itself inconsistent about which verbs it knew. So a verb
-     * with no 3.x equivalent takes the Python path, which the tunnel accepts.
+     * An unsupported verb has a typed rejection so callers can decide whether
+     * a legacy fallback is appropriate. Transport errors use their own error
+     * and must reach the block caller. The 2.x firmware was inconsistent about
+     * its JSON-RPC verbs, so those callers retain their legacy fallback.
      *
-     * What must NOT happen is everything taking the Python path. The 3.x hub
-     * drives its motors from a JSON command on the tunnel — that is what both
-     * BLE extensions sent — and routing motor control through generated
-     * MicroPython instead would be slower, less reliable, and a loss of
-     * fidelity against what those extensions did.
+     * The generic Python TunnelMessage format does not prove that a particular
+     * Python API is safe or supported by a given Hub OS. The display-text block
+     * therefore reports its unsupported state instead of sending that
+     * unverified fallback.
      */
     sendCommand(method, params) {
       const p = params || {};
@@ -2423,7 +2675,9 @@ continuous_sensor_loop()
         default:
           break;
       }
-      return Promise.reject(new Error(`spike3 has no native ${method}`));
+      const error = new Error(`spike3 has no native ${method}`);
+      error.code = "ERR_UNSUPPORTED_HUB_COMMAND";
+      return Promise.reject(error);
     }
 
     _speed(value) {
@@ -2494,19 +2748,32 @@ continuous_sensor_loop()
     // --------------------------------------------------------------- receive
 
     _onConnect() {
-      this._link.startNotifications(
+      this._clearNotificationResponseTimeout();
+      if (this._streamingFallback !== null)
+        clearTimeout(this._streamingFallback);
+      this._streamingFallback = null;
+      this._frame = [];
+      this._firmware = null;
+      this._rpcVersion = null;
+      this._resetCommunicationDiagnostics();
+      this._streamingRequested = false;
+      const notifications = this._link.startNotifications(
         SPIKE3.SERVICE,
         SPIKE3.TX_CHAR,
         this._onMessage
       );
-      this._streamingRequested = false;
+      if (notifications && typeof notifications.catch === "function") {
+        notifications.catch((error) => this._recordTransportError(error));
+      }
       // Ask what we are talking to. Device streaming is requested the moment
       // it answers (see _handleInfoResponse) rather than after a fixed wait:
       // the InfoResponse is also what carries the packet size, so asking
       // before it arrives means sending at the wrong MTU. Both BLE extensions
       // used a 500 ms timer instead, which was slower when the hub was quick
       // and still too early when it was not.
-      this._send(Uint8Array.from([SPIKE3.INFO_REQUEST]), false);
+      this._send(Uint8Array.from([SPIKE3.INFO_REQUEST]), false).catch((error) =>
+        this._recordTransportError(error)
+      );
       // A hub that never answers still gets asked, so a missing InfoResponse
       // costs the packet size rather than every sensor reading.
       this._streamingFallback = setTimeout(
@@ -2522,7 +2789,11 @@ continuous_sensor_loop()
         clearTimeout(this._streamingFallback);
         this._streamingFallback = null;
       }
-      this.setDeviceNotifications(true);
+      this.setDeviceNotifications(true).catch((error) => {
+        if (error?.code !== "ERR_NOTIFICATION_REQUEST_SUPERSEDED") {
+          this._recordTransportError(error);
+        }
+      });
     }
 
     /**
@@ -2537,7 +2808,54 @@ continuous_sensor_loop()
       message[0] = SPIKE3.DEVICE_NOTIFICATION_REQUEST;
       message[1] = interval & 0xff;
       message[2] = (interval >> 8) & 0xff;
-      return this._send(message, false);
+      if (this._pendingNotificationRequest) {
+        this._pendingNotificationRequest.request.status = "superseded";
+        const error = new Error("device notification request superseded");
+        error.code = "ERR_NOTIFICATION_REQUEST_SUPERSEDED";
+        this._settleNotificationRequest(error);
+      }
+      const request = this._diagnostics.notificationRequest;
+      this._clearNotificationResponseTimeout();
+      request.enabled = this._streaming;
+      request.intervalMs = interval;
+      request.status = this.isConnected() ? "pending" : "not-connected";
+      request.requestedAt = Date.now();
+      request.responseAt = null;
+      request.responseCode = null;
+      if (request.status === "not-connected") {
+        return Promise.reject(new Error("not connected to SPIKE hub"));
+      }
+      let resolveResponse;
+      let rejectResponse;
+      const responsePromise = new Promise((resolve, reject) => {
+        resolveResponse = resolve;
+        rejectResponse = reject;
+      });
+      this._pendingNotificationRequest = {
+        request,
+        resolve: resolveResponse,
+        reject: rejectResponse,
+      };
+      if (request.status === "pending") {
+        this._notificationResponseTimeout = setTimeout(() => {
+          if (this._pendingNotificationRequest?.request !== request) return;
+          request.status = "timeout";
+          const error = new Error("device notification response timed out");
+          this._recordCommunicationError(error);
+          this._settleNotificationRequest(error);
+        }, SPIKE3.NOTIFICATION_RESPONSE_TIMEOUT_MS);
+      }
+      const writePromise = Promise.resolve().then(() =>
+        this._send(message, false)
+      );
+      return Promise.all([writePromise, responsePromise])
+        .then(([, responseCode]) => responseCode)
+        .catch((error) => {
+          if (error?.code !== "ERR_NOTIFICATION_REQUEST_SUPERSEDED") {
+            this._recordTransportError(error);
+          }
+          throw error;
+        });
     }
 
     get streaming() {
@@ -2546,7 +2864,14 @@ continuous_sensor_loop()
 
     /** Bytes arrive base64-encoded, in MTU-sized pieces, delimited by 0x02. */
     _onMessage(message) {
-      const bytes = Base64Util.base64ToUint8Array(message);
+      let bytes;
+      try {
+        bytes = Base64Util.base64ToUint8Array(message);
+      } catch (error) {
+        this._diagnostics.malformedMessageCount++;
+        this._recordCommunicationError(error);
+        return;
+      }
       for (const byte of bytes) {
         if (byte !== SPIKE3.DELIMITER) {
           this._frame.push(byte);
@@ -2563,8 +2888,17 @@ continuous_sensor_loop()
             data = COBS.unpack(frame);
           } catch (e) {
             data = null;
+            this._diagnostics.cobsDecodeFailureCount++;
+            this._recordCommunicationError(`COBS decode failed: ${e.message}`);
           }
-          if (data && data.length) this._handleMessage(data);
+          if (data && data.length) {
+            this._handleMessage(data);
+          } else if (data) {
+            this._diagnostics.malformedMessageCount++;
+            this._recordCommunicationError(
+              "COBS frame decoded to an empty message"
+            );
+          }
         }
       }
     }
@@ -2576,6 +2910,9 @@ continuous_sensor_loop()
           break;
         case SPIKE3.DEVICE_NOTIFICATION:
           this._handleDeviceNotification(data);
+          break;
+        case SPIKE3.DEVICE_NOTIFICATION_RESPONSE:
+          this._handleDeviceNotificationResponse(data);
           break;
         case SPIKE3.CONSOLE_NOTIFICATION: {
           const text = new TextDecoder().decode(data.slice(1));
@@ -2590,6 +2927,40 @@ continuous_sensor_loop()
       }
     }
 
+    _handleDeviceNotificationResponse(data) {
+      if (data.length < 2) {
+        this._diagnostics.malformedMessageCount++;
+        const error = new Error("truncated device notification response");
+        this._recordCommunicationError(error);
+        if (this._pendingNotificationRequest) {
+          this._pendingNotificationRequest.request.status =
+            "malformed-response";
+          this._settleNotificationRequest(error);
+        }
+        return;
+      }
+      const request = this._diagnostics.notificationRequest;
+      this._clearNotificationResponseTimeout();
+      request.responseAt = Date.now();
+      request.responseCode = data[1];
+      if (data[1] === 0) {
+        request.status = "acknowledged";
+        this._settleNotificationRequest(null, data[1]);
+      } else if (data[1] === 1) {
+        request.status = "not-acknowledged";
+        const error = new Error("hub did not acknowledge device notifications");
+        this._recordCommunicationError(error);
+        this._settleNotificationRequest(error);
+      } else {
+        request.status = "unknown-response-status";
+        const error = new Error(
+          `unknown device notification response status: ${data[1]}`
+        );
+        this._recordCommunicationError(error);
+        this._settleNotificationRequest(error);
+      }
+    }
+
     /**
      * InfoResponse carries the versions the legacy extensions threw away: the
      * RPC version at +1, the firmware version at +5, then the two sizes. The
@@ -2597,10 +2968,15 @@ continuous_sensor_loop()
      * one running the same protocol, so it is kept.
      */
     _handleInfoResponse(data) {
-      if (data.length < 15) return;
+      if (data.length < 15) {
+        this._diagnostics.malformedMessageCount++;
+        this._recordCommunicationError("truncated InfoResponse");
+        return;
+      }
       const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
       this._rpcVersion = `${data[1]}.${data[2]}.${view.getUint16(3, true)}`;
       this._firmware = `${data[5]}.${data[6]}.${view.getUint16(7, true)}`;
+      this._diagnostics.infoResponseReceivedAt = Date.now();
       this._maxPacketSize = view.getUint16(9, true) || 20;
       this._maxChunkSize = view.getUint16(13, true) || 100;
       if (this._link && this._link.setMaxPacketSize) {
@@ -2615,19 +2991,38 @@ continuous_sensor_loop()
      * 2.x stream parser produces.
      */
     _handleDeviceNotification(data) {
+      if (data.length < 3) {
+        this._recordMalformedNotification(
+          "truncated DeviceNotification header"
+        );
+        return;
+      }
+      const payloadSize = data[1] | (data[2] << 8);
+      if (payloadSize !== data.length - 3) {
+        this._recordMalformedNotification(
+          `DeviceNotification payload size mismatch: expected ${payloadSize}, received ${data.length - 3}`
+        );
+        return;
+      }
       let offset = 3;
       while (offset < data.length) {
         const type = data[offset];
         const remaining = data.length - offset;
         switch (type) {
           case SPIKE3.DEV_BATTERY:
-            if (remaining < 2) return;
+            if (remaining < 2) {
+              this._recordMalformedNotification("truncated battery record");
+              return;
+            }
             this._sensors.battery = data[offset + 1];
             offset += 2;
             break;
 
           case SPIKE3.DEV_IMU: {
-            if (remaining < 21) return;
+            if (remaining < 21) {
+              this._recordMalformedNotification("truncated IMU record");
+              return;
+            }
             const s16 = (lo) => {
               const v = data[offset + lo] | (data[offset + lo + 1] << 8);
               return v > 32767 ? v - 65536 : v;
@@ -2648,14 +3043,29 @@ continuous_sensor_loop()
             this._sensors.gyroFiltered.x = this._sensors.gyro.x;
             this._sensors.gyroFiltered.y = this._sensors.gyro.y;
             this._sensors.gyroFiltered.z = this._sensors.gyro.z;
+            this._diagnostics.imuNotificationCount++;
+            this._diagnostics.lastImuReceivedAt = Date.now();
             offset += 21;
             break;
           }
 
+          case SPIKE3.DEV_MATRIX_5X5:
+            if (remaining < 26) {
+              this._recordMalformedNotification("truncated 5x5 matrix record");
+              return;
+            }
+            this._matrix5x5 = Array.from(data.slice(offset + 1, offset + 26));
+            this._diagnostics.matrix5x5NotificationCount++;
+            offset += 26;
+            break;
+
           case SPIKE3.DEV_MOTOR: {
             // 12 bytes: type, port, absolute(int16 @2), power(int16 @4),
             // ?(@6), speed(int8 @7), position(int32 @8).
-            if (remaining < 12) return;
+            if (remaining < 12) {
+              this._recordMalformedNotification("truncated motor record");
+              return;
+            }
             const port = SpikePorts[data[offset + 1]];
             if (port) {
               const rawSpeed = data[offset + 7];
@@ -2682,12 +3092,16 @@ continuous_sensor_loop()
                 speed: speed,
               };
             }
+            this._diagnostics.motorNotificationCount++;
             offset += 12;
             break;
           }
 
           case SPIKE3.DEV_COLOR: {
-            if (remaining < 9) return;
+            if (remaining < 9) {
+              this._recordMalformedNotification("truncated color record");
+              return;
+            }
             const port = SpikePorts[data[offset + 1]];
             if (port) {
               const red = data[offset + 3] | (data[offset + 4] << 8);
@@ -2711,7 +3125,10 @@ continuous_sensor_loop()
           }
 
           case SPIKE3.DEV_DISTANCE: {
-            if (remaining < 4) return;
+            if (remaining < 4) {
+              this._recordMalformedNotification("truncated distance record");
+              return;
+            }
             const port = SpikePorts[data[offset + 1]];
             if (port) {
               let mm = data[offset + 2] | (data[offset + 3] << 8);
@@ -2731,7 +3148,10 @@ continuous_sensor_loop()
           }
 
           case SPIKE3.DEV_FORCE: {
-            if (remaining < 4) return;
+            if (remaining < 4) {
+              this._recordMalformedNotification("truncated force record");
+              return;
+            }
             const port = SpikePorts[data[offset + 1]];
             if (port) {
               this._portValues[port] = {
@@ -2746,7 +3166,10 @@ continuous_sensor_loop()
 
           case SPIKE3.DEV_MATRIX_3X3: {
             // Type, port and nine pixel bytes, as emitted by the SPIKE 3 hub.
-            if (remaining < 11) return;
+            if (remaining < 11) {
+              this._recordMalformedNotification("truncated 3x3 matrix record");
+              return;
+            }
             const port = SpikePorts[data[offset + 1]];
             if (port) {
               this._portValues[port] = {
@@ -2761,6 +3184,10 @@ continuous_sensor_loop()
           default:
             // An unknown record has an unknown width, so the rest of the
             // payload cannot be walked safely. Stop rather than guess.
+            this._diagnostics.unsupportedRecordCount++;
+            this._recordCommunicationError(
+              `unsupported device record: 0x${type.toString(16).padStart(2, "0")}`
+            );
             return;
         }
       }
@@ -3036,13 +3463,17 @@ continuous_sensor_loop()
             this._runtime,
             this._extensionId,
             this._spike3._onConnect,
-            this._spike3.reset
+            this._spike3.reset,
+            this._spike3._recordTransportError.bind(this._spike3)
           );
           this._spike3.attach(link);
           // Web Bluetooth has no discovery step of its own: the browser's
           // chooser IS the discovery, and it must run from the gesture that
           // opened it. So this goes straight to connecting.
-          return link.connectPeripheral().catch(() => this._emitRequestError());
+          return link.connectPeripheral().catch((error) => {
+            this._spike3._recordTransportError(error);
+            this._emitRequestError();
+          });
         }
 
         case HubMode.BRIDGE: {
@@ -3238,6 +3669,20 @@ continuous_sensor_loop()
           ? HubRouter.SPIKE3_CAPABILITIES
           : HubRouter.REPL_CAPABILITIES;
       return caps.indexOf(capability) !== -1;
+    }
+
+    getCommunicationDiagnostics() {
+      const connectionMode = this._resolvedMode || this._mode;
+      if (this._activeProtocol === "spike3") {
+        return this._spike3.getDiagnostics(connectionMode);
+      }
+      return {
+        protocol: "repl",
+        connected: this.isConnected(),
+        connectionMode,
+        firmwareVersion: this._repl.firmwareVersion || null,
+        sensorNotifications: "not-applicable-to-repl-protocol",
+      };
     }
   }
 
@@ -4889,6 +5334,16 @@ continuous_sensor_loop()
             opcode: "getConnectionMode",
             blockType: BlockType.REPORTER,
             text: t("getConnectionMode"),
+          },
+          {
+            opcode: "getCommunicationDiagnostics",
+            blockType: BlockType.REPORTER,
+            text: t("getCommunicationDiagnostics"),
+          },
+          {
+            opcode: "getCommunicationDiagnosticsSummary",
+            blockType: BlockType.REPORTER,
+            text: t("getCommunicationDiagnosticsSummary"),
           },
           {
             opcode: "setConnectionMode",
@@ -6651,10 +7106,13 @@ continuous_sensor_loop()
             stall: setting.stallDetection,
           }
         );
-        const altCommand = this._peripheral.sendPythonCommand(
-          `import hub; hub.port.${port}.motor.run_for_degrees(${Math.floor(degrees)}, ${setting.speed * direction})`
+        const altCommand = () =>
+          this._peripheral.sendPythonCommand(
+            `import hub; hub.port.${port}.motor.run_for_degrees(${Math.floor(degrees)}, ${setting.speed * direction})`
+          );
+        return standardCommand.catch((error) =>
+          this._sendPythonFallback(error, altCommand)
         );
-        return standardCommand.catch(() => altCommand);
       });
       return Promise.all(promises).then(() => {});
     }
@@ -6672,10 +7130,13 @@ continuous_sensor_loop()
             stall: setting.stallDetection,
           }
         );
-        const altCommand = this._peripheral.sendPythonCommand(
-          `import hub; hub.port.${port}.motor.run_for_time(${Math.floor(seconds * 1000)}, ${setting.speed * direction})`
+        const altCommand = () =>
+          this._peripheral.sendPythonCommand(
+            `import hub; hub.port.${port}.motor.run_for_time(${Math.floor(seconds * 1000)}, ${setting.speed * direction})`
+          );
+        return standardCommand.catch((error) =>
+          this._sendPythonFallback(error, altCommand)
         );
-        return standardCommand.catch(() => altCommand);
       });
       return Promise.all(promises).then(() => {});
     }
@@ -6695,13 +7156,16 @@ continuous_sensor_loop()
           },
           false // needsResponse = false
         );
-        const altCommand = this._peripheral.sendPythonCommand(
-          // The hub module's speed command (percent, regulated), not pwm():
-          // pwm is a duty cycle, so a loaded motor would not hold the speed
-          // the block asks for (pwm is "start motor at % power").
-          `import hub; hub.port.${port}.motor.run_at_speed(${Math.round(setting.speed * direction)})`
+        const altCommand = () =>
+          this._peripheral.sendPythonCommand(
+            // The hub module's speed command (percent, regulated), not pwm():
+            // pwm is a duty cycle, so a loaded motor would not hold the speed
+            // the block asks for (pwm is "start motor at % power").
+            `import hub; hub.port.${port}.motor.run_at_speed(${Math.round(setting.speed * direction)})`
+          );
+        return standardCommand.catch((error) =>
+          this._sendPythonFallback(error, altCommand)
         );
-        return standardCommand.catch(() => altCommand);
       });
       return Promise.all(promises).then(() => {});
     }
@@ -6786,10 +7250,25 @@ continuous_sensor_loop()
         "scratch.display_text",
         { text: text }
       );
-      const altCommand = this._peripheral.sendPythonCommand(
-        `import hub; hub.display.show("${text.replace(/"/g, '\\"')}")`
-      );
-      return standardCommand.catch(() => altCommand);
+      const altCommand = () =>
+        this._peripheral.sendPythonCommand(
+          `import hub; hub.display.show(${pyStringLiteral(text)})`
+        );
+      return standardCommand.catch((error) => {
+        // The SPIKE 3.x TunnelMessage format is documented, but this fallback
+        // Python API has not been verified on the reported Hub OS 1.6.62.
+        // Do not send it automatically when the native display command is not
+        // available; keep the REPL fallback for the legacy protocol only.
+        if (this._peripheral.protocol === "spike3") {
+          const userError = new Error(t("displayTextUnsupported"));
+          userError.code = error.code;
+          this._peripheral.active._recordCommunicationError(
+            `${userError.message} (${error.message})`
+          );
+          throw userError;
+        }
+        return altCommand();
+      });
     }
 
     displayImage(args) {
@@ -6847,10 +7326,11 @@ continuous_sensor_loop()
         "scratch.display_clear",
         {}
       );
-      const altCommand = this._peripheral.sendPythonCommand(
-        'import hub; hub.display.show(" ")'
+      const altCommand = () =>
+        this._peripheral.sendPythonCommand('import hub; hub.display.show(" ")');
+      return standardCommand.catch((error) =>
+        this._sendPythonFallback(error, altCommand)
       );
-      return standardCommand.catch(() => altCommand);
     }
 
     setPixel(args) {
@@ -6862,10 +7342,13 @@ continuous_sensor_loop()
         "scratch.display_set_pixel",
         { x: x, y: y, brightness: Math.round((brightness * 9) / 100) }
       );
-      const altCommand = this._peripheral.sendPythonCommand(
-        `import hub; hub.display.pixel(${x}, ${y}, ${Math.round((brightness * 9) / 100)})`
+      const altCommand = () =>
+        this._peripheral.sendPythonCommand(
+          `import hub; hub.display.pixel(${x}, ${y}, ${Math.round((brightness * 9) / 100)})`
+        );
+      return standardCommand.catch((error) =>
+        this._sendPythonFallback(error, altCommand)
       );
-      return standardCommand.catch(() => altCommand);
     }
 
     rotateDisplay(args) {
@@ -6883,10 +7366,13 @@ continuous_sensor_loop()
         "scratch.center_button_lights",
         { color: colorValue }
       );
-      const altCommand = this._peripheral.sendPythonCommand(
-        `import hub; hub.led(${colorValue})`
+      const altCommand = () =>
+        this._peripheral.sendPythonCommand(
+          `import hub; hub.led(${colorValue})`
+        );
+      return standardCommand.catch((error) =>
+        this._sendPythonFallback(error, altCommand)
       );
-      return standardCommand.catch(() => altCommand);
     }
 
     // IMU & Gyro
@@ -7047,10 +7533,13 @@ continuous_sensor_loop()
         "scratch.sound_beep",
         { frequency: frequency, duration: duration }
       );
-      const altCommand = this._peripheral.sendPythonCommand(
-        `import hub; hub.sound.beep(${frequency}, ${duration}, hub.sound.SOUND_SIN)`
+      const altCommand = () =>
+        this._peripheral.sendPythonCommand(
+          `import hub; hub.sound.beep(${frequency}, ${duration}, hub.sound.SOUND_SIN)`
+        );
+      return standardCommand.catch((error) =>
+        this._sendPythonFallback(error, altCommand)
       );
-      return standardCommand.catch(() => altCommand);
     }
     playNote(args) {
       const note = Cast.toNumber(args.NOTE);
@@ -7369,6 +7858,59 @@ continuous_sensor_loop()
       return this._peripheral.resolvedMode || this._peripheral.mode;
     }
 
+    getCommunicationDiagnostics() {
+      return JSON.stringify(this._peripheral.getCommunicationDiagnostics());
+    }
+
+    getCommunicationDiagnosticsSummary() {
+      const diagnostics = this._peripheral.getCommunicationDiagnostics();
+      const unavailable = t("diag.unavailable");
+      const notApplicable = t("diag.notApplicable");
+      const notificationStatus = diagnostics.notificationRequest?.status;
+      const notificationLabel =
+        diagnostics.protocol === "spike3"
+          ? t(`diag.notification.${notificationStatus}`)
+          : notApplicable;
+      const imuReceived = diagnostics.imuReceived === true;
+      const angles = diagnostics.angles || {};
+      const angleSummary = imuReceived
+        ? `${t("diag.pitch")} ${angles.pitch}°, ${t("diag.roll")} ${angles.roll}°, ${t("diag.yaw")} ${angles.yaw}°`
+        : unavailable;
+      const motorPorts = diagnostics.motorPorts || {};
+      const motorSummary = Object.entries(motorPorts)
+        .map(
+          ([port, values]) =>
+            `${port}: ${t("diag.motorPosition")} ${values.relativePosition}°, ${t("diag.motorSpeed")} ${values.speed}°/s`
+        )
+        .join("; ");
+      const formatTimestamp = (timestamp) =>
+        timestamp === null || timestamp === undefined
+          ? unavailable
+          : new Date(timestamp).toLocaleString();
+      return [
+        `${t("diag.connection")}: ${diagnostics.connected ? t("diag.connected") : t("diag.disconnected")}`,
+        `${t("diag.firmware")}: ${diagnostics.firmwareVersion || unavailable}`,
+        `${t("diag.notification")}: ${notificationLabel}`,
+        `${t("diag.imuCount")}: ${diagnostics.imuNotificationCount ?? notApplicable}`,
+        `${t("diag.lastImu")}: ${formatTimestamp(diagnostics.lastImuReceivedAt)}`,
+        `${t("diag.angles")}: ${angleSummary}`,
+        `${t("diag.motorPorts")}: ${motorSummary || t("diag.noMotorPorts")}`,
+        `${t("diag.cobsErrors")}: ${diagnostics.cobsDecodeFailureCount ?? notApplicable}`,
+        `${t("diag.unsupportedRecords")}: ${diagnostics.unsupportedRecordCount ?? notApplicable}`,
+        `${t("diag.lastError")}: ${diagnostics.lastCommunicationError || t("diag.none")}`,
+      ].join("\n");
+    }
+
+    _sendPythonFallback(error, fallbackCommand) {
+      if (
+        this._peripheral.protocol === "spike3" &&
+        error?.code !== "ERR_UNSUPPORTED_HUB_COMMAND"
+      ) {
+        throw error;
+      }
+      return fallbackCommand();
+    }
+
     setConnectionMode(args) {
       this._peripheral.setMode(Cast.toString(args.MODE));
     }
@@ -7382,12 +7924,12 @@ continuous_sensor_loop()
      */
     enableStreamingMode() {
       if (!this._peripheral.supports("streaming")) return;
-      this._peripheral.active.setDeviceNotifications(true);
+      return this._peripheral.active.setDeviceNotifications(true);
     }
 
     disableStreamingMode() {
       if (!this._peripheral.supports("streaming")) return;
-      this._peripheral.active.setDeviceNotifications(false);
+      return this._peripheral.active.setDeviceNotifications(false);
     }
 
     // ========================================================================
