@@ -80,6 +80,17 @@
       getConnectionMode: "connection mode",
       getCommunicationDiagnostics: "communication diagnostics (JSON)",
       getCommunicationDiagnosticsSummary: "communication diagnostics (text)",
+      openCommunicationDiagnosticsLog: "open communication diagnostics log",
+      diagnosticsDialogTitle: "SPIKE Prime communication diagnostics",
+      diagnosticsCopyJson: "Copy full JSON",
+      diagnosticsSaveJson: "Save JSON file",
+      diagnosticsJsonCopied: "Full JSON copied to the clipboard.",
+      diagnosticsManualCopy:
+        "Clipboard access is unavailable. The full log is selected; press Ctrl+C (or ⌘+C) to copy.",
+      diagnosticsJsonSaved: "JSON file download started.",
+      diagnosticsJsonSaveFailed: "Could not save the JSON file.",
+      diagnosticsDialogUnavailable:
+        "The diagnostics dialog is unavailable in this environment.",
       installHubController:
         "install / start Brickwright controller in slot [SLOT]",
       checkHubController: "check Brickwright controller response",
@@ -393,6 +404,17 @@
       getConnectionMode: "接続モード",
       getCommunicationDiagnostics: "通信診断（JSON）",
       getCommunicationDiagnosticsSummary: "通信診断（表示用）",
+      openCommunicationDiagnosticsLog: "通信診断ログを開く",
+      diagnosticsDialogTitle: "SPIKE Prime 通信診断ログ",
+      diagnosticsCopyJson: "JSON全文をコピー",
+      diagnosticsSaveJson: "JSONファイルを保存",
+      diagnosticsJsonCopied: "JSON全文をクリップボードにコピーしました。",
+      diagnosticsManualCopy:
+        "クリップボードを使えません。ログ全文を選択しました。Ctrl+C（Macでは⌘+C）でコピーしてください。",
+      diagnosticsJsonSaved: "JSONファイルのダウンロードを開始しました。",
+      diagnosticsJsonSaveFailed: "JSONファイルを保存できませんでした。",
+      diagnosticsDialogUnavailable:
+        "この環境では通信診断ダイアログを表示できません。",
       installHubController:
         "スロット [SLOT] にBrickwright制御プログラムを転送して起動",
       checkHubController: "Brickwright制御プログラムの応答を確認",
@@ -7375,6 +7397,11 @@ continuous_sensor_loop()
             text: t("getCommunicationDiagnosticsSummary"),
           },
           {
+            opcode: "openCommunicationDiagnosticsLog",
+            blockType: BlockType.COMMAND,
+            text: t("openCommunicationDiagnosticsLog"),
+          },
+          {
             opcode: "installHubController",
             blockType: BlockType.COMMAND,
             text: t("installHubController"),
@@ -10028,6 +10055,210 @@ continuous_sensor_loop()
 
     getCommunicationDiagnostics() {
       return JSON.stringify(this._peripheral.getCommunicationDiagnostics());
+    }
+
+    openCommunicationDiagnosticsLog() {
+      if (typeof document === "undefined" || !document.body) {
+        throw new Error(t("diagnosticsDialogUnavailable"));
+      }
+      if (this._diagnosticsDialog) {
+        this._diagnosticsDialog.focus();
+        return;
+      }
+
+      const diagnosticsJson = this.getCommunicationDiagnostics();
+      const formattedJson = JSON.stringify(
+        JSON.parse(diagnosticsJson),
+        null,
+        2
+      );
+      const overlay = document.createElement("div");
+      overlay.setAttribute("role", "dialog");
+      overlay.setAttribute("aria-modal", "true");
+      overlay.setAttribute("aria-label", t("diagnosticsDialogTitle"));
+      overlay.tabIndex = -1;
+      Object.assign(overlay.style, {
+        alignItems: "center",
+        background: "rgba(0, 0, 0, 0.65)",
+        boxSizing: "border-box",
+        display: "flex",
+        inset: "0",
+        justifyContent: "center",
+        padding: "20px",
+        position: "fixed",
+        zIndex: "100000",
+      });
+
+      const panel = document.createElement("section");
+      Object.assign(panel.style, {
+        background: "#ffffff",
+        border: "1px solid #9ca3af",
+        borderRadius: "8px",
+        boxSizing: "border-box",
+        color: "#111827",
+        display: "flex",
+        flexDirection: "column",
+        gap: "12px",
+        height: "min(900px, 90vh)",
+        maxWidth: "1000px",
+        padding: "16px",
+        width: "100%",
+      });
+
+      const header = document.createElement("div");
+      Object.assign(header.style, {
+        alignItems: "center",
+        display: "flex",
+        flex: "0 0 auto",
+        gap: "12px",
+        justifyContent: "space-between",
+      });
+
+      const title = document.createElement("h2");
+      title.textContent = t("diagnosticsDialogTitle");
+      Object.assign(title.style, {
+        fontSize: "20px",
+        margin: "0",
+      });
+
+      const makeButton = (label) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = label;
+        Object.assign(button.style, {
+          background: "#f3f4f6",
+          border: "1px solid #9ca3af",
+          borderRadius: "4px",
+          color: "#111827",
+          cursor: "pointer",
+          font: "inherit",
+          padding: "8px 12px",
+        });
+        return button;
+      };
+
+      const closeButton = makeButton(t("close"));
+      closeButton.setAttribute("aria-label", t("close"));
+
+      const textarea = document.createElement("textarea");
+      textarea.readOnly = true;
+      textarea.spellcheck = false;
+      textarea.value = formattedJson;
+      textarea.setAttribute("aria-label", t("diagnosticsDialogTitle"));
+      Object.assign(textarea.style, {
+        boxSizing: "border-box",
+        flex: "1 1 auto",
+        fontFamily: "Consolas, Monaco, monospace",
+        fontSize: "13px",
+        lineHeight: "1.5",
+        minHeight: "0",
+        overflow: "auto",
+        resize: "vertical",
+        whiteSpace: "pre",
+        width: "100%",
+      });
+
+      const actions = document.createElement("div");
+      Object.assign(actions.style, {
+        display: "flex",
+        flex: "0 0 auto",
+        flexWrap: "wrap",
+        gap: "8px",
+      });
+      const copyButton = makeButton(t("diagnosticsCopyJson"));
+      const saveButton = makeButton(t("diagnosticsSaveJson"));
+      const status = document.createElement("div");
+      status.setAttribute("role", "status");
+      status.setAttribute("aria-live", "polite");
+      Object.assign(status.style, {
+        flex: "0 0 auto",
+        minHeight: "1.4em",
+      });
+
+      const closeDialog = () => {
+        if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        if (this._diagnosticsDialog === overlay) {
+          this._diagnosticsDialog = null;
+        }
+      };
+
+      closeButton.addEventListener("click", closeDialog);
+      overlay.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closeDialog();
+        }
+      });
+      overlay.addEventListener("click", (event) => {
+        if (event.target === overlay) closeDialog();
+      });
+      copyButton.addEventListener("click", async () => {
+        const fullJson = textarea.value;
+        try {
+          if (
+            typeof navigator !== "undefined" &&
+            navigator.clipboard &&
+            typeof navigator.clipboard.writeText === "function"
+          ) {
+            await navigator.clipboard.writeText(fullJson);
+            status.textContent = t("diagnosticsJsonCopied");
+            return;
+          }
+        } catch (error) {
+          // The selected textarea remains available for manual copying below.
+        }
+
+        textarea.focus();
+        textarea.select();
+        if (typeof textarea.setSelectionRange === "function") {
+          textarea.setSelectionRange(0, fullJson.length);
+        }
+        let copied = false;
+        try {
+          copied =
+            typeof document.execCommand === "function" &&
+            document.execCommand("copy");
+        } catch (error) {
+          copied = false;
+        }
+        status.textContent = copied
+          ? t("diagnosticsJsonCopied")
+          : t("diagnosticsManualCopy");
+      });
+      saveButton.addEventListener("click", () => {
+        let objectUrl = null;
+        try {
+          const blob = new Blob([textarea.value], {
+            type: "application/json;charset=utf-8",
+          });
+          objectUrl = URL.createObjectURL(blob);
+          const download = document.createElement("a");
+          download.href = objectUrl;
+          download.download = "spikeprime-communication-diagnostics.json";
+          download.style.display = "none";
+          document.body.appendChild(download);
+          download.click();
+          document.body.removeChild(download);
+          setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+          status.textContent = t("diagnosticsJsonSaved");
+        } catch (error) {
+          if (objectUrl) URL.revokeObjectURL(objectUrl);
+          status.textContent = t("diagnosticsJsonSaveFailed");
+        }
+      });
+
+      header.appendChild(title);
+      header.appendChild(closeButton);
+      actions.appendChild(copyButton);
+      actions.appendChild(saveButton);
+      panel.appendChild(header);
+      panel.appendChild(textarea);
+      panel.appendChild(actions);
+      panel.appendChild(status);
+      overlay.appendChild(panel);
+      document.body.appendChild(overlay);
+      this._diagnosticsDialog = overlay;
+      closeButton.focus();
     }
 
     getCommunicationDiagnosticsSummary() {

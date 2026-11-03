@@ -43,6 +43,9 @@ jobs:
       # Movement blocks of the unified SPIKE extension, against a stub hub.
       - name: SPIKE movement tests
         run: node development/test-spikeprime-movement.js
+      # Diagnostics UI copy/download behavior, using a fake DOM and no hub.
+      - name: SPIKE diagnostics dialog tests
+        run: node development/test-spikeprime-diagnostics-dialog.js
       # SPIKE 3.x framing, Web Bluetooth notifications and diagnostics against
       # an in-memory fake device; no physical hub is accessed.
       - name: SPIKE Web Bluetooth transport tests
