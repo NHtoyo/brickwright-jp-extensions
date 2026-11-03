@@ -3,7 +3,10 @@ import fs from "node:fs";
 import Builder from "./builder.js";
 import * as espree from "espree";
 
-const filename = new URL("../extensions/CrispStrobe/legospike_turbowarp_transpile.js", import.meta.url);
+const filename = new URL(
+  "../extensions/CrispStrobe/legospike_turbowarp_transpile.js",
+  import.meta.url
+);
 const source = fs.readFileSync(filename, "utf8");
 const ast = espree.parse(source, {
   ecmaVersion: "latest",
@@ -55,7 +58,11 @@ const japanese = getLocale(translations, "ja");
 const missing = Object.keys(english).filter(
   (key) => !Object.hasOwn(japanese, key)
 );
-assert.deepEqual(missing, [], `Japanese SPIKE translations are missing: ${missing.join(", ")}`);
+assert.deepEqual(
+  missing,
+  [],
+  `Japanese SPIKE translations are missing: ${missing.join(", ")}`
+);
 
 const placeholders = (message) =>
   [...message.matchAll(/\[[^\]]+\]|\{[A-Za-z0-9_.-]+\}/g)]
@@ -140,7 +147,9 @@ const collectDialogCalls = (node) => {
     ["alert", "askYesNo"].includes(node.callee.name) &&
     !containsTextTranslation(node.arguments[0])
   ) {
-    unlocalizedDialogCalls.push(`${node.callee.name}@${node.loc?.start.line ?? "?"}`);
+    unlocalizedDialogCalls.push(
+      `${node.callee.name}@${node.loc?.start.line ?? "?"}`
+    );
   }
   for (const value of Object.values(node)) {
     if (Array.isArray(value)) value.forEach(collectDialogCalls);

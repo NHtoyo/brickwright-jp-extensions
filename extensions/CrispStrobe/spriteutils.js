@@ -209,7 +209,9 @@
           {
             opcode: "placeAngleFrom",
             blockType: Scratch.BlockType.COMMAND,
-            text: Scratch.translate("place [MOVE] at angle [ANGLE] radians distance [DISTANCE] from [FROM]"),
+            text: Scratch.translate(
+              "place [MOVE] at angle [ANGLE] radians distance [DISTANCE] from [FROM]"
+            ),
             arguments: {
               MOVE: { type: Scratch.ArgumentType.STRING, menu: "sprites" },
               ANGLE: { type: Scratch.ArgumentType.NUMBER, defaultValue: 0 },
@@ -220,7 +222,9 @@
           {
             opcode: "countWithin",
             blockType: Scratch.BlockType.REPORTER,
-            text: Scratch.translate("number of [KIND] sprites within [DISTANCE] of [SPRITE]"),
+            text: Scratch.translate(
+              "number of [KIND] sprites within [DISTANCE] of [SPRITE]"
+            ),
             arguments: {
               KIND: {
                 type: Scratch.ArgumentType.STRING,
@@ -233,7 +237,9 @@
           {
             opcode: "nearestDistance",
             blockType: Scratch.BlockType.REPORTER,
-            text: Scratch.translate("distance to nearest [KIND] sprite from [SPRITE]"),
+            text: Scratch.translate(
+              "distance to nearest [KIND] sprite from [SPRITE]"
+            ),
             arguments: {
               KIND: {
                 type: Scratch.ArgumentType.STRING,
@@ -245,7 +251,9 @@
           {
             opcode: "nearestDirection",
             blockType: Scratch.BlockType.REPORTER,
-            text: Scratch.translate("direction to nearest [KIND] sprite from [SPRITE]"),
+            text: Scratch.translate(
+              "direction to nearest [KIND] sprite from [SPRITE]"
+            ),
             arguments: {
               KIND: {
                 type: Scratch.ArgumentType.STRING,
@@ -272,7 +280,9 @@
           {
             opcode: "setVelocityAtAngle",
             blockType: Scratch.BlockType.COMMAND,
-            text: Scratch.translate("set [SPRITE] velocity at angle [ANGLE] radians speed [SPEED]"),
+            text: Scratch.translate(
+              "set [SPRITE] velocity at angle [ANGLE] radians speed [SPEED]"
+            ),
             arguments: {
               SPRITE: { type: Scratch.ArgumentType.STRING, menu: "sprites" },
               ANGLE: { type: Scratch.ArgumentType.NUMBER, defaultValue: 0 },
@@ -282,7 +292,9 @@
           {
             opcode: "setVelocityToward",
             blockType: Scratch.BlockType.COMMAND,
-            text: Scratch.translate("set [SPRITE] velocity toward [TARGET] speed [SPEED]"),
+            text: Scratch.translate(
+              "set [SPRITE] velocity toward [TARGET] speed [SPEED]"
+            ),
             arguments: {
               SPRITE: { type: Scratch.ArgumentType.STRING, menu: "sprites" },
               TARGET: { type: Scratch.ArgumentType.STRING, menu: "sprites" },
@@ -292,7 +304,9 @@
           {
             opcode: "setAcceleration",
             blockType: Scratch.BlockType.COMMAND,
-            text: Scratch.translate("set [SPRITE] acceleration to ax [AX] ay [AY]"),
+            text: Scratch.translate(
+              "set [SPRITE] acceleration to ax [AX] ay [AY]"
+            ),
             arguments: {
               SPRITE: { type: Scratch.ArgumentType.STRING, menu: "sprites" },
               AX: { type: Scratch.ArgumentType.NUMBER, defaultValue: 0 },

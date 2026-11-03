@@ -255,7 +255,9 @@
           {
             opcode: "writeNumberArray",
             blockType: Scratch.BlockType.COMMAND,
-            text: Scratch.translate("set setting [NAME] to number array [VALUE]"),
+            text: Scratch.translate(
+              "set setting [NAME] to number array [VALUE]"
+            ),
             arguments: {
               NAME: {
                 type: Scratch.ArgumentType.STRING,

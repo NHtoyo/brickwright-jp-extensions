@@ -6,7 +6,10 @@ import fs from "node:fs";
 import vm from "node:vm";
 
 const source = fs.readFileSync(
-  new URL("../extensions/CrispStrobe/legospike_turbowarp_transpile.js", import.meta.url),
+  new URL(
+    "../extensions/CrispStrobe/legospike_turbowarp_transpile.js",
+    import.meta.url
+  ),
   "utf8"
 );
 
@@ -41,7 +44,10 @@ const context = vm.createContext({
 });
 
 vm.runInContext(source, context);
-assert.ok(extension, "SPIKE extension registers in the fake Scratch environment");
+assert.ok(
+  extension,
+  "SPIKE extension registers in the fake Scratch environment"
+);
 
 const info = extension.getInfo();
 const menu = info.menus;
@@ -77,13 +83,36 @@ assert.deepEqual(values("FORCE_STATE"), [
   { text: "強く押されている", value: "hard pressed" },
   { text: "離されている", value: "released" },
 ]);
-assert.deepEqual(values("DISPLAY_PATTERN").map((item) => item.value), [
-  "heart", "smile", "sad", "angry", "surprised", "wink", "arrow_up", "arrow_down",
-  "arrow_left", "arrow_right", "check", "x", "square", "triangle", "diamond", "plus",
-  "minus", "dot", "frame", "spiral",
-]);
-assert.deepEqual(values("MATRIX_COLOR_EMOJI").map((item) => item.value), [
-  "⚫", "🟣", "🟪", "🔵", "🔷", "🟢", "🟩", "🟡", "🟠", "🔴", "⚪",
-]);
+assert.deepEqual(
+  values("DISPLAY_PATTERN").map((item) => item.value),
+  [
+    "heart",
+    "smile",
+    "sad",
+    "angry",
+    "surprised",
+    "wink",
+    "arrow_up",
+    "arrow_down",
+    "arrow_left",
+    "arrow_right",
+    "check",
+    "x",
+    "square",
+    "triangle",
+    "diamond",
+    "plus",
+    "minus",
+    "dot",
+    "frame",
+    "spiral",
+  ]
+);
+assert.deepEqual(
+  values("MATRIX_COLOR_EMOJI").map((item) => item.value),
+  ["⚫", "🟣", "🟪", "🔵", "🔷", "🟢", "🟩", "🟡", "🟠", "🔴", "⚪"]
+);
 
-console.log("SPIKE Japanese menu labels and saved values passed (fake Scratch; no hub connection).");
+console.log(
+  "SPIKE Japanese menu labels and saved values passed (fake Scratch; no hub connection)."
+);
