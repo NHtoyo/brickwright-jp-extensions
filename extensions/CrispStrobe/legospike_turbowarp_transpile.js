@@ -1706,23 +1706,39 @@
   // Its module_tunnel API is based on an independent third-party implementation
   // and is checked at runtime by a versioned hello/acknowledgement. LEGO's
   // published protocol does not guarantee this Python API on every Hub OS.
-  const SPIKE3_CONTROLLER_SOURCE = String.raw`import hub
-import motor
-import runloop
-import time
+  const SPIKE3_CONTROLLER_SOURCE = String.raw`print("BWCTRL:boot:entered")
 try:
-    import json
-except ImportError:
-    import ujson as json
-from hub import port, light_matrix, sound
+    import hub
+    import motor
+    import runloop
+    import time
+    try:
+        import json
+    except ImportError:
+        import ujson as json
+    from hub import port, light_matrix, sound
+except Exception as error:
+    print("BWCTRL:boot:import-error:" + type(error).__name__ + ":" + str(error))
+    raise
+
+print("BWCTRL:boot:imports-ok")
 
 CONTROLLER_PROTOCOL = "brickwright-spike-controller"
 CONTROLLER_VERSION = 1
 MAX_QUEUE = 32
 MAX_VELOCITY = 720
 HEARTBEAT_TIMEOUT_MS = 3000
-PORTS = {"A": port.A, "B": port.B, "C": port.C, "D": port.D, "E": port.E, "F": port.F}
-_tunnel = hub.config["module_tunnel"]
+try:
+    PORTS = {"A": port.A, "B": port.B, "C": port.C, "D": port.D, "E": port.E, "F": port.F}
+except Exception as error:
+    print("BWCTRL:boot:hub-api-error:" + type(error).__name__ + ":" + str(error))
+    raise
+try:
+    _tunnel = hub.config["module_tunnel"]
+    _tunnel_error = None
+except Exception as error:
+    _tunnel = None
+    _tunnel_error = error
 _queue = []
 _active = False
 _last_heartbeat = None
@@ -1912,19 +1928,40 @@ async def _check_watchdog(now=None):
 
 
 def _initialize():
+    if _tunnel is None:
+        raise RuntimeError("hub.config['module_tunnel'] unavailable: " + str(_tunnel_error))
     _tunnel.callback(_receive)
 
 
 async def _main():
-    _initialize()
+    print("BWCTRL:boot:runloop-entered")
+    try:
+        _initialize()
+    except Exception as error:
+        print("BWCTRL:boot:init-error:" + type(error).__name__ + ":" + str(error))
+        # Keep a failed startup observable through ConsoleNotification (0x21)
+        # instead of exiting before the host can collect the initialization error.
+        while True:
+            await runloop.sleep_ms(1000)
+    print("BWCTRL:boot:tunnel-callback-registered")
     while True:
         await _check_watchdog()
         await _process_next()
         await runloop.sleep_ms(10)
 
 
-if __name__ == "__main__":
+try:
+    # A transferred Hub program is already the program entry point. Invoke the
+    # run loop unconditionally so startup does not depend on the runtime's
+    # __name__ binding (LEGO's own uploaded example follows this pattern).
     runloop.run(_main())
+except Exception as error:
+    print("BWCTRL:fatal:" + type(error).__name__ + ":" + str(error))
+    raise
+else:
+    # _main is intended to stay alive. A normal return from runloop is a fault.
+    print("BWCTRL:fatal:runloop-returned")
+    raise RuntimeError("runloop.run returned before the controller stopped")
 `;
 
   const COBS = {

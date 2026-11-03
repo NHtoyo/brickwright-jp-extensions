@@ -8,6 +8,8 @@ Run with: python development/test-spikeprime-hub-controller.py
 """
 
 import asyncio
+import contextlib
+import io
 import json
 import pathlib
 import re
@@ -19,6 +21,7 @@ from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 EXTENSION = ROOT / "extensions/CrispStrobe/legospike_turbowarp_transpile.js"
+SMOKE_PROGRAM = ROOT / "development/fixtures/spikeprime-startup-smoke.py"
 SOURCE = EXTENSION.read_text(encoding="utf-8")
 SOURCE_MATCH = re.search(
     r"const SPIKE3_CONTROLLER_SOURCE = String\.raw`(.*?)`;", SOURCE, re.DOTALL
@@ -30,15 +33,38 @@ compile(CONTROLLER_SOURCE, "brickwright_spike_controller.py", "exec")
 
 
 class FakeTunnel:
-    def __init__(self):
+    def __init__(self, callback_error=None):
         self.callback_handler = None
         self.events = []
+        self.callback_error = callback_error
 
     def callback(self, handler):
+        if self.callback_error:
+            raise self.callback_error
         self.callback_handler = handler
 
     def send(self, data):
         self.events.append(json.loads(data.decode("utf-8").strip()))
+
+
+class FakeRunloopStop(BaseException):
+    """Deterministic test-only stop after proving the controller stayed alive."""
+
+
+class FakeRunloop:
+    def __init__(self, stop_after_sleeps=3):
+        self.stop_after_sleeps = stop_after_sleeps
+        self.sleep_calls = []
+        self.run_calls = 0
+
+    async def sleep_ms(self, milliseconds):
+        self.sleep_calls.append(milliseconds)
+        if len(self.sleep_calls) >= self.stop_after_sleeps:
+            raise FakeRunloopStop()
+
+    def run(self, coroutine):
+        self.run_calls += 1
+        asyncio.run(coroutine)
 
 
 class FakeMotor:
@@ -91,8 +117,13 @@ class FakeSound:
         self.calls.append(("stop",))
 
 
-def fake_hub_environment(include_module_tunnel=True):
-    tunnel = FakeTunnel()
+def fake_hub_environment(
+    include_module_tunnel=True,
+    tunnel_callback_error=None,
+    module_name="brickwright_controller_test",
+    stop_after_sleeps=3,
+):
+    tunnel = FakeTunnel(tunnel_callback_error)
     motor = FakeMotor()
     matrix = FakeMatrix()
     sound = FakeSound()
@@ -103,12 +134,9 @@ def fake_hub_environment(include_module_tunnel=True):
     hub.light_matrix = matrix
     hub.sound = sound
     runloop = types.ModuleType("runloop")
-
-    async def sleep_ms(_milliseconds):
-        return None
-
-    runloop.sleep_ms = sleep_ms
-    runloop.run = lambda coroutine: coroutine
+    runloop_fake = FakeRunloop(stop_after_sleeps)
+    runloop.sleep_ms = runloop_fake.sleep_ms
+    runloop.run = runloop_fake.run
     motor_module = types.ModuleType("motor")
     for name in (
         "run",
@@ -129,10 +157,28 @@ def fake_hub_environment(include_module_tunnel=True):
         "runloop": runloop,
         "time": fake_time,
     }
-    namespace = {"__name__": "brickwright_controller_test"}
-    with patch.dict(sys.modules, modules):
-        exec(compile(CONTROLLER_SOURCE, "brickwright_spike_controller.py", "exec"), namespace)
-    return namespace, tunnel, motor, matrix, sound, fake_time
+    namespace = {"__name__": module_name}
+    boot_output = io.StringIO()
+    with contextlib.redirect_stdout(boot_output), patch.dict(sys.modules, modules):
+        try:
+            exec(
+                compile(CONTROLLER_SOURCE, "brickwright_spike_controller.py", "exec"),
+                namespace,
+            )
+        except FakeRunloopStop:
+            # The fake runloop executes the real coroutine until this sentinel.
+            # It is deliberately not a successful normal return from runloop.run.
+            pass
+    return (
+        namespace,
+        tunnel,
+        motor,
+        matrix,
+        sound,
+        fake_time,
+        runloop_fake,
+        boot_output.getvalue(),
+    )
 
 
 COMMAND_CODES = {
@@ -171,6 +217,8 @@ class SpikeControllerFakeHubTests(unittest.TestCase):
             self.matrix,
             self.sound,
             self.clock,
+            self.runloop,
+            self.boot_output,
         ) = fake_hub_environment()
 
     def message(self, command):
@@ -189,9 +237,77 @@ class SpikeControllerFakeHubTests(unittest.TestCase):
             {"i": "h1", "ok": True, "result": "bw-spike-1"},
         )
 
-    def test_missing_module_tunnel_fails_during_hub_program_initialization(self):
-        with self.assertRaisesRegex(KeyError, "module_tunnel"):
+    def test_entrypoint_executes_and_waits_in_the_main_program(self):
+        controller, tunnel, _motor, _matrix, _sound, _clock, loop, output = (
+            fake_hub_environment(module_name="__main__", stop_after_sleeps=3)
+        )
+
+        self.assertEqual(loop.run_calls, 1)
+        self.assertEqual(loop.sleep_calls, [10, 10, 10])
+        self.assertTrue(callable(tunnel.callback_handler))
+        self.assertIn("BWCTRL:boot:entered", output)
+        self.assertIn("BWCTRL:boot:runloop-entered", output)
+        self.assertIn("BWCTRL:boot:tunnel-callback-registered", output)
+        self.assertEqual(controller["_queue"], [])
+
+    def test_entrypoint_does_not_depend_on_module_name(self):
+        _controller, tunnel, _motor, _matrix, _sound, _clock, loop, output = (
+            fake_hub_environment(
+                module_name="brickwright_controller_test", stop_after_sleeps=2
+            )
+        )
+
+        self.assertEqual(loop.run_calls, 1)
+        self.assertEqual(loop.sleep_calls, [10, 10])
+        self.assertTrue(callable(tunnel.callback_handler))
+        self.assertIn("BWCTRL:boot:tunnel-callback-registered", output)
+
+    def test_missing_module_tunnel_is_logged_and_program_stays_alive(self):
+        _controller, tunnel, _motor, _matrix, _sound, _clock, loop, output = (
             fake_hub_environment(include_module_tunnel=False)
+        )
+
+        self.assertEqual(loop.run_calls, 1)
+        self.assertEqual(loop.sleep_calls, [1000, 1000, 1000])
+        self.assertIsNone(tunnel.callback_handler)
+        self.assertIn("BWCTRL:boot:init-error:RuntimeError", output)
+        self.assertIn("module_tunnel", output)
+
+    def test_tunnel_callback_failure_is_logged_and_program_stays_alive(self):
+        _controller, tunnel, _motor, _matrix, _sound, _clock, loop, output = (
+            fake_hub_environment(
+                tunnel_callback_error=RuntimeError("callback registration failed")
+            )
+        )
+
+        self.assertEqual(loop.run_calls, 1)
+        self.assertEqual(loop.sleep_calls, [1000, 1000, 1000])
+        self.assertIsNone(tunnel.callback_handler)
+        self.assertIn("BWCTRL:boot:init-error:RuntimeError", output)
+        self.assertIn("callback registration failed", output)
+
+    def test_startup_smoke_program_compiles_and_has_no_hardware_commands(self):
+        smoke_source = SMOKE_PROGRAM.read_text(encoding="utf-8")
+        compile(smoke_source, str(SMOKE_PROGRAM), "exec")
+        for forbidden_call in (
+            "motor.run(",
+            "motor.stop(",
+            "light_matrix.set_pixel(",
+            "light_matrix.clear(",
+            "sound.beep(",
+            "tunnel.send(",
+        ):
+            self.assertNotIn(forbidden_call, smoke_source)
+
+    def test_fake_hub_imports_runtime_modules_and_hub_exports(self):
+        self.assertIn("BWCTRL:boot:imports-ok", self.boot_output)
+        for name in ("hub", "motor", "runloop", "time", "json"):
+            self.assertIn(name, self.controller)
+        for name in ("port", "light_matrix", "sound"):
+            self.assertIn(name, self.controller)
+        self.assertEqual(set("ABCDEF"), set(self.controller["PORTS"]))
+        self.assertIsNotNone(self.controller["light_matrix"])
+        self.assertIsNotNone(self.controller["sound"])
 
     def test_motor_start_stop_degrees_timed_and_absolute_position(self):
         self.dispatch({"cmd": "motor.run", "port": "A", "velocity": 180, "request_id": "1"})
