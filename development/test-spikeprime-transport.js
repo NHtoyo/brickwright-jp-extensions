@@ -534,7 +534,7 @@ test("a fake-device write failure is surfaced in diagnostics", async () => {
   );
 });
 
-test("SPIKE 3.x native unsupported commands reject before writing, Python uses a TunnelMessage", async () => {
+test("SPIKE 3.x native unsupported commands reject; Python tunnel encoding follows the documented frame", async () => {
   const state = setup();
   await connect(state);
   const hub = state.ext._peripheral._spike3;
@@ -555,8 +555,27 @@ test("SPIKE 3.x native unsupported commands reject before writing, Python uses a
   assert.equal(payloadSize, tunnel.length - 3);
 });
 
-test("display text only falls back after native rejection and escapes Python string syntax", async () => {
+test("SPIKE 3.x display text does not auto-send an unverified Python fallback", async () => {
   const state = setup();
+  await connect(state);
+  const writesBefore = state.device.writes.length;
+  await assert.rejects(
+    state.ext.displayText({ TEXT: "Hello" }),
+    /has no native/
+  );
+  await tick();
+  assert.equal(
+    state.device.writes.length,
+    writesBefore,
+    "the failed native command and blocked fallback perform no device write"
+  );
+});
+
+test("REPL display text falls back after native rejection and escapes Python string syntax", async () => {
+  const state = setup();
+  Object.defineProperty(state.ext._peripheral, "protocol", {
+    value: "repl",
+  });
   const calls = [];
   state.ext._peripheral.sendCommand = () => Promise.resolve("native");
   state.ext._peripheral.sendPythonCommand = (code) => {

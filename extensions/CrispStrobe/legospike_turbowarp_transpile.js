@@ -7110,7 +7110,14 @@ continuous_sensor_loop()
         this._peripheral.sendPythonCommand(
           `import hub; hub.display.show(${pyStringLiteral(text)})`
         );
-      return standardCommand.catch(() => altCommand());
+      return standardCommand.catch((error) => {
+        // The SPIKE 3.x TunnelMessage format is documented, but this fallback
+        // Python API has not been verified on the reported Hub OS 1.6.62.
+        // Do not send it automatically when the native display command is not
+        // available; keep the REPL fallback for the legacy protocol only.
+        if (this._peripheral.protocol === "spike3") throw error;
+        return altCommand();
+      });
     }
 
     displayImage(args) {
