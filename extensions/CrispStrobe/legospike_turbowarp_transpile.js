@@ -242,11 +242,20 @@
       runHubCommand: "run hub command: [CODE]",
       exitScript: "exit Python script",
       // Messages
+      codeGenerated: "Code generated! Use 'show code' or 'download code' to view.",
       noCodeGenerated: "No code generated yet!",
       generateFirst: "Generate code first!",
       notConnected: "Not connected to SPIKE Prime hub!",
       uploadFailed: "Upload failed",
       uploadSuccess: "Uploaded successfully!",
+      uploadScriptSuccess: 'Uploaded {0} to the hub!\n\nUse the "run script" block to execute it.',
+      uploadScriptFailed: "Upload failed: {0}",
+      runScriptFailed: "Failed to run script: {0}",
+      renameScriptSuccess: "Renamed {0} to {1}.",
+      renameScriptFailed: "Rename failed: {0}",
+      deleteScriptSuccess: "Deleted {0}.",
+      deleteScriptFailed: "Delete failed: {0}",
+      checkReplOutput: "Check the REPL output block.",
       downloaded: "Downloaded",
       generatedCode: "Generated SPIKE Python Code",
       close: "Close",
@@ -312,9 +321,9 @@
       startMotor: "モーター [PORT] を [SPEED]% の回転速度で動かす",
       stopMotor: "モーター [PORT] を [ACTION] で止める",
       motorPairMove: "ステアリング [STEERING]、速さ [SPEED]% で動かす",
-      displayShowImage: "ハブのライトマトリクスに画像 [IMAGE] を表示する",
+      displayShowImage: "ハブのLEDライトマトリクスに画像 [IMAGE] を表示する",
       setLightMatrixPixel:
-        "[PORT] の3×3ライトの x:[X] y:[Y] を明るさ [BRIGHTNESS]% にする",
+        "[PORT] のカラー・ライトマトリクスの x:[X] y:[Y] を明るさ [BRIGHTNESS]% にする",
       getFaceUp: "ハブの上向き面",
       getDistanceIn: "[PORT] の距離（[UNIT]）",
       transpilationLabel: "📝 コード生成",
@@ -355,11 +364,12 @@
       getAbsolutePosition: "[PORT] モーターの絶対位置（度）",
       getSpeed: "[PORT] モーターの回転速度（度/秒）",
       resetMotorPosition: "[PORT] モーターの位置を [POSITION] 度に設定する",
-      displayImage: "ライトマトリクスに [MATRIX] を表示する",
-      displayPattern: "ライトマトリクスにパターン [PATTERN] を表示する",
-      displayClear: "ライトマトリクスを消灯する",
-      setPixel: "x:[X] y:[Y] のライトを明るさ [BRIGHTNESS]% にする",
-      rotateDisplay: "ライトマトリクスを [ANGLE] 度回転する",
+      displayImage: "ハブのLEDライトマトリクスに [MATRIX] を表示する",
+      displayPattern: "ハブのLEDライトマトリクスにパターン [PATTERN] を表示する",
+      displayClear: "ハブのLEDライトマトリクスを消灯する",
+      setPixel:
+        "ハブのLEDライトマトリクスの x:[X] y:[Y] を明るさ [BRIGHTNESS]% にする",
+      rotateDisplay: "ハブのLEDライトマトリクスを [ANGLE] 度回転する",
       setCenterButtonColor: "ハブ中央のボタンを [COLOR] に光らせる",
       getAngle: "[AXIS] の角度",
       getGyroRate: "[AXIS] のジャイロ角速度（度/秒）",
@@ -369,11 +379,11 @@
       resetYaw: "Yaw角を0にする",
       presetYaw: "Yaw角を [ANGLE] 度に設定する",
       setMatrix3x3ColorGrid:
-        "[PORT] の3×3ライトを色設定する：[P1][P2][P3] [P4][P5][P6] [P7][P8][P9]",
-      setMatrix3x3Custom: "[PORT] の3×3ライトにパターン [PATTERN] を表示する",
+        "[PORT] のカラー・ライトマトリクスを色設定する：[P1][P2][P3] [P4][P5][P6] [P7][P8][P9]",
+      setMatrix3x3Custom: "[PORT] のカラー・ライトマトリクスにパターン [PATTERN] を表示する",
       setMatrix3x3SolidColor:
-        "[PORT] の3×3ライトを [COLOR]、明るさ [BRIGHTNESS] にする",
-      clearMatrix3x3: "[PORT] の3×3ライトを消灯する",
+        "[PORT] のカラー・ライトマトリクスを [COLOR]、明るさ [BRIGHTNESS] にする",
+      clearMatrix3x3: "[PORT] のカラー・ライトマトリクスを消灯する",
       whenGesture: "ハブが [GESTURE] したとき",
       isGesture: "ハブは [GESTURE] していますか？",
       getOrientation: "ハブの向き",
@@ -421,6 +431,17 @@
       notConnected: "SPIKE Primeハブに接続されていません。",
       uploadFailed: "送信に失敗しました。",
       uploadSuccess: "送信しました。",
+      codeGenerated:
+        "コードを生成しました。「生成したコードを表示する」または「Pythonファイルとしてダウンロードする」から確認できます。",
+      uploadScriptSuccess:
+        "{0} をハブに送信しました。\n\n実行するには「スクリプトを実行」ブロックを使ってください。",
+      uploadScriptFailed: "送信に失敗しました：{0}",
+      runScriptFailed: "スクリプトを実行できませんでした：{0}",
+      renameScriptSuccess: "ファイル名を {0} から {1} に変更しました。",
+      renameScriptFailed: "名前の変更に失敗しました：{0}",
+      deleteScriptSuccess: "{0} を削除しました。",
+      deleteScriptFailed: "削除に失敗しました：{0}",
+      checkReplOutput: "REPLの出力ブロックを確認してください。",
       downloaded: "ダウンロードしました。",
       generatedCode: "生成したSPIKE Pythonコード",
       close: "閉じる",
@@ -804,8 +825,12 @@
 
   let currentLang = detectLanguage();
 
-  function t(key) {
-    return translations[currentLang]?.[key] || translations["en"][key] || key;
+  function t(key, ...values) {
+    let message = translations[currentLang]?.[key] || translations["en"][key] || key;
+    values.forEach((value, index) => {
+      message = message.replaceAll(`{${index}}`, String(value));
+    });
+    return message;
   }
 
   // Localize menu labels separately from their stored values. Scratch saves a
@@ -6778,7 +6803,7 @@ continuous_sensor_loop()
 
     transpileProject() {
       this._transpiler.transpileProject();
-      alert("Code generated! Use 'show code' or 'download code' to view.");
+      alert(t("codeGenerated"));
     }
 
     showCode() {
@@ -6856,12 +6881,12 @@ continuous_sensor_loop()
     uploadScriptToHub(args) {
       const code = this._transpiler.getCode();
       if (!code) {
-        alert("No code generated! Transpile project first.");
+        alert(t("noCodeGenerated"));
         return;
       }
 
       if (!this._peripheral.isConnected()) {
-        alert("Not connected to SPIKE Prime hub!");
+        alert(t("notConnected"));
         return;
       }
 
@@ -6913,18 +6938,16 @@ continuous_sensor_loop()
 
       return promise
         .then(() => {
-          alert(
-            `✓ Uploaded ${filename} to hub!\n\nUse "run script" block to execute.`
-          );
+          alert(t("uploadScriptSuccess", filename));
         })
         .catch((error) => {
-          alert(`❌ Upload failed: ${error.message}`);
+          alert(t("uploadScriptFailed", error.message));
         });
     }
 
     runScriptOnHub(args) {
       if (!this._peripheral.isConnected()) {
-        alert("Not connected to SPIKE Prime hub!");
+        alert(t("notConnected"));
         return;
       }
 
@@ -6944,13 +6967,13 @@ continuous_sensor_loop()
           console.log(`✓ Script ${filename} started`);
         })
         .catch((error) => {
-          alert(`❌ Failed to run script: ${error.message}`);
+          alert(t("runScriptFailed", error.message));
         });
     }
 
     renameScriptOnHub(args) {
       if (!this._peripheral.isConnected()) {
-        alert("Not connected to SPIKE Prime hub!");
+        alert(t("notConnected"));
         return;
       }
 
@@ -6964,16 +6987,16 @@ continuous_sensor_loop()
       return this._peripheral
         .sendPythonCommand(renameCommand)
         .then(() => {
-          alert(`✓ Renamed ${oldName} → ${newName}`);
+          alert(t("renameScriptSuccess", oldName, newName));
         })
         .catch((error) => {
-          alert(`❌ Rename failed: ${error.message}`);
+          alert(t("renameScriptFailed", error.message));
         });
     }
 
     deleteScriptOnHub(args) {
       if (!this._peripheral.isConnected()) {
-        alert("Not connected to SPIKE Prime hub!");
+        alert(t("notConnected"));
         return;
       }
 
@@ -6983,7 +7006,7 @@ continuous_sensor_loop()
       );
 
       // Nothing is sent until the user has answered, and only OK deletes.
-      return askYesNo("Delete " + filename + " from hub?").then((yes) => {
+      return askYesNo(t("confirmDelete", filename)).then((yes) => {
         if (!yes) {
           return;
         }
@@ -6996,17 +7019,17 @@ continuous_sensor_loop()
         return this._peripheral
           .sendPythonCommand(deleteCommand)
           .then(() => {
-            alert("✓ Deleted " + filename);
+            alert(t("deleteScriptSuccess", filename));
           })
           .catch((error) => {
-            alert("❌ Delete failed: " + error.message);
+            alert(t("deleteScriptFailed", error.message));
           });
       });
     }
 
     listScriptsOnHub() {
       if (!this._peripheral.isConnected()) {
-        return "Not connected";
+        return t("notConnected");
       }
 
       // Request list of .py files
@@ -7015,12 +7038,12 @@ continuous_sensor_loop()
       );
 
       // Return instruction to check REPL output
-      return "Check REPL output block";
+      return t("checkReplOutput");
     }
 
     stopRunningScript() {
       if (!this._peripheral.isConnected()) {
-        alert("Not connected to SPIKE Prime hub!");
+        alert(t("notConnected"));
         return;
       }
 

@@ -116,6 +116,44 @@ assert.deepEqual(
   `SPIKE t() strings must be translated in both languages: ${missingTextKeys.join(", ")}`
 );
 
+const containsTextTranslation = (node) => {
+  if (!node || typeof node !== "object") return false;
+  if (
+    node.type === "CallExpression" &&
+    node.callee.type === "Identifier" &&
+    node.callee.name === "t"
+  ) {
+    return true;
+  }
+  return Object.values(node).some((value) =>
+    Array.isArray(value)
+      ? value.some(containsTextTranslation)
+      : containsTextTranslation(value)
+  );
+};
+const unlocalizedDialogCalls = [];
+const collectDialogCalls = (node) => {
+  if (!node || typeof node !== "object") return;
+  if (
+    node.type === "CallExpression" &&
+    node.callee.type === "Identifier" &&
+    ["alert", "askYesNo"].includes(node.callee.name) &&
+    !containsTextTranslation(node.arguments[0])
+  ) {
+    unlocalizedDialogCalls.push(`${node.callee.name}@${node.loc?.start.line ?? "?"}`);
+  }
+  for (const value of Object.values(node)) {
+    if (Array.isArray(value)) value.forEach(collectDialogCalls);
+    else if (value && typeof value === "object") collectDialogCalls(value);
+  }
+};
+collectDialogCalls(ast);
+assert.deepEqual(
+  unlocalizedDialogCalls,
+  [],
+  `SPIKE alert and confirmation text must use translated messages: ${unlocalizedDialogCalls.join(", ")}`
+);
+
 const readJapaneseCatalog = (filename) =>
   JSON.parse(fs.readFileSync(new URL(filename, import.meta.url), "utf8")).ja ||
   {};

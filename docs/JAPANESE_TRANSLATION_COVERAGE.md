@@ -5,7 +5,7 @@
 - 拡張数：142
 - ギャラリー名称・説明：284/284（未翻訳 0）
 - ブロック・メニュー・実行時メッセージ：2556/2556（未翻訳 0）
-- SPIKE Prime独自カタログ：161/161（`extensions/CrispStrobe/legospike_turbowarp_transpile.js`。通常の `Scratch.translate()` 抽出対象外）
+- SPIKE Prime独自カタログ：170/170（`extensions/CrispStrobe/legospike_turbowarp_transpile.js`。通常の `Scratch.translate()` 抽出対象外。ブロック表示、メニュー、診断文言、確認・エラーダイアログを含む）
 
 | 拡張ID | 拡張名（英語） | ギャラリー名・説明 | 実行時文言 |
 |---|---|---:|---:|

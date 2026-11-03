@@ -15,12 +15,13 @@ SPIKE Prime拡張の表示文言は、LEGO Educationが日本語で使ってい�
 | color sensor | カラーセンサー |
 | distance sensor | 距離センサー |
 | force sensor | フォースセンサー |
-| light matrix | ライトマトリックス |
+| hub LED light matrix | ハブのLEDライトマトリクス |
+| 3x3 color light matrix | カラー・ライトマトリクス |
 | movement motor | 移動用モーター |
 | steering | ステアリング |
 | Pitch / Roll / Yaw | Pitch / Roll / Yaw |
 
-「相対位置」「絶対位置」は、モーターの位置値であることをブロック文に含める。度単位の回転量である値を、距離や速度として表現しない。角速度の値には「回転速度（度/秒）」を使う。
+「相対位置」「絶対位置」は、モーターの位置値であることをブロック文に含める。度単位の回転量である値を、距離や速度として表現しない。角速度の値には「回転速度（度/秒）」を使う。ハブ内蔵の5×5表示部と外付けの3×3カラー・ライトマトリクスは別の機器なので、ブロック表示でも区別する。
 
 ## プロジェクト互換性
 
@@ -31,7 +32,8 @@ SPIKE Prime拡張の表示文言は、LEGO Educationが日本語で使ってい�
 ## 参照
 
 - [LEGO Education SPIKE アプリ（日本語）](https://education.lego.com/ja-jp/downloads/spike-app/software/) — SPIKE アプリ、ワードブロックなどの用語。
-- [LEGO Education SPIKE Prime サポート（日本語）](https://education.lego.com/ja-jp/product-resources/spike-prime/先生向けリソース/ヒントと豆知識/) — ハブ、カラーセンサー、距離センサー、フォースセンサー、ライトマトリックスなどの表記。
+- [LEGO Education SPIKE Prime サポート（日本語）](https://education.lego.com/ja-jp/product-resources/spike-prime/先生向けリソース/ヒントと豆知識/) — ハブのLEDライトマトリクス、カラーセンサー、距離センサーなどの表記。
+- [LEGO Education 3×3 カラー・ライトマトリクス（日本語）](https://education.lego.com/ja-jp/products/lego-technic-color-light-matrix/45608/) — 外付けデバイス名「カラー・ライトマトリクス」の表記。
 - [LEGO Education Sアンギュラーモーター（日本語）](https://education.lego.com/ja-jp/products/lego-technic-small-angular-motor/45607/) — 絶対位置検出機能、絶対ポジショニング機能の表記。
 
 LEGO Educationの公開日本語資料を用語の根拠とする。SPIKEアプリ内部の翻訳カタログを直接参照していない文字列について、アプリ画面と一字一句同一であるとは主張しない。
