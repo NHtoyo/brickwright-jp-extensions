@@ -91,14 +91,14 @@ class FakeSound:
         self.calls.append(("stop",))
 
 
-def fake_hub_environment():
+def fake_hub_environment(include_module_tunnel=True):
     tunnel = FakeTunnel()
     motor = FakeMotor()
     matrix = FakeMatrix()
     sound = FakeSound()
     ports = types.SimpleNamespace(**{name: object() for name in "ABCDEF"})
     hub = types.ModuleType("hub")
-    hub.config = {"module_tunnel": tunnel}
+    hub.config = {"module_tunnel": tunnel} if include_module_tunnel else {}
     hub.port = ports
     hub.light_matrix = matrix
     hub.sound = sound
@@ -188,6 +188,10 @@ class SpikeControllerFakeHubTests(unittest.TestCase):
             self.tunnel.events[-1],
             {"i": "h1", "ok": True, "result": "bw-spike-1"},
         )
+
+    def test_missing_module_tunnel_fails_during_hub_program_initialization(self):
+        with self.assertRaisesRegex(KeyError, "module_tunnel"):
+            fake_hub_environment(include_module_tunnel=False)
 
     def test_motor_start_stop_degrees_timed_and_absolute_position(self):
         self.dispatch({"cmd": "motor.run", "port": "A", "velocity": 180, "request_id": "1"})

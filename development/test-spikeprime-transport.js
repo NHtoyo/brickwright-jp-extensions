@@ -304,7 +304,19 @@ function bytes(...parts) {
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
-function setup({ failRequestWrite = false, locale = "en" } = {}) {
+async function waitUntil(predicate, message, attempts = 100) {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    if (predicate()) return;
+    await tick();
+  }
+  assert.fail(message);
+}
+
+function setup({
+  failRequestWrite = false,
+  failWriteMessageType = null,
+  locale = "en",
+} = {}) {
   const clock = new FakeClock();
   const runtime = new FakeRuntime();
   const device = new FakeHubDevice();
@@ -329,6 +341,12 @@ function setup({ failRequestWrite = false, locale = "en" } = {}) {
     if (
       failRequestWrite &&
       completeMessages.some((message) => message[0] === 0x28)
+    ) {
+      device.rx.failNextWrite = true;
+    }
+    if (
+      failWriteMessageType !== null &&
+      completeMessages.some((message) => message[0] === failWriteMessageType)
     ) {
       device.rx.failNextWrite = true;
     }
@@ -477,7 +495,15 @@ function crc32Aligned(data, seed = 0) {
 
 function attachFakeControllerHub(
   state,
-  { failChunkIndex = -1, malformedResponseType = null } = {}
+  {
+    failChunkIndex = -1,
+    malformedResponseType = null,
+    startNotificationDelayMs = 0,
+    suppressStartNotification = false,
+    disconnectAfterProgramFlowResponse = false,
+    startupConsoleError = null,
+    helloResponseDelayMs = 0,
+  } = {}
 ) {
   const { device } = state;
   const slots = new Map([
@@ -492,6 +518,9 @@ function attachFakeControllerHub(
     chunkIndex: 0,
     ignoreCommands: new Set(),
     rejectCommands: new Set(),
+    helloCount: 0,
+    startNotificationDelayMs,
+    helloResponseDelayMs,
   };
   const emit = (message) => device.tx.emit(packMessage(message));
   const status = (type, ok) =>
@@ -611,6 +640,25 @@ function attachFakeControllerHub(
         slots.set(upload.slot, program);
         controller.running = true;
         status(0x1f, true);
+        if (disconnectAfterProgramFlowResponse) {
+          device.gatt.disconnect();
+          break;
+        }
+        if (startupConsoleError) {
+          const output = new TextEncoder().encode(`${startupConsoleError}\0`);
+          emit(Uint8Array.from([0x21, ...output]));
+          controller.running = false;
+          emit(Uint8Array.from([0x20, 1]));
+          break;
+        }
+        if (!suppressStartNotification) {
+          const notifyStarted = () => emit(Uint8Array.from([0x20, 0]));
+          if (startNotificationDelayMs > 0) {
+            state.clock.setTimeout(notifyStarted, startNotificationDelayMs);
+          } else {
+            notifyStarted();
+          }
+        }
         break;
       }
       case 0x32: {
@@ -666,7 +714,14 @@ function attachFakeControllerHub(
           break;
         }
         if (request.c === "h") {
-          emitTunnel({ i: request.i, ok: true, result: "bw-spike-1" });
+          controller.helloCount++;
+          const acknowledge = () =>
+            emitTunnel({ i: request.i, ok: true, result: "bw-spike-1" });
+          if (helloResponseDelayMs > 0) {
+            state.clock.setTimeout(acknowledge, helloResponseDelayMs);
+          } else {
+            acknowledge();
+          }
           break;
         }
         if (!action.cmd) {
@@ -935,7 +990,7 @@ test("SPIKE 3.x never writes an output command before a controller handshake", a
   );
 });
 
-test("disconnect clears the partial frame and reconnect starts a fresh diagnostic session", async () => {
+test("GATT disconnect clears the partial frame but preserves its diagnostic history", async () => {
   const state = setup();
   await connect(state);
   state.device.tx.emit(
@@ -951,7 +1006,33 @@ test("disconnect clears the partial frame and reconnect starts a fresh diagnosti
   latest.emit(packMessage(notification(imuRecord({ pitch: 20 }))));
   const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
   assert.equal(diagnostics.imuNotificationCount, 1);
+  assert.equal(diagnostics.disconnectCount, 1);
+  assert.equal(diagnostics.lastDisconnect.origin, "gattserverdisconnected");
+  assert.equal(diagnostics.lastFirmwareVersion, "1.6.62");
+  assert.ok(
+    diagnostics.recentEvents.some(
+      (event) =>
+        event.type === "disconnect" && event.origin === "gattserverdisconnected"
+    )
+  );
   assert.equal(state.ext._peripheral._spike3.angle.pitch, 20);
+});
+
+test("a requested local disconnect is recorded separately from a GATT disconnect event", async () => {
+  const state = setup();
+  await connect(state);
+  state.ext._peripheral._spike3.disconnect();
+
+  const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.lastDisconnect.origin, "user-requested");
+  assert.equal(diagnostics.lastDisconnect.requested, true);
+  assert.equal(diagnostics.disconnectCount, 1);
+  assert.equal(
+    diagnostics.recentEvents.some(
+      (event) => event.origin === "gattserverdisconnected"
+    ),
+    false
+  );
 });
 
 test("a fake-device write failure is surfaced in diagnostics", async () => {
@@ -969,6 +1050,16 @@ test("a fake-device write failure is surfaced in diagnostics", async () => {
   assert.equal(diagnostics.notificationRequest.status, "write-error");
   assert.match(
     diagnostics.lastCommunicationError,
+    /simulated fake-device write failure/
+  );
+  assert.equal(diagnostics.lastDisconnect.origin, "ble-write-exception");
+  assert.equal(diagnostics.lastTransportError.messageType, 0x28);
+  assert.equal(
+    diagnostics.lastTransportError.messageName,
+    "DeviceNotificationRequest"
+  );
+  assert.match(
+    diagnostics.lastTransportError.stack,
     /simulated fake-device write failure/
   );
 });
@@ -1121,6 +1212,188 @@ test("controller installation is confirmed, CRC-checked, transferred, started, a
   const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
   assert.equal(diagnostics.controllerStatus, "ready");
   assert.equal(diagnostics.controllerVersion, "brickwright-spike-controller/1");
+  assert.equal(diagnostics.controllerInstallAttempt.outcome, "ready");
+  assert.equal(
+    diagnostics.controllerInstallAttempt.lastSuccessfulStage,
+    "controller-hello-acknowledged"
+  );
+  assert.equal(diagnostics.lastProgramFlowNotification.action, "start");
+});
+
+test("a GATT disconnect after ProgramFlowResponse is distinct from a failed BLE write", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state, {
+    disconnectAfterProgramFlowResponse: true,
+  });
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+
+  await assert.rejects(
+    state.ext.installHubController({ SLOT: 7 }),
+    /disconnected before the controller start was verified/i
+  );
+
+  const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.lastDisconnect.origin, "gattserverdisconnected");
+  assert.equal(diagnostics.controllerStatus, "disconnected");
+  assert.equal(
+    diagnostics.lastSuccessfulControllerStage.stage,
+    "program-flow-response-accepted"
+  );
+  assert.equal(diagnostics.controllerInstallAttempt.outcome, "interrupted");
+  assert.equal(fakeHub.helloCount, 0);
+  assert.equal(
+    unpackWrittenMessages(state.device.writes).some(
+      (message) => message[0] === 0x32
+    ),
+    false,
+    "the extension does not tunnel hello after the GATT connection is gone"
+  );
+});
+
+test("a Python startup failure is recorded from ConsoleNotification and stop notification", async () => {
+  const state = setup();
+  await connect(state);
+  const startupTraceback = "Traceback: KeyError: module_tunnel";
+  const fakeHub = attachFakeControllerHub(state, {
+    startupConsoleError: startupTraceback,
+  });
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+
+  await assert.rejects(
+    state.ext.installHubController({ SLOT: 8 }),
+    /stopped before it completed its startup handshake.*KeyError: module_tunnel/i
+  );
+
+  const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.controllerStatus, "startup-error");
+  assert.equal(diagnostics.lastProgramFlowNotification.action, "stop");
+  assert.match(diagnostics.recentConsoleOutput, /KeyError: module_tunnel/);
+  assert.equal(diagnostics.controllerInstallAttempt.outcome, "startup-error");
+  assert.equal(
+    diagnostics.lastSuccessfulControllerStage.stage,
+    "program-flow-response-accepted"
+  );
+  assert.equal(fakeHub.helloCount, 0);
+});
+
+test("a failed ProgramFlow BLE write records its exception and is not labeled a GATT event", async () => {
+  const state = setup({ failWriteMessageType: 0x1e });
+  await connect(state);
+  attachFakeControllerHub(state);
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+
+  await assert.rejects(
+    state.ext.installHubController({ SLOT: 9 }),
+    /simulated fake-device write failure/
+  );
+
+  const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.lastDisconnect.origin, "ble-write-exception");
+  assert.equal(diagnostics.lastWrite.messageType, 0x1e);
+  assert.equal(diagnostics.lastWrite.messageName, "ProgramFlowRequest");
+  assert.equal(diagnostics.lastWrite.status, "failed");
+  assert.match(
+    diagnostics.lastWrite.errorStack,
+    /simulated fake-device write failure/
+  );
+  assert.equal(diagnostics.lastTransportError.messageType, 0x1e);
+  assert.equal(
+    diagnostics.lastTransportError.messageName,
+    "ProgramFlowRequest"
+  );
+  assert.equal(
+    diagnostics.controllerInstallAttempt.lastSuccessfulStage,
+    "program-upload-complete"
+  );
+});
+
+test("delayed program-start and hello notifications wait for readiness before reporting success", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state, {
+    startNotificationDelayMs: 300,
+    helloResponseDelayMs: 500,
+  });
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+
+  const install = state.ext.installHubController({ SLOT: 10 });
+  await waitUntil(
+    () =>
+      JSON.parse(state.ext.getCommunicationDiagnostics())
+        .lastSuccessfulControllerStage?.stage ===
+      "program-flow-response-accepted",
+    "ProgramFlowResponse should be acknowledged before waiting for start"
+  );
+  assert.equal(fakeHub.helloCount, 0);
+  state.clock.advance(299);
+  await tick();
+  assert.equal(fakeHub.helloCount, 0);
+
+  state.clock.advance(1);
+  await waitUntil(
+    () => fakeHub.helloCount === 1,
+    "hello should follow start notification"
+  );
+  assert.equal(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).controllerStatus,
+    "checking"
+  );
+  state.clock.advance(499);
+  await tick();
+  assert.equal(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).controllerStatus,
+    "checking"
+  );
+  state.clock.advance(1);
+  const result = await install;
+  assert.equal(result.version, 1);
+  assert.equal(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).controllerStatus,
+    "ready"
+  );
+});
+
+test("manual controller check can verify an already-running program without clearing or retransferring", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state, {
+    suppressStartNotification: true,
+  });
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+
+  const install = state.ext.installHubController({ SLOT: 11 });
+  await waitUntil(
+    () =>
+      JSON.parse(state.ext.getCommunicationDiagnostics())
+        .lastSuccessfulControllerStage?.stage ===
+      "program-flow-response-accepted",
+    "the program-start request should be acknowledged"
+  );
+  state.clock.advance(7000);
+  await assert.rejects(install, /ProgramFlowRequest but did not report/i);
+  assert.equal(fakeHub.running, true);
+  assert.equal(fakeHub.helloCount, 0);
+
+  const beforeCheck = unpackWrittenMessages(state.device.writes);
+  const priorClearCount = beforeCheck.filter(
+    (message) => message[0] === 0x46
+  ).length;
+  const priorChunkCount = beforeCheck.filter(
+    (message) => message[0] === 0x10
+  ).length;
+  const result = await state.ext.checkHubController();
+  assert.equal(result.version, 1);
+  assert.equal(fakeHub.helloCount, 1);
+  const afterCheck = unpackWrittenMessages(state.device.writes);
+  assert.equal(
+    afterCheck.filter((message) => message[0] === 0x46).length,
+    priorClearCount
+  );
+  assert.equal(
+    afterCheck.filter((message) => message[0] === 0x10).length,
+    priorChunkCount
+  );
 });
 
 test("host output blocks are interpreted by the fake controller and return execution acknowledgements", async () => {

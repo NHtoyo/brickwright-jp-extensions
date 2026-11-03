@@ -94,6 +94,16 @@
         "Install and start the Brickwright SPIKE controller first.",
       controllerTimeout:
         "The hub controller did not acknowledge the command in time.",
+      controllerStartNotificationTimeout:
+        "The hub accepted ProgramFlowRequest but did not report that the program started.",
+      controllerStoppedBeforeReady:
+        "The Brickwright controller stopped before it completed its startup handshake.",
+      hubDisconnectedBeforeControllerStart:
+        "The hub disconnected before the controller start was verified ({0}).",
+      hubDisconnectedAfterProgramStart:
+        "The hub disconnected after the start notification and before the controller replied ({0}).",
+      hubDisconnectedDuringControllerCommand:
+        "The hub disconnected during a controller command ({0}).",
       controllerCommandFailed: "The hub could not execute the command",
       controllerUnsupported:
         "This SPIKE operation is not supported by the controller",
@@ -112,6 +122,51 @@
       "diag.controllerStatus.disconnected": "disconnected",
       "diag.controllerStatus.not-verified": "not verified",
       "diag.controllerStatus.checking": "checking",
+      "diag.controllerStatus.startup-error": "program stopped during startup",
+      "diag.controllerStatus.stopped": "program stopped",
+      "diag.controllerOutcome.in-progress": "in progress",
+      "diag.controllerOutcome.interrupted": "interrupted",
+      "diag.controllerOutcome.startup-error": "startup error",
+      "diag.controllerOutcome.not-verified": "not verified",
+      "diag.controllerOutcome.ready": "verified ready",
+      "diag.controllerOutcome.failed": "failed",
+      "diag.writeStatus.pending": "pending",
+      "diag.writeStatus.write-completed": "write completed",
+      "diag.writeStatus.failed": "failed",
+      "diag.controllerStage.waiting-info-response":
+        "waiting for hub information",
+      "diag.controllerStage.info-response-received": "hub information received",
+      "diag.controllerStage.slot-clear-response-received":
+        "slot clear response received",
+      "diag.controllerStage.file-upload-accepted": "file upload accepted",
+      "diag.controllerStage.transfer-chunk-acknowledged":
+        "program data chunk acknowledged",
+      "diag.controllerStage.program-upload-complete":
+        "program transfer complete",
+      "diag.controllerStage.program-flow-request-sent": "start request sent",
+      "diag.controllerStage.program-flow-response-accepted":
+        "start request accepted",
+      "diag.controllerStage.program-start-notified":
+        "program start notification received",
+      "diag.controllerStage.controller-hello-acknowledged":
+        "controller version response received",
+      "diag.controllerStage.start-notification-timeout":
+        "start notification timed out",
+      "diag.controllerStage.program-stopped-before-handshake":
+        "program stopped before controller response",
+      "diag.lastControllerStage": "Controller installation stage",
+      "diag.lastSuccessfulControllerStage": "Last successful stage",
+      "diag.lastDisconnectOrigin": "Last disconnect origin",
+      "diag.lastWrite": "Last BLE write",
+      "diag.lastConsoleOutput": "Recent hub console output",
+      "diag.recentEvents": "Recent communication events",
+      "diag.lastWriteError": "Last BLE write error and stack",
+      "diag.disconnectOrigin.gattserverdisconnected": "GATT disconnect event",
+      "diag.disconnectOrigin.ble-write-exception": "BLE write exception",
+      "diag.disconnectOrigin.write-precondition-failure":
+        "BLE write precondition",
+      "diag.disconnectOrigin.user-requested": "user requested",
+      "diag.disconnectOrigin.transport-reset": "transport reset",
       "diag.connection": "Bluetooth connection",
       "diag.connected": "connected",
       "diag.disconnected": "not connected",
@@ -352,6 +407,16 @@
       controllerNotReady:
         "先にBrickwright SPIKE制御プログラムを転送して起動してください。",
       controllerTimeout: "制御プログラムから時間内に応答がありませんでした。",
+      controllerStartNotificationTimeout:
+        "ProgramFlowRequestは受理されましたが、プログラム起動通知が届きませんでした。",
+      controllerStoppedBeforeReady:
+        "Brickwright制御プログラムは、起動確認を完了する前に停止しました。",
+      hubDisconnectedBeforeControllerStart:
+        "制御プログラムの起動確認前にハブとの接続が切れました（{0}）。",
+      hubDisconnectedAfterProgramStart:
+        "起動通知の後、制御プログラムの応答前にハブとの接続が切れました（{0}）。",
+      hubDisconnectedDuringControllerCommand:
+        "制御プログラムへの命令中にハブとの接続が切れました（{0}）。",
       controllerCommandFailed: "ハブが命令を実行できませんでした",
       controllerUnsupported: "このSPIKE命令は制御プログラムで未対応です",
       controllerUnsupportedStopAction:
@@ -369,6 +434,47 @@
       "diag.controllerStatus.disconnected": "切断済み",
       "diag.controllerStatus.not-verified": "未確認",
       "diag.controllerStatus.checking": "応答確認中",
+      "diag.controllerStatus.startup-error": "起動中にプログラムが停止",
+      "diag.controllerStatus.stopped": "プログラム停止",
+      "diag.controllerOutcome.in-progress": "処理中",
+      "diag.controllerOutcome.interrupted": "中断",
+      "diag.controllerOutcome.startup-error": "起動エラー",
+      "diag.controllerOutcome.not-verified": "未確認",
+      "diag.controllerOutcome.ready": "応答確認済み",
+      "diag.controllerOutcome.failed": "失敗",
+      "diag.writeStatus.pending": "送信中",
+      "diag.writeStatus.write-completed": "書き込み完了",
+      "diag.writeStatus.failed": "失敗",
+      "diag.controllerStage.waiting-info-response": "ハブ情報の応答待ち",
+      "diag.controllerStage.info-response-received": "ハブ情報を受信",
+      "diag.controllerStage.slot-clear-response-received":
+        "スロット消去の応答を受信",
+      "diag.controllerStage.file-upload-accepted": "ファイル転送を受理",
+      "diag.controllerStage.transfer-chunk-acknowledged":
+        "プログラムデータのチャンクに応答",
+      "diag.controllerStage.program-upload-complete": "プログラム転送完了",
+      "diag.controllerStage.program-flow-request-sent": "起動要求を送信",
+      "diag.controllerStage.program-flow-response-accepted": "起動要求を受理",
+      "diag.controllerStage.program-start-notified": "プログラム起動通知を受信",
+      "diag.controllerStage.controller-hello-acknowledged":
+        "制御プログラムの応答を受信",
+      "diag.controllerStage.start-notification-timeout":
+        "起動通知がタイムアウト",
+      "diag.controllerStage.program-stopped-before-handshake":
+        "応答前にプログラムが停止",
+      "diag.lastControllerStage": "制御プログラムの起動段階",
+      "diag.lastSuccessfulControllerStage": "最後に成功した段階",
+      "diag.lastDisconnectOrigin": "最後の切断元",
+      "diag.lastWrite": "最後のBLE書き込み",
+      "diag.lastConsoleOutput": "ハブの直近のコンソール出力",
+      "diag.recentEvents": "直近の通信イベント",
+      "diag.lastWriteError": "最後のBLE書き込みエラーとスタック",
+      "diag.disconnectOrigin.gattserverdisconnected": "GATT切断イベント",
+      "diag.disconnectOrigin.ble-write-exception": "BLE書き込み例外",
+      "diag.disconnectOrigin.write-precondition-failure":
+        "BLE書き込み前提条件エラー",
+      "diag.disconnectOrigin.user-requested": "ユーザー操作",
+      "diag.disconnectOrigin.transport-reset": "通信経路のリセット",
       "diag.connection": "Bluetooth 接続",
       "diag.connected": "接続中",
       "diag.disconnected": "未接続",
@@ -1569,6 +1675,7 @@
     DEV_DISTANCE: 0x0d,
     DEV_MATRIX_3X3: 0x0e,
     NOTIFICATION_RESPONSE_TIMEOUT_MS: 2000,
+    CONTROLLER_START_NOTIFICATION_TIMEOUT_MS: 7000,
   };
 
   // The wire protocol only carries TunnelMessage payloads; it does not define
@@ -2096,6 +2203,8 @@ if __name__ == "__main__":
       this._characteristicChangedListener = null;
       this._writeChain = Promise.resolve();
       this._maxPacketSize = 20;
+      this._activeWriteContext = null;
+      this._lastWriteContext = null;
     }
 
     get kind() {
@@ -2114,10 +2223,18 @@ if __name__ == "__main__":
         filters: [{ services: [SPIKE3.SERVICE_LC] }],
         optionalServices: [SPIKE3.SERVICE_LC],
       });
-      this._deviceDisconnectListener = () => {
+      this._deviceDisconnectListener = (event) => {
         this._connected = false;
         this._removeListeners();
-        if (this._resetCallback) this._resetCallback();
+        if (this._resetCallback) {
+          this._resetCallback({
+            origin: "gattserverdisconnected",
+            requested: false,
+            eventType: event?.type || "gattserverdisconnected",
+            messageContext:
+              this._activeWriteContext || this._lastWriteContext || null,
+          });
+        }
         this._runtime.emit(this._runtime.constructor.PERIPHERAL_DISCONNECTED);
       };
       this._device.addEventListener(
@@ -2155,8 +2272,18 @@ if __name__ == "__main__":
       if (this._connectCallback) this._connectCallback();
     }
 
-    disconnect() {
+    disconnect({
+      origin = "user-requested",
+      error = null,
+      messageContext = null,
+    } = {}) {
+      const wasConnected = this._connected;
       this._connected = false;
+      // Remove the listener before calling GATT.disconnect(). That call can
+      // synchronously trigger gattserverdisconnected in test doubles and may
+      // otherwise make our own write failure or user request look like a
+      // remote disconnect.
+      this._removeListeners();
       try {
         if (this._device && this._device.gatt && this._device.gatt.connected) {
           this._device.gatt.disconnect();
@@ -2165,7 +2292,14 @@ if __name__ == "__main__":
         // A disconnect that fails because the device already went away is the
         // outcome we wanted.
       }
-      this._removeListeners();
+      if (wasConnected && this._resetCallback) {
+        this._resetCallback({
+          origin,
+          requested: origin === "user-requested",
+          error,
+          messageContext,
+        });
+      }
       this._runtime.emit(this._runtime.constructor.PERIPHERAL_DISCONNECTED);
     }
 
@@ -2212,11 +2346,18 @@ if __name__ == "__main__":
      * Writes are serialised and split to the negotiated packet size: a GATT
      * write longer than the MTU is rejected outright rather than fragmented.
      */
-    write(serviceId, characteristicId, message, encoding = null) {
+    write(
+      serviceId,
+      characteristicId,
+      message,
+      encoding = null,
+      messageContext = null
+    ) {
       const bytes =
         encoding === "base64"
           ? Base64Util.base64ToUint8Array(message)
           : Uint8Array.from(message);
+      let writeAttempted = false;
       this._writeChain = this._writeChain
         .catch(() => {})
         .then(async () => {
@@ -2229,20 +2370,46 @@ if __name__ == "__main__":
           }
           // The official BLE transport permits one encoded frame to be sent
           // as sequential writes no larger than max_packet_size.
+          const packetCount = Math.ceil(bytes.length / this._maxPacketSize);
           for (let i = 0; i < bytes.length; i += this._maxPacketSize) {
             const chunk = bytes.slice(i, i + this._maxPacketSize);
+            const context = {
+              ...messageContext,
+              packetIndex: Math.floor(i / this._maxPacketSize),
+              packetCount,
+              packetLength: chunk.length,
+            };
+            this._activeWriteContext = context;
+            this._lastWriteContext = context;
+            writeAttempted = true;
             if (this._rx.writeValueWithoutResponse) {
               await this._rx.writeValueWithoutResponse(chunk);
             } else {
               await this._rx.writeValue(chunk);
             }
+            this._lastWriteContext = {
+              ...context,
+              status: "write-completed",
+              completedAt: Date.now(),
+            };
+            this._activeWriteContext = null;
           }
         })
         .catch((error) => {
           // A failed chunk can leave the hub with a partial COBS frame. Stop
           // using this connection so later commands cannot be appended to it.
-          if (this._errorCallback) this._errorCallback(error);
-          this.disconnect();
+          const context = this._activeWriteContext || {
+            ...messageContext,
+            packetIndex: null,
+            packetCount: Math.ceil(bytes.length / this._maxPacketSize),
+            packetLength: null,
+          };
+          const origin = writeAttempted
+            ? "ble-write-exception"
+            : "write-precondition-failure";
+          this._activeWriteContext = null;
+          if (this._errorCallback) this._errorCallback(error, context);
+          this.disconnect({ origin, error, messageContext: context });
           throw error;
         });
       return this._writeChain;
@@ -3091,6 +3258,7 @@ continuous_sensor_loop()
       this._pendingNotificationRequest = null;
       this._pendingProtocolResponses = new Map();
       this._pendingControllerCommands = new Map();
+      this._controllerStartWaiters = new Set();
       this._controllerCommandId = 0;
       this._controllerCommandQueue = Promise.resolve();
       this._controllerReady = false;
@@ -3149,7 +3317,26 @@ continuous_sensor_loop()
       };
     }
 
-    _resetCommunicationDiagnostics() {
+    _resetCommunicationDiagnostics({ preserveHistory = false } = {}) {
+      const previous = preserveHistory ? this._diagnostics : null;
+      const lastKnownControllerVersion =
+        previous?.lastKnownControllerVersion ||
+        previous?.controllerVersion ||
+        null;
+      const previousInstallStage =
+        previous?.controllerInstallAttempt?.lastSuccessfulStage;
+      const controllerMayBeInstalled = Boolean(
+        lastKnownControllerVersion ||
+          [
+            "file-upload-accepted",
+            "transfer-chunk-acknowledged",
+            "program-upload-complete",
+            "program-flow-request-sent",
+            "program-flow-response-accepted",
+            "program-start-notified",
+            "controller-hello-acknowledged",
+          ].includes(previousInstallStage)
+      );
       this._diagnostics = {
         infoResponseReceivedAt: null,
         notificationRequest: {
@@ -3168,10 +3355,28 @@ continuous_sensor_loop()
         malformedMessageCount: 0,
         malformedNotificationCount: 0,
         unsupportedRecordCount: 0,
-        lastCommunicationError: "",
-        controllerStatus: "not-installed",
+        lastCommunicationError: previous?.lastCommunicationError || "",
+        controllerStatus: controllerMayBeInstalled
+          ? "not-verified"
+          : "not-installed",
         controllerVersion: null,
+        lastKnownControllerVersion,
         lastControllerResponseAt: null,
+        controllerInstallAttempt: previous?.controllerInstallAttempt || null,
+        lastSuccessfulControllerStage:
+          previous?.lastSuccessfulControllerStage || null,
+        lastProgramFlowNotification:
+          previous?.lastProgramFlowNotification || null,
+        lastDisconnect: previous?.lastDisconnect || null,
+        disconnectCount: previous?.disconnectCount || 0,
+        lastWrite: previous?.lastWrite || null,
+        lastTransportError: previous?.lastTransportError || null,
+        lastFirmwareVersion: previous?.lastFirmwareVersion || null,
+        recentEvents: previous?.recentEvents ? [...previous.recentEvents] : [],
+        recentConsoleNotifications: previous?.recentConsoleNotifications
+          ? [...previous.recentConsoleNotifications]
+          : [],
+        recentConsoleOutput: previous?.recentConsoleOutput || "",
       };
       this._matrix5x5 = null;
       this._notificationResponseTimeout = null;
@@ -3189,10 +3394,46 @@ continuous_sensor_loop()
         error instanceof Error
           ? error.message
           : String(error || "unknown error");
+      this._recordDiagnosticEvent("communication-error", {
+        message: this._diagnostics.lastCommunicationError,
+      });
     }
 
-    _recordTransportError(error) {
+    _recordDiagnosticEvent(type, details = {}) {
+      const events = this._diagnostics.recentEvents;
+      events.push({ timestamp: Date.now(), type, ...details });
+      if (events.length > 50) events.splice(0, events.length - 50);
+    }
+
+    _recordTransportError(error, messageContext = null) {
+      const errorDetails = {
+        timestamp: Date.now(),
+        name: error?.name || "Error",
+        message: error?.message || String(error || "unknown error"),
+        stack: error?.stack || "",
+        ...(messageContext || {}),
+      };
+      const previousTransportError = this._diagnostics.lastTransportError;
+      if (
+        messageContext ||
+        !previousTransportError ||
+        previousTransportError.message !== errorDetails.message
+      ) {
+        this._diagnostics.lastTransportError = errorDetails;
+      }
+      if (messageContext) {
+        this._diagnostics.lastWrite = {
+          ...(this._diagnostics.lastWrite || {}),
+          ...messageContext,
+          status: "failed",
+          errorName: errorDetails.name,
+          errorMessage: errorDetails.message,
+          errorStack: errorDetails.stack,
+          completedAt: Date.now(),
+        };
+      }
       this._recordCommunicationError(error);
+      this._recordDiagnosticEvent("transport-error", errorDetails);
       const request = this._diagnostics.notificationRequest;
       if (request.status === "pending") {
         request.status = "write-error";
@@ -3208,6 +3449,32 @@ continuous_sensor_loop()
         clearTimeout(pending.timeout);
         pending.reject(error);
       }
+    }
+
+    _recordControllerInstallStage(stage, successful = false, details = {}) {
+      const attempt = this._diagnostics.controllerInstallAttempt;
+      if (!attempt) return;
+      const timestamp = Date.now();
+      attempt.stage = stage;
+      attempt.updatedAt = timestamp;
+      attempt.stageHistory.push({ stage, timestamp, successful, ...details });
+      if (attempt.stageHistory.length > 40) {
+        attempt.stageHistory.splice(0, attempt.stageHistory.length - 40);
+      }
+      if (successful) {
+        attempt.lastSuccessfulStage = stage;
+        this._diagnostics.lastSuccessfulControllerStage = {
+          stage,
+          timestamp,
+          slot: attempt.slot,
+        };
+      }
+      this._recordDiagnosticEvent("controller-install-stage", {
+        stage,
+        successful,
+        slot: attempt.slot,
+        ...details,
+      });
     }
 
     _settleNotificationRequest(error, responseCode = null) {
@@ -3254,7 +3521,28 @@ continuous_sensor_loop()
         unsupportedRecordCount: this._diagnostics.unsupportedRecordCount,
         controllerStatus: this._diagnostics.controllerStatus,
         controllerVersion: this._diagnostics.controllerVersion,
+        lastKnownControllerVersion:
+          this._diagnostics.lastKnownControllerVersion,
         lastControllerResponseAt: this._diagnostics.lastControllerResponseAt,
+        controllerInstallAttempt: this._diagnostics.controllerInstallAttempt
+          ? JSON.parse(
+              JSON.stringify(this._diagnostics.controllerInstallAttempt)
+            )
+          : null,
+        lastSuccessfulControllerStage:
+          this._diagnostics.lastSuccessfulControllerStage,
+        lastProgramFlowNotification:
+          this._diagnostics.lastProgramFlowNotification,
+        lastDisconnect: this._diagnostics.lastDisconnect,
+        disconnectCount: this._diagnostics.disconnectCount,
+        lastWrite: this._diagnostics.lastWrite,
+        lastTransportError: this._diagnostics.lastTransportError,
+        recentConsoleNotifications: [
+          ...this._diagnostics.recentConsoleNotifications,
+        ],
+        recentConsoleOutput: this._diagnostics.recentConsoleOutput,
+        recentEvents: [...this._diagnostics.recentEvents],
+        lastFirmwareVersion: this._diagnostics.lastFirmwareVersion,
         lastCommunicationError: this._diagnostics.lastCommunicationError,
       };
     }
@@ -3338,11 +3626,86 @@ continuous_sensor_loop()
     }
 
     disconnect() {
-      if (this._link) this._link.disconnect();
-      this.reset();
+      if (this._link instanceof WebBLELink) {
+        this._link.disconnect({ origin: "user-requested" });
+      } else {
+        if (this._link) this._link.disconnect();
+        this.reset({ origin: "user-requested", requested: true });
+      }
     }
 
-    reset() {
+    reset(details = {}) {
+      const disconnect =
+        details && typeof details === "object"
+          ? details
+          : { origin: String(details || "transport-reset") };
+      const origin = disconnect.origin || "transport-reset";
+      const timestamp = Date.now();
+      const messageContext = disconnect.messageContext || null;
+      this._diagnostics.disconnectCount++;
+      this._diagnostics.lastDisconnect = {
+        timestamp,
+        origin,
+        requested: Boolean(disconnect.requested),
+        eventType: disconnect.eventType || null,
+        messageContext,
+        errorName: disconnect.error?.name || null,
+        errorMessage: disconnect.error?.message || null,
+        errorStack: disconnect.error?.stack || null,
+      };
+      this._recordDiagnosticEvent(
+        "disconnect",
+        this._diagnostics.lastDisconnect
+      );
+      if (this._firmware) {
+        this._diagnostics.lastFirmwareVersion = this._firmware;
+      }
+      if (disconnect.error) {
+        this._recordCommunicationError(disconnect.error);
+      } else if (origin === "gattserverdisconnected") {
+        this._recordCommunicationError(
+          "Web Bluetooth reported gattserverdisconnected"
+        );
+      }
+      const attempt = this._diagnostics.controllerInstallAttempt;
+      if (attempt?.outcome === "in-progress") {
+        attempt.outcome = "interrupted";
+        attempt.finishedAt = timestamp;
+        attempt.disconnectOrigin = origin;
+        attempt.error = {
+          message:
+            disconnect.error?.message ||
+            `SPIKE hub disconnected during controller installation (${origin})`,
+          name: disconnect.error?.name || "HubDisconnectedError",
+          stack: disconnect.error?.stack || "",
+        };
+      }
+      for (const waiter of this._controllerStartWaiters) {
+        clearTimeout(waiter.timeout);
+        waiter.reject(
+          Object.assign(
+            new Error(
+              t(
+                "hubDisconnectedBeforeControllerStart",
+                t(`diag.disconnectOrigin.${origin}`)
+              )
+            ),
+            {
+              code: "ERR_HUB_DISCONNECTED_BEFORE_CONTROLLER_START",
+              disconnectOrigin: origin,
+            }
+          )
+        );
+      }
+      this._controllerStartWaiters.clear();
+      for (const waiter of this._infoResponseWaiters || []) {
+        waiter.reject?.(
+          new Error(
+            `SPIKE hub disconnected while waiting for InfoResponse (${origin})`
+          )
+        );
+      }
+      this._infoResponseWaiters = [];
       this._clearNotificationResponseTimeout();
       if (this._pendingNotificationRequest) {
         this._pendingNotificationRequest.request.status = "disconnected";
@@ -3358,7 +3721,10 @@ continuous_sensor_loop()
       this._controllerReady = false;
       this._controllerVersion = null;
       this._diagnostics.controllerStatus = "disconnected";
-      this._diagnostics.controllerVersion = null;
+      if (this._diagnostics.controllerVersion) {
+        this._diagnostics.lastKnownControllerVersion =
+          this._diagnostics.controllerVersion;
+      }
       if (this._controllerHeartbeatTimer !== null) {
         clearInterval(this._controllerHeartbeatTimer);
         this._controllerHeartbeatTimer = null;
@@ -3366,14 +3732,30 @@ continuous_sensor_loop()
       for (const pending of this._pendingProtocolResponses.values()) {
         clearTimeout(pending.timeout);
         pending.reject(
-          new Error("SPIKE hub disconnected during protocol request")
+          Object.assign(
+            new Error(
+              t(
+                "hubDisconnectedDuringControllerCommand",
+                t(`diag.disconnectOrigin.${origin}`)
+              )
+            ),
+            { code: "ERR_HUB_DISCONNECTED", disconnectOrigin: origin }
+          )
         );
       }
       this._pendingProtocolResponses.clear();
       for (const pending of this._pendingControllerCommands.values()) {
         clearTimeout(pending.timeout);
         pending.reject(
-          new Error("SPIKE hub disconnected during controller command")
+          Object.assign(
+            new Error(
+              t(
+                "hubDisconnectedDuringControllerCommand",
+                t(`diag.disconnectOrigin.${origin}`)
+              )
+            ),
+            { code: "ERR_HUB_DISCONNECTED", disconnectOrigin: origin }
+          )
         );
       }
       this._pendingControllerCommands.clear();
@@ -3740,7 +4122,21 @@ continuous_sensor_loop()
         this._controllerVersion = `${result.protocol}/${result.version}`;
         this._diagnostics.controllerStatus = "ready";
         this._diagnostics.controllerVersion = this._controllerVersion;
+        this._diagnostics.lastKnownControllerVersion = this._controllerVersion;
+        this._recordDiagnosticEvent("controller-hello-acknowledged", {
+          version: this._controllerVersion,
+          requestId,
+        });
         this._startControllerHeartbeat();
+        const attempt = this._diagnostics.controllerInstallAttempt;
+        if (attempt?.outcome === "in-progress") {
+          this._recordControllerInstallStage(
+            "controller-hello-acknowledged",
+            true
+          );
+          attempt.outcome = "ready";
+          attempt.finishedAt = Date.now();
+        }
       }
       this._diagnostics.lastControllerResponseAt = Date.now();
       pending.resolve(result);
@@ -3804,6 +4200,17 @@ continuous_sensor_loop()
         this._recordCommunicationError(error);
         pending.reject(error);
       } else {
+        if (
+          data[0] === SPIKE3.PROGRAM_FLOW_RESPONSE &&
+          data[1] === 0 &&
+          this._diagnostics.controllerInstallAttempt?.outcome === "in-progress"
+        ) {
+          this._diagnostics.controllerStatus = "starting";
+          this._recordControllerInstallStage(
+            "program-flow-response-accepted",
+            true
+          );
+        }
         pending.resolve({ ok: data[1] === 0, status: data[1] });
       }
       return true;
@@ -3874,8 +4281,97 @@ continuous_sensor_loop()
             clearTimeout(timeout);
             resolve();
           },
+          reject: (error) => {
+            clearTimeout(timeout);
+            reject(error);
+          },
         };
         this._infoResponseWaiters.push(waiter);
+      });
+    }
+
+    _waitForControllerStart(attempt, timeoutMs) {
+      const complete = () => {
+        if (attempt.programFlowStoppedAt) {
+          const consoleOutput = this._diagnostics.recentConsoleOutput;
+          const error = Object.assign(
+            new Error(
+              `${t("controllerStoppedBeforeReady")}${consoleOutput ? `: ${consoleOutput}` : ""}`
+            ),
+            { code: "ERR_CONTROLLER_STOPPED_BEFORE_READY" }
+          );
+          attempt.outcome = "startup-error";
+          attempt.finishedAt = Date.now();
+          this._diagnostics.controllerStatus = "startup-error";
+          attempt.stage = "program-stopped-before-handshake";
+          attempt.updatedAt = Date.now();
+          this._recordDiagnosticEvent("controller-start-failed", {
+            slot: attempt.slot,
+            reason: "program-stopped-before-handshake",
+            consoleOutput,
+          });
+          return Promise.reject(error);
+        }
+        if (attempt.programFlowStartedAt) {
+          this._recordControllerInstallStage("program-start-notified", true);
+          return Promise.resolve({
+            timestamp: attempt.programFlowStartedAt,
+            action: "start",
+          });
+        }
+        if (!this.isConnected()) {
+          const origin = this._diagnostics.lastDisconnect?.origin || "unknown";
+          return Promise.reject(
+            Object.assign(
+              new Error(
+                t(
+                  "hubDisconnectedBeforeControllerStart",
+                  t(`diag.disconnectOrigin.${origin}`)
+                )
+              ),
+              {
+                code: "ERR_HUB_DISCONNECTED_BEFORE_CONTROLLER_START",
+                disconnectOrigin: origin,
+              }
+            )
+          );
+        }
+        return null;
+      };
+      const completed = complete();
+      if (completed) return completed;
+
+      return new Promise((resolve, reject) => {
+        const waiter = {
+          attempt,
+          timeout: null,
+          resolve: (notification) => {
+            this._controllerStartWaiters.delete(waiter);
+            clearTimeout(waiter.timeout);
+            this._recordControllerInstallStage("program-start-notified", true);
+            resolve(notification);
+          },
+          reject: (error) => {
+            this._controllerStartWaiters.delete(waiter);
+            clearTimeout(waiter.timeout);
+            reject(error);
+          },
+        };
+        waiter.timeout = setTimeout(() => {
+          if (!this._controllerStartWaiters.delete(waiter)) return;
+          const error = Object.assign(
+            new Error(t("controllerStartNotificationTimeout")),
+            { code: "ERR_CONTROLLER_START_NOTIFICATION_TIMEOUT" }
+          );
+          attempt.outcome = "not-verified";
+          attempt.finishedAt = Date.now();
+          attempt.stage = "start-notification-timeout";
+          attempt.updatedAt = Date.now();
+          this._diagnostics.controllerStatus = "not-verified";
+          this._recordCommunicationError(error);
+          reject(error);
+        }, timeoutMs);
+        this._controllerStartWaiters.add(waiter);
       });
     }
 
@@ -3894,7 +4390,14 @@ continuous_sensor_loop()
         })
         .catch((error) => {
           this._controllerReady = false;
-          this._diagnostics.controllerStatus = "error";
+          this._diagnostics.controllerStatus = this.isConnected()
+            ? this._diagnostics.controllerInstallAttempt?.outcome ===
+              "startup-error"
+              ? "startup-error"
+              : error?.code === "ERR_CONTROLLER_TIMEOUT"
+                ? "timeout"
+                : "error"
+            : "disconnected";
           this._recordCommunicationError(error);
           throw error;
         });
@@ -3914,8 +4417,23 @@ continuous_sensor_loop()
       }
       this._diagnostics.controllerStatus = "installing";
       this._controllerReady = false;
+      const attempt = {
+        slot,
+        startedAt: Date.now(),
+        updatedAt: Date.now(),
+        stage: "waiting-info-response",
+        outcome: "in-progress",
+        lastSuccessfulStage: null,
+        stageHistory: [],
+        transferredBytes: 0,
+        startNotificationTimeoutMs:
+          SPIKE3.CONTROLLER_START_NOTIFICATION_TIMEOUT_MS,
+      };
+      this._diagnostics.controllerInstallAttempt = attempt;
+      this._recordControllerInstallStage("waiting-info-response");
       try {
         await this._waitForInfoResponse();
+        this._recordControllerInstallStage("info-response-received", true);
         const program = new TextEncoder().encode(SPIKE3_CONTROLLER_SOURCE);
         const clear = await this._requestHubResponse(
           this._buildClearSlotRequest(slot),
@@ -3924,6 +4442,13 @@ continuous_sensor_loop()
         // The official example permits a non-acknowledged clear because the
         // slot may already be empty. The user has confirmed this exact slot.
         void clear;
+        this._recordControllerInstallStage(
+          "slot-clear-response-received",
+          true,
+          {
+            acknowledged: clear.ok,
+          }
+        );
         const upload = this._buildStartFileUploadRequest(
           "brickwright.py",
           slot,
@@ -3935,6 +4460,7 @@ continuous_sensor_loop()
         );
         if (!startUpload.ok)
           throw new Error("Hub rejected StartFileUploadRequest");
+        this._recordControllerInstallStage("file-upload-accepted", true);
 
         let runningCrc = 0;
         for (
@@ -3952,7 +4478,21 @@ continuous_sensor_loop()
           if (!response.ok) {
             throw new Error(`Hub rejected program chunk at byte ${offset}`);
           }
+          attempt.transferredBytes += chunk.length;
+          this._recordControllerInstallStage(
+            "transfer-chunk-acknowledged",
+            true,
+            {
+              offset,
+              chunkLength: chunk.length,
+              transferredBytes: attempt.transferredBytes,
+              totalBytes: program.length,
+            }
+          );
         }
+        this._recordControllerInstallStage("program-upload-complete", true, {
+          totalBytes: program.length,
+        });
 
         const started = await this._requestHubResponse(
           this._buildProgramFlowRequest(false, slot),
@@ -3960,10 +4500,60 @@ continuous_sensor_loop()
         );
         if (!started.ok) throw new Error("Hub rejected ProgramFlowRequest");
         this._diagnostics.controllerStatus = "starting";
+        if (attempt.lastSuccessfulStage !== "program-flow-response-accepted") {
+          this._recordControllerInstallStage(
+            "program-flow-response-accepted",
+            true
+          );
+        }
+        await this._waitForControllerStart(
+          attempt,
+          SPIKE3.CONTROLLER_START_NOTIFICATION_TIMEOUT_MS
+        );
+        if (
+          attempt.outcome === "startup-error" ||
+          attempt.programFlowStoppedAt
+        ) {
+          throw Object.assign(new Error(t("controllerStoppedBeforeReady")), {
+            code: "ERR_CONTROLLER_STOPPED_BEFORE_READY",
+          });
+        }
+        if (!this.isConnected()) {
+          const origin = this._diagnostics.lastDisconnect?.origin || "unknown";
+          throw Object.assign(
+            new Error(
+              t(
+                "hubDisconnectedAfterProgramStart",
+                t(`diag.disconnectOrigin.${origin}`)
+              )
+            ),
+            {
+              code: "ERR_HUB_DISCONNECTED_AFTER_PROGRAM_START",
+              disconnectOrigin: origin,
+            }
+          );
+        }
         return await this.probeController();
       } catch (error) {
         this._controllerReady = false;
-        this._diagnostics.controllerStatus = "error";
+        if (attempt.outcome === "in-progress") {
+          attempt.outcome = "failed";
+          attempt.finishedAt = Date.now();
+          attempt.error = {
+            name: error?.name || "Error",
+            message: error?.message || String(error),
+            stack: error?.stack || "",
+          };
+        }
+        if (error?.code === "ERR_CONTROLLER_START_NOTIFICATION_TIMEOUT") {
+          this._diagnostics.controllerStatus = "not-verified";
+        } else if (error?.code === "ERR_CONTROLLER_STOPPED_BEFORE_READY") {
+          this._diagnostics.controllerStatus = "startup-error";
+        } else if (!this.isConnected()) {
+          this._diagnostics.controllerStatus = "disconnected";
+        } else if (attempt.outcome !== "not-verified") {
+          this._diagnostics.controllerStatus = "error";
+        }
         this._recordCommunicationError(error);
         throw error;
       }
@@ -4004,14 +4594,59 @@ continuous_sensor_loop()
         );
       }
       const packed = COBS.pack(message);
-      return Promise.resolve(
-        this._link.write(
-          SPIKE3.SERVICE,
-          SPIKE3.RX_CHAR,
-          Base64Util.uint8ArrayToBase64(packed),
-          "base64"
-        )
-      );
+      const messageNames = {
+        [SPIKE3.INFO_REQUEST]: "InfoRequest",
+        [SPIKE3.CLEAR_SLOT_REQUEST]: "ClearSlotRequest",
+        [SPIKE3.START_FILE_UPLOAD_REQUEST]: "StartFileUploadRequest",
+        [SPIKE3.TRANSFER_CHUNK_REQUEST]: "TransferChunkRequest",
+        [SPIKE3.PROGRAM_FLOW_REQUEST]: "ProgramFlowRequest",
+        [SPIKE3.DEVICE_NOTIFICATION_REQUEST]: "DeviceNotificationRequest",
+        [SPIKE3.TUNNEL]: "TunnelMessage",
+      };
+      const attemptedAt = Date.now();
+      const messageContext = {
+        attemptedAt,
+        messageType: message[0],
+        messageName: messageNames[message[0]] || `0x${message[0].toString(16)}`,
+        payloadLength: message.length,
+        frameLength: packed.length,
+        status: "pending",
+      };
+      this._diagnostics.lastWrite = messageContext;
+      const attempt = this._diagnostics.controllerInstallAttempt;
+      if (
+        message[0] === SPIKE3.PROGRAM_FLOW_REQUEST &&
+        attempt?.outcome === "in-progress"
+      ) {
+        attempt.programFlowRequestSentAt = attemptedAt;
+        attempt.programFlowStartedAt = null;
+        attempt.programFlowStoppedAt = null;
+        this._recordControllerInstallStage("program-flow-request-sent", false);
+      }
+      const write =
+        this._link instanceof WebBLELink
+          ? this._link.write(
+              SPIKE3.SERVICE,
+              SPIKE3.RX_CHAR,
+              Base64Util.uint8ArrayToBase64(packed),
+              "base64",
+              messageContext
+            )
+          : this._link.write(
+              SPIKE3.SERVICE,
+              SPIKE3.RX_CHAR,
+              Base64Util.uint8ArrayToBase64(packed),
+              "base64"
+            );
+      return Promise.resolve(write).then(() => {
+        if (this._diagnostics.lastWrite === messageContext) {
+          this._diagnostics.lastWrite = {
+            ...messageContext,
+            status: "write-completed",
+            completedAt: Date.now(),
+          };
+        }
+      });
     }
 
     // --------------------------------------------------------------- receive
@@ -4024,7 +4659,7 @@ continuous_sensor_loop()
       this._frame = [];
       this._firmware = null;
       this._rpcVersion = null;
-      this._resetCommunicationDiagnostics();
+      this._resetCommunicationDiagnostics({ preserveHistory: true });
       this._streamingRequested = false;
       const notifications = this._link.startNotifications(
         SPIKE3.SERVICE,
@@ -4184,6 +4819,9 @@ continuous_sensor_loop()
         case SPIKE3.DEVICE_NOTIFICATION_RESPONSE:
           this._handleDeviceNotificationResponse(data);
           break;
+        case SPIKE3.PROGRAM_FLOW_NOTIFICATION:
+          this._handleProgramFlowNotification(data);
+          break;
         case SPIKE3.START_FILE_UPLOAD_RESPONSE:
         case SPIKE3.TRANSFER_CHUNK_RESPONSE:
         case SPIKE3.CLEAR_SLOT_RESPONSE:
@@ -4194,15 +4832,110 @@ continuous_sensor_loop()
           this._handleTunnelMessage(data);
           break;
         case SPIKE3.CONSOLE_NOTIFICATION: {
-          const text = new TextDecoder().decode(data.slice(1));
+          const text = new TextDecoder()
+            .decode(data.slice(1))
+            .replace(/\0+$/, "");
           this._replOutput += text;
           if (this._replOutput.length > 4096) {
             this._replOutput = this._replOutput.slice(-4096);
           }
+          const notification = { timestamp: Date.now(), text };
+          this._diagnostics.recentConsoleNotifications.push(notification);
+          if (this._diagnostics.recentConsoleNotifications.length > 20) {
+            this._diagnostics.recentConsoleNotifications.shift();
+          }
+          this._diagnostics.recentConsoleOutput =
+            this._diagnostics.recentConsoleNotifications
+              .map((item) => item.text)
+              .join("")
+              .slice(-4096);
+          this._recordDiagnosticEvent("console-notification", { text });
           break;
         }
         default:
           break;
+      }
+    }
+
+    _handleProgramFlowNotification(data) {
+      if (data.length !== 2) {
+        this._diagnostics.malformedMessageCount++;
+        this._recordCommunicationError(
+          `invalid ProgramFlowNotification length: expected 2, received ${data.length}`
+        );
+        return;
+      }
+      const action = data[1];
+      if (action !== 0 && action !== 1) {
+        this._diagnostics.malformedMessageCount++;
+        this._recordCommunicationError(
+          `unknown ProgramFlowNotification action: ${action}`
+        );
+        return;
+      }
+      const timestamp = Date.now();
+      const notification = {
+        timestamp,
+        action: action === 0 ? "start" : "stop",
+        actionValue: action,
+      };
+      this._diagnostics.lastProgramFlowNotification = notification;
+      this._recordDiagnosticEvent("program-flow-notification", notification);
+
+      const attempt = this._diagnostics.controllerInstallAttempt;
+      if (
+        attempt?.outcome === "in-progress" &&
+        attempt.programFlowRequestSentAt !== undefined &&
+        timestamp >= attempt.programFlowRequestSentAt
+      ) {
+        if (action === 0) {
+          attempt.programFlowStartedAt = timestamp;
+          const waiter = [...this._controllerStartWaiters].find(
+            (candidate) => candidate.attempt === attempt
+          );
+          if (waiter) waiter.resolve(notification);
+        } else {
+          attempt.programFlowStoppedAt = timestamp;
+          if (!this._controllerReady) {
+            const consoleOutput = this._diagnostics.recentConsoleOutput;
+            const error = Object.assign(
+              new Error(
+                `${t("controllerStoppedBeforeReady")}${consoleOutput ? `: ${consoleOutput}` : ""}`
+              ),
+              { code: "ERR_CONTROLLER_STOPPED_BEFORE_READY" }
+            );
+            attempt.outcome = "startup-error";
+            attempt.finishedAt = timestamp;
+            attempt.stage = "program-stopped-before-handshake";
+            attempt.updatedAt = timestamp;
+            this._diagnostics.controllerStatus = "startup-error";
+            this._recordDiagnosticEvent("controller-start-failed", {
+              slot: attempt.slot,
+              reason: "program-stopped-before-handshake",
+              consoleOutput,
+            });
+            const waiter = [...this._controllerStartWaiters].find(
+              (candidate) => candidate.attempt === attempt
+            );
+            if (waiter) waiter.reject(error);
+            for (const [requestId, pending] of this
+              ._pendingControllerCommands) {
+              if (pending.commandName !== "controller.hello") continue;
+              this._pendingControllerCommands.delete(requestId);
+              clearTimeout(pending.timeout);
+              pending.reject(error);
+            }
+          }
+        }
+        return;
+      }
+      if (action === 1 && this._controllerReady) {
+        this._controllerReady = false;
+        this._diagnostics.controllerStatus = "stopped";
+        if (this._controllerHeartbeatTimer !== null) {
+          clearInterval(this._controllerHeartbeatTimer);
+          this._controllerHeartbeatTimer = null;
+        }
       }
     }
 
@@ -4255,6 +4988,7 @@ continuous_sensor_loop()
       const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
       this._rpcVersion = `${data[1]}.${data[2]}.${view.getUint16(3, true)}`;
       this._firmware = `${data[5]}.${data[6]}.${view.getUint16(7, true)}`;
+      this._diagnostics.lastFirmwareVersion = this._firmware;
       this._diagnostics.infoResponseReceivedAt = Date.now();
       this._maxPacketSize = view.getUint16(9, true) || 20;
       this._maxMessageSize = view.getUint16(11, true) || 100;
@@ -9321,24 +10055,56 @@ continuous_sensor_loop()
         timestamp === null || timestamp === undefined
           ? unavailable
           : new Date(timestamp).toLocaleString();
+      const localizeStage = (stage) =>
+        stage ? t(`diag.controllerStage.${stage}`) : unavailable;
+      const attempt = diagnostics.controllerInstallAttempt;
+      const lastWrite = diagnostics.lastWrite;
+      const lastDisconnect = diagnostics.lastDisconnect;
+      const recentEvents = (diagnostics.recentEvents || [])
+        .slice(-8)
+        .map((event) => {
+          const details =
+            event.message ||
+            event.stage ||
+            event.reason ||
+            event.action ||
+            event.origin ||
+            event.messageName ||
+            "";
+          return `${formatTimestamp(event.timestamp)} ${event.type}${details ? `: ${details}` : ""}`;
+        })
+        .join("\n");
+      const transportError = diagnostics.lastTransportError;
+      const transportErrorSummary = transportError
+        ? `${transportError.name}: ${transportError.message}${transportError.stack ? `\n${transportError.stack}` : ""}`
+        : "";
       return [
         `${t("diag.connection")}: ${diagnostics.connected ? t("diag.connected") : t("diag.disconnected")}`,
-        `${t("diag.firmware")}: ${diagnostics.firmwareVersion || unavailable}`,
+        `${t("diag.firmware")}: ${diagnostics.firmwareVersion || diagnostics.lastFirmwareVersion || unavailable}`,
         `${t("diag.notification")}: ${notificationLabel}`,
         `${t("diag.controller")}: ${diagnostics.protocol === "spike3" ? t(`diag.controllerStatus.${diagnostics.controllerStatus || "not-installed"}`) : notApplicable}`,
-        `${t("diag.controllerVersion")}: ${diagnostics.controllerVersion || unavailable}`,
+        `${t("diag.controllerVersion")}: ${diagnostics.controllerVersion || diagnostics.lastKnownControllerVersion || unavailable}`,
+        `${t("diag.lastControllerStage")}: ${localizeStage(attempt?.stage)}${attempt?.outcome ? ` (${t(`diag.controllerOutcome.${attempt.outcome}`)})` : ""}`,
+        `${t("diag.lastSuccessfulControllerStage")}: ${localizeStage(diagnostics.lastSuccessfulControllerStage?.stage)}`,
+        `${t("diag.lastDisconnectOrigin")}: ${lastDisconnect ? `${t(`diag.disconnectOrigin.${lastDisconnect.origin}`)} (${lastDisconnect.origin}) — ${formatTimestamp(lastDisconnect.timestamp)}` : unavailable}`,
+        `${t("diag.lastWrite")}: ${lastWrite ? `${lastWrite.messageName} (0x${lastWrite.messageType.toString(16)}), ${t(`diag.writeStatus.${lastWrite.status}`)}` : unavailable}`,
         `${t("diag.imuCount")}: ${diagnostics.imuNotificationCount ?? notApplicable}`,
         `${t("diag.lastImu")}: ${formatTimestamp(diagnostics.lastImuReceivedAt)}`,
         `${t("diag.angles")}: ${angleSummary}`,
         `${t("diag.motorPorts")}: ${motorSummary || t("diag.noMotorPorts")}`,
         `${t("diag.cobsErrors")}: ${diagnostics.cobsDecodeFailureCount ?? notApplicable}`,
         `${t("diag.unsupportedRecords")}: ${diagnostics.unsupportedRecordCount ?? notApplicable}`,
+        `${t("diag.lastConsoleOutput")}: ${diagnostics.recentConsoleOutput || unavailable}`,
         `${t("diag.lastError")}: ${diagnostics.lastCommunicationError ? summarizeCommunicationError(diagnostics.lastCommunicationError) : t("diag.none")}`,
         ...(diagnostics.lastCommunicationError
           ? [
               `${t("diag.technicalDetail")}: ${diagnostics.lastCommunicationError}`,
             ]
           : []),
+        ...(transportErrorSummary
+          ? [`${t("diag.lastWriteError")}: ${transportErrorSummary}`]
+          : []),
+        `${t("diag.recentEvents")}:\n${recentEvents || t("diag.none")}`,
       ].join("\n");
     }
 
