@@ -109,6 +109,8 @@ function load(file, { runtime = makeRuntime(), localStorage } = {}) {
   let extension;
   const Scratch = {
     extensions: { register: (e) => (extension = e), unsandboxed: true },
+    translate: (message) =>
+      typeof message === "string" ? message : message?.default,
     vm: { runtime },
     Cast: {
       toNumber: (v) => Number(v) || 0,
