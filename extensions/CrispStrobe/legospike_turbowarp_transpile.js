@@ -3797,10 +3797,12 @@ continuous_sensor_loop()
       if (!pending) return false;
       this._pendingProtocolResponses.delete(data[0]);
       clearTimeout(pending.timeout);
-      if (data.length < 2) {
-        pending.reject(
-          new Error(`truncated protocol response 0x${data[0].toString(16)}`)
+      if (data.length !== 2) {
+        const error = new Error(
+          `invalid protocol response length for 0x${data[0].toString(16)}: expected 2, received ${data.length}`
         );
+        this._recordCommunicationError(error);
+        pending.reject(error);
       } else {
         pending.resolve({ ok: data[1] === 0, status: data[1] });
       }
@@ -3818,6 +3820,42 @@ continuous_sensor_loop()
         }
       }
       return (crc ^ 0xffffffff) >>> 0;
+    }
+
+    _buildClearSlotRequest(slot) {
+      return Uint8Array.from([SPIKE3.CLEAR_SLOT_REQUEST, slot]);
+    }
+
+    _buildStartFileUploadRequest(fileName, slot, crc) {
+      const encodedName = new TextEncoder().encode(fileName);
+      if (encodedName.length > 31) {
+        throw new RangeError("UTF-8 encoded program filename exceeds 31 bytes");
+      }
+      const message = new Uint8Array(1 + encodedName.length + 1 + 1 + 4);
+      message[0] = SPIKE3.START_FILE_UPLOAD_REQUEST;
+      message.set(encodedName, 1);
+      // The zero-initialized byte after the name is its NUL terminator.
+      const slotOffset = 1 + encodedName.length + 1;
+      message[slotOffset] = slot;
+      new DataView(message.buffer).setUint32(slotOffset + 1, crc, true);
+      return message;
+    }
+
+    _buildTransferChunkRequest(runningCrc, chunk) {
+      if (chunk.length > 0xffff) {
+        throw new RangeError("TransferChunk payload exceeds uint16 size");
+      }
+      const message = new Uint8Array(7 + chunk.length);
+      message[0] = SPIKE3.TRANSFER_CHUNK_REQUEST;
+      const view = new DataView(message.buffer);
+      view.setUint32(1, runningCrc, true);
+      view.setUint16(5, chunk.length, true);
+      message.set(chunk, 7);
+      return message;
+    }
+
+    _buildProgramFlowRequest(stop, slot) {
+      return Uint8Array.from([SPIKE3.PROGRAM_FLOW_REQUEST, stop ? 1 : 0, slot]);
     }
 
     async _waitForInfoResponse(timeoutMs = 3000) {
@@ -3880,18 +3918,17 @@ continuous_sensor_loop()
         await this._waitForInfoResponse();
         const program = new TextEncoder().encode(SPIKE3_CONTROLLER_SOURCE);
         const clear = await this._requestHubResponse(
-          Uint8Array.from([SPIKE3.CLEAR_SLOT_REQUEST, slot]),
+          this._buildClearSlotRequest(slot),
           SPIKE3.CLEAR_SLOT_RESPONSE
         );
         // The official example permits a non-acknowledged clear because the
         // slot may already be empty. The user has confirmed this exact slot.
         void clear;
-        const filename = new TextEncoder().encode("brickwright.py");
-        const upload = new Uint8Array(38);
-        upload[0] = SPIKE3.START_FILE_UPLOAD_REQUEST;
-        upload.set(filename.slice(0, 31), 1);
-        upload[33] = slot;
-        new DataView(upload.buffer).setUint32(34, this._crc32(program), true);
+        const upload = this._buildStartFileUploadRequest(
+          "brickwright.py",
+          slot,
+          this._crc32(program)
+        );
         const startUpload = await this._requestHubResponse(
           upload,
           SPIKE3.START_FILE_UPLOAD_RESPONSE
@@ -3907,12 +3944,7 @@ continuous_sensor_loop()
         ) {
           const chunk = program.slice(offset, offset + this._maxChunkSize);
           runningCrc = this._crc32(chunk, runningCrc);
-          const request = new Uint8Array(7 + chunk.length);
-          request[0] = SPIKE3.TRANSFER_CHUNK_REQUEST;
-          const view = new DataView(request.buffer);
-          view.setUint32(1, runningCrc, true);
-          view.setUint16(5, chunk.length, true);
-          request.set(chunk, 7);
+          const request = this._buildTransferChunkRequest(runningCrc, chunk);
           const response = await this._requestHubResponse(
             request,
             SPIKE3.TRANSFER_CHUNK_RESPONSE
@@ -3923,7 +3955,7 @@ continuous_sensor_loop()
         }
 
         const started = await this._requestHubResponse(
-          Uint8Array.from([SPIKE3.PROGRAM_FLOW_REQUEST, 0, slot]),
+          this._buildProgramFlowRequest(false, slot),
           SPIKE3.PROGRAM_FLOW_RESPONSE
         );
         if (!started.ok) throw new Error("Hub rejected ProgramFlowRequest");

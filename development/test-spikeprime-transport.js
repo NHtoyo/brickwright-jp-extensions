@@ -16,6 +16,12 @@ import { fileURLToPath } from "node:url";
 import { crc32 } from "node:zlib";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+const officialTransferVectors = JSON.parse(
+  fs.readFileSync(
+    path.join(here, "fixtures/spikeprime-official-transfer-vectors.json"),
+    "utf8"
+  )
+);
 const source = fs.readFileSync(
   path.join(here, "../extensions/CrispStrobe/legospike_turbowarp_transpile.js"),
   "utf8"
@@ -401,13 +407,78 @@ async function connect(setupResult) {
   }
 }
 
+const tests = [];
+const test = (name, fn) => tests.push({ name, fn });
+
+test("transfer message builders match byte vectors from the LEGO upstream serializer", () => {
+  const hub = setup().ext._peripheral._spike3;
+  const messages = officialTransferVectors.messages;
+  const asHex = (bytes) => Buffer.from(bytes).toString("hex");
+
+  assert.equal(
+    asHex(hub._buildClearSlotRequest(messages.clear_slot_19.slot)),
+    messages.clear_slot_19.hex
+  );
+  assert.equal(
+    asHex(
+      hub._buildStartFileUploadRequest(
+        messages.start_file_upload_brickwright_py.filename,
+        messages.start_file_upload_brickwright_py.slot,
+        messages.start_file_upload_brickwright_py.crc32
+      )
+    ),
+    messages.start_file_upload_brickwright_py.hex
+  );
+  assert.equal(
+    asHex(
+      hub._buildTransferChunkRequest(
+        messages.transfer_chunk.running_crc32,
+        Uint8Array.from(messages.transfer_chunk.chunk)
+      )
+    ),
+    messages.transfer_chunk.hex
+  );
+  assert.equal(
+    asHex(
+      hub._buildProgramFlowRequest(
+        messages.program_flow_start_slot_19.stop,
+        messages.program_flow_start_slot_19.slot
+      )
+    ),
+    messages.program_flow_start_slot_19.hex
+  );
+
+  const crcVectors = officialTransferVectors.crc32;
+  const alignedAbc = hub._crc32(Uint8Array.from(crcVectors.aligned_abc.data));
+  assert.equal(
+    alignedAbc.toString(16).padStart(8, "0"),
+    crcVectors.aligned_abc.hex
+  );
+  const firstChunk = hub._crc32(Uint8Array.from(crcVectors.chunk_1.data));
+  assert.equal(
+    firstChunk.toString(16).padStart(8, "0"),
+    crcVectors.chunk_1.hex
+  );
+  const secondChunk = hub._crc32(
+    Uint8Array.from(crcVectors.chunk_2.data),
+    firstChunk
+  );
+  assert.equal(
+    secondChunk.toString(16).padStart(8, "0"),
+    crcVectors.chunk_2.hex
+  );
+});
+
 function crc32Aligned(data, seed = 0) {
   const bytes = Buffer.from(data);
   const padding = (4 - (bytes.length % 4)) % 4;
   return crc32(Buffer.concat([bytes, Buffer.alloc(padding)]), seed);
 }
 
-function attachFakeControllerHub(state, { failChunkIndex = -1 } = {}) {
+function attachFakeControllerHub(
+  state,
+  { failChunkIndex = -1, malformedResponseType = null } = {}
+) {
   const { device } = state;
   const slots = new Map([
     [19, Buffer.from("user program, must be confirmed before replacing")],
@@ -417,12 +488,20 @@ function attachFakeControllerHub(state, { failChunkIndex = -1 } = {}) {
     actions: [],
     currentUpload: null,
     running: false,
+    maxChunkSize: 50,
     chunkIndex: 0,
     ignoreCommands: new Set(),
     rejectCommands: new Set(),
   };
   const emit = (message) => device.tx.emit(packMessage(message));
-  const status = (type, ok) => emit(Uint8Array.from([type, ok ? 0 : 1]));
+  const status = (type, ok) =>
+    emit(
+      Uint8Array.from([
+        type,
+        ok ? 0 : 1,
+        ...(type === malformedResponseType ? [0xff] : []),
+      ])
+    );
   const emitTunnel = (response) => {
     const payload = new TextEncoder().encode(JSON.stringify(response) + "\n");
     emit(
@@ -439,19 +518,29 @@ function attachFakeControllerHub(state, { failChunkIndex = -1 } = {}) {
     const messageBytes = Uint8Array.from(message);
     switch (message[0]) {
       case 0x46: {
+        assert.equal(
+          message.length,
+          2,
+          "ClearSlotRequest is exactly two bytes"
+        );
         const existed = slots.delete(message[1]);
         status(0x47, existed);
         break;
       }
       case 0x0c: {
-        const name = Buffer.from(message.slice(1, 33))
-          .toString("utf8")
-          .split("\0", 1)[0];
-        const slot = message[33];
+        const terminator = message.indexOf(0, 1);
+        assert.notEqual(terminator, -1, "filename is NUL-terminated");
+        assert.equal(
+          message.length,
+          terminator + 6,
+          "StartFileUploadRequest ends after the NUL name, slot, and CRC"
+        );
+        const name = Buffer.from(message.slice(1, terminator)).toString("utf8");
+        const slot = message[terminator + 1];
         const expectedCrc = new DataView(
           messageBytes.buffer,
           messageBytes.byteOffset
-        ).getUint32(34, true);
+        ).getUint32(terminator + 2, true);
         controller.currentUpload = {
           name,
           slot,
@@ -477,7 +566,11 @@ function attachFakeControllerHub(state, { failChunkIndex = -1 } = {}) {
           status(0x11, false);
           break;
         }
-        if (size !== chunk.length || controller.chunkIndex === failChunkIndex) {
+        if (
+          message.length !== 7 + size ||
+          size > controller.maxChunkSize ||
+          size !== chunk.length
+        ) {
           status(0x11, false);
           break;
         }
@@ -494,7 +587,12 @@ function attachFakeControllerHub(state, { failChunkIndex = -1 } = {}) {
       }
       case 0x1e: {
         const upload = controller.currentUpload;
-        if (!upload || message[1] !== 0 || message[2] !== upload.slot) {
+        if (
+          message.length !== 3 ||
+          !upload ||
+          message[1] !== 0 ||
+          message[2] !== upload.slot
+        ) {
           status(0x1f, false);
           break;
         }
@@ -600,9 +698,6 @@ function attachFakeControllerHub(state, { failChunkIndex = -1 } = {}) {
   };
   return controller;
 }
-
-const tests = [];
-const test = (name, fn) => tests.push({ name, fn });
 
 test("Web Bluetooth requests notifications and records the hub acknowledgement", async () => {
   const state = setup();
@@ -967,10 +1062,56 @@ test("controller installation is confirmed, CRC-checked, transferred, started, a
   assert.equal(fakeHub.currentUpload.name, "brickwright.py");
   assert.ok(state.device.writes.every((packet) => packet.length <= 64));
   const uploadedMessages = unpackWrittenMessages(state.device.writes);
-  assert.ok(uploadedMessages.some((message) => message[0] === 0x46));
-  assert.ok(uploadedMessages.some((message) => message[0] === 0x0c));
+  const clearRequest = uploadedMessages.find((message) => message[0] === 0x46);
+  const uploadRequest = uploadedMessages.find((message) => message[0] === 0x0c);
+  const chunkRequests = uploadedMessages.filter(
+    (message) => message[0] === 0x10
+  );
+  const programFlowRequest = uploadedMessages.find(
+    (message) => message[0] === 0x1e
+  );
+  assert.equal(
+    Buffer.from(clearRequest).toString("hex"),
+    officialTransferVectors.messages.clear_slot_19.hex
+  );
+  assert.equal(uploadRequest.length, 21);
+  assert.equal(
+    Buffer.from(uploadRequest.slice(1, 16)).toString("utf8"),
+    "brickwright.py\0"
+  );
+  assert.equal(uploadRequest[16], 19);
+  assert.equal(
+    new DataView(Uint8Array.from(uploadRequest).buffer).getUint32(17, true),
+    crc32Aligned(fakeHub.slots.get(19))
+  );
   assert.ok(uploadedMessages.some((message) => message[0] === 0x10));
-  assert.ok(uploadedMessages.some((message) => message[0] === 0x1e));
+  assert.ok(chunkRequests.length > 1);
+  const installedProgram = fakeHub.slots.get(19);
+  let uploadedOffset = 0;
+  assert.ok(
+    chunkRequests.every((message) => {
+      const view = new DataView(Uint8Array.from(message).buffer);
+      const size = view.getUint16(5, true);
+      const expectedSize = Math.min(
+        50,
+        installedProgram.length - uploadedOffset
+      );
+      const payload = Buffer.from(message.slice(7));
+      const expectedPayload = installedProgram.subarray(
+        uploadedOffset,
+        uploadedOffset + expectedSize
+      );
+      uploadedOffset += size;
+      return (
+        size === expectedSize && size <= 50 && payload.equals(expectedPayload)
+      );
+    })
+  );
+  assert.equal(uploadedOffset, installedProgram.length);
+  assert.equal(
+    Buffer.from(programFlowRequest).toString("hex"),
+    officialTransferVectors.messages.program_flow_start_slot_19.hex
+  );
   assert.ok(uploadedMessages.some((message) => message[0] === 0x32));
   assert.notDeepEqual(fakeHub.slots.get(19), original);
   assert.equal(
@@ -1135,6 +1276,27 @@ test("failed transfer acknowledgement aborts before ProgramFlow starts a program
   assert.equal(
     JSON.parse(state.ext.getCommunicationDiagnostics()).controllerStatus,
     "error"
+  );
+});
+
+test("malformed StartFileUploadResponse aborts transfer before sending chunks", async () => {
+  const state = setup();
+  await connect(state);
+  attachFakeControllerHub(state, { malformedResponseType: 0x0d });
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+  state.context.Scratch.BWConfirm = () => true;
+  await assert.rejects(
+    state.ext.installHubController({ SLOT: 5 }),
+    /invalid protocol response length.*expected 2, received 3/
+  );
+  const outgoing = unpackWrittenMessages(state.device.writes);
+  assert.equal(
+    outgoing.some((message) => message[0] === 0x10),
+    false
+  );
+  assert.equal(
+    outgoing.some((message) => message[0] === 0x1e),
+    false
   );
 });
 
