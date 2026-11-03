@@ -13,6 +13,7 @@ import path from "node:path";
 import vm from "node:vm";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
+import { crc32 } from "node:zlib";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const source = fs.readFileSync(
@@ -108,8 +109,9 @@ class FakeCharacteristic {
   }
 
   writeValueWithoutResponse(bytes) {
-    if (this.failNextWrite) {
+    if (this.failNextWrite || this.writes.length + 1 === this.failWriteNumber) {
       this.failNextWrite = false;
+      this.failWriteNumber = null;
       throw new Error("simulated fake-device write failure");
     }
     this.writes.push(Array.from(bytes));
@@ -227,6 +229,22 @@ function unpackMessage(frame) {
   return decoded;
 }
 
+function unpackWrittenMessages(writes) {
+  const messages = [];
+  let frame = [];
+  for (const packet of writes) {
+    for (const byte of packet) {
+      frame.push(byte);
+      if (byte === 2) {
+        messages.push(unpackMessage(Uint8Array.from(frame)));
+        frame = [];
+      }
+    }
+  }
+  assert.equal(frame.length, 0, "all outbound COBS frames have a delimiter");
+  return messages;
+}
+
 function infoResponse() {
   // InfoResponse fields per messages.html: RPC 2.42, firmware 1.6.62,
   // packet size 64, message size 100, chunk size 50, SPIKE Prime product 0.
@@ -292,10 +310,26 @@ function setup({ failRequestWrite = false, locale = "en" } = {}) {
     },
   };
   const rxWrite = device.rx.writeValueWithoutResponse.bind(device.rx);
+  let incomingFrame = [];
   device.rx.writeValueWithoutResponse = async (packet) => {
-    const decoded = unpackMessage(packet);
-    if (failRequestWrite && decoded[0] === 0x28) device.rx.failNextWrite = true;
+    const completeMessages = [];
+    for (const byte of packet) {
+      incomingFrame.push(byte);
+      if (byte === 2) {
+        completeMessages.push(unpackMessage(Uint8Array.from(incomingFrame)));
+        incomingFrame = [];
+      }
+    }
+    if (
+      failRequestWrite &&
+      completeMessages.some((message) => message[0] === 0x28)
+    ) {
+      device.rx.failNextWrite = true;
+    }
     await rxWrite(packet);
+    for (const decoded of completeMessages) {
+      if (device.protocolHandler) await device.protocolHandler(decoded);
+    }
   };
   const context = vm.createContext({
     Scratch: {
@@ -304,6 +338,7 @@ function setup({ failRequestWrite = false, locale = "en" } = {}) {
         unsandboxed: true,
         register: (extension) => (context.extension = extension),
       },
+      BWConfirm: () => true,
       ArgumentType: new Proxy({}, { get: (_target, key) => String(key) }),
       BlockType: new Proxy({}, { get: (_target, key) => String(key) }),
       Cast: {
@@ -325,6 +360,7 @@ function setup({ failRequestWrite = false, locale = "en" } = {}) {
     clearTimeout: clock.clearTimeout.bind(clock),
     setInterval: () => 0,
     clearInterval: () => {},
+    alert() {},
     TextEncoder,
     TextDecoder,
     DataView,
@@ -338,7 +374,7 @@ function setup({ failRequestWrite = false, locale = "en" } = {}) {
   assert.ok(context.extension, "extension registered");
   const ext = context.extension;
   ext._peripheral.setMode("web-ble");
-  return { clock, runtime, device, bluetooth, ext, failRequestWrite };
+  return { clock, runtime, device, bluetooth, ext, context, failRequestWrite };
 }
 
 async function connect(setupResult) {
@@ -363,6 +399,206 @@ async function connect(setupResult) {
       "the hub is asked for 100 ms device notifications"
     );
   }
+}
+
+function crc32Aligned(data, seed = 0) {
+  const bytes = Buffer.from(data);
+  const padding = (4 - (bytes.length % 4)) % 4;
+  return crc32(Buffer.concat([bytes, Buffer.alloc(padding)]), seed);
+}
+
+function attachFakeControllerHub(state, { failChunkIndex = -1 } = {}) {
+  const { device } = state;
+  const slots = new Map([
+    [19, Buffer.from("user program, must be confirmed before replacing")],
+  ]);
+  const controller = {
+    slots,
+    actions: [],
+    currentUpload: null,
+    running: false,
+    chunkIndex: 0,
+    ignoreCommands: new Set(),
+    rejectCommands: new Set(),
+  };
+  const emit = (message) => device.tx.emit(packMessage(message));
+  const status = (type, ok) => emit(Uint8Array.from([type, ok ? 0 : 1]));
+  const emitTunnel = (response) => {
+    const payload = new TextEncoder().encode(JSON.stringify(response) + "\n");
+    emit(
+      Uint8Array.from([
+        0x32,
+        payload.length & 0xff,
+        payload.length >> 8,
+        ...payload,
+      ])
+    );
+  };
+
+  device.protocolHandler = (message) => {
+    const messageBytes = Uint8Array.from(message);
+    switch (message[0]) {
+      case 0x46: {
+        const existed = slots.delete(message[1]);
+        status(0x47, existed);
+        break;
+      }
+      case 0x0c: {
+        const name = Buffer.from(message.slice(1, 33))
+          .toString("utf8")
+          .split("\0", 1)[0];
+        const slot = message[33];
+        const expectedCrc = new DataView(
+          messageBytes.buffer,
+          messageBytes.byteOffset
+        ).getUint32(34, true);
+        controller.currentUpload = {
+          name,
+          slot,
+          expectedCrc,
+          chunks: [],
+          rollingCrc: 0,
+        };
+        controller.chunkIndex = 0;
+        status(0x0d, true);
+        break;
+      }
+      case 0x10: {
+        const upload = controller.currentUpload;
+        if (!upload) {
+          status(0x11, false);
+          break;
+        }
+        const view = new DataView(messageBytes.buffer, messageBytes.byteOffset);
+        const runningCrc = view.getUint32(1, true);
+        const size = view.getUint16(5, true);
+        const chunk = Buffer.from(message.slice(7));
+        if (controller.chunkIndex === failChunkIndex) {
+          status(0x11, false);
+          break;
+        }
+        if (size !== chunk.length || controller.chunkIndex === failChunkIndex) {
+          status(0x11, false);
+          break;
+        }
+        const computed = crc32Aligned(chunk, upload.rollingCrc);
+        if (computed !== runningCrc) {
+          status(0x11, false);
+          break;
+        }
+        upload.rollingCrc = runningCrc;
+        upload.chunks.push(chunk);
+        controller.chunkIndex++;
+        status(0x11, true);
+        break;
+      }
+      case 0x1e: {
+        const upload = controller.currentUpload;
+        if (!upload || message[1] !== 0 || message[2] !== upload.slot) {
+          status(0x1f, false);
+          break;
+        }
+        const program = Buffer.concat(upload.chunks);
+        if (crc32Aligned(program) !== upload.expectedCrc) {
+          status(0x1f, false);
+          break;
+        }
+        const sourceText = program.toString("utf8");
+        assert.match(sourceText, /hub\.config\["module_tunnel"\]/);
+        assert.match(sourceText, /def _receive\(data\)/);
+        assert.match(sourceText, /motor\.run_for_degrees/);
+        assert.match(sourceText, /light_matrix\.set_pixel/);
+        assert.match(sourceText, /sound\.beep/);
+        assert.doesNotMatch(sourceText, /\b(?:eval|exec)\s*\(/);
+        slots.set(upload.slot, program);
+        controller.running = true;
+        status(0x1f, true);
+        break;
+      }
+      case 0x32: {
+        const length = message[1] | (message[2] << 8);
+        const request = JSON.parse(
+          Buffer.from(message.slice(3)).toString("utf8")
+        );
+        assert.equal(length, Buffer.byteLength(JSON.stringify(request)));
+        const names = {
+          h: "controller.hello",
+          p: "controller.ping",
+          x: "controller.stop_all",
+          r: "motor.run",
+          s: "motor.stop",
+          u: "motor.power",
+          d: "motor.run_degrees",
+          t: "motor.run_time",
+          a: "motor.run_to_position",
+          l: "matrix.pixel",
+          m: "matrix.pattern",
+          c: "matrix.clear",
+          b: "sound.beep",
+          q: "sound.stop",
+        };
+        const fieldNames = {
+          p: "port",
+          v: "velocity",
+          d: "degrees",
+          t: "duration_ms",
+          g: "position",
+          u: "power",
+          x: "x",
+          y: "y",
+          b: "brightness",
+          z: "pixels",
+          f: "frequency",
+        };
+        const action = { cmd: names[request.c] };
+        for (const [key, value] of Object.entries(request)) {
+          if (key in fieldNames) action[fieldNames[key]] = value;
+        }
+        if (!controller.running) {
+          emitTunnel({
+            i: request.i,
+            ok: false,
+            error: "not_running",
+            detail: "controller is not running",
+          });
+          break;
+        }
+        if (request.c === "p") {
+          emitTunnel({ c: "o", version: 1 });
+          break;
+        }
+        if (request.c === "h") {
+          emitTunnel({ i: request.i, ok: true, result: "bw-spike-1" });
+          break;
+        }
+        if (!action.cmd) {
+          emitTunnel({
+            i: request.i,
+            ok: false,
+            error: "unsupported",
+            detail: "unsupported command",
+          });
+          break;
+        }
+        if (controller.ignoreCommands.has(action.cmd)) break;
+        if (controller.rejectCommands.has(action.cmd)) {
+          emitTunnel({
+            i: request.i,
+            ok: false,
+            error: "execution_failed",
+            detail: "simulated motor API failure",
+          });
+          break;
+        }
+        controller.actions.push(action);
+        emitTunnel({ i: request.i, ok: true });
+        break;
+      }
+      default:
+        break;
+    }
+  };
+  return controller;
 }
 
 const tests = [];
@@ -588,27 +824,20 @@ test("a missing notification acknowledgement times out without a hardware write"
   );
 });
 
-test("SPIKE 3.x native motor success does not eagerly send its Python fallback", async () => {
+test("SPIKE 3.x never writes an output command before a controller handshake", async () => {
   const state = setup();
   await connect(state);
   state.device.tx.emit(packMessage([0x29, 0x00]));
   const writesBefore = state.device.writes.length;
-  await state.ext.motorStart({ PORT: "A", DIRECTION: 1 });
+  await assert.rejects(
+    state.ext.motorStart({ PORT: "A", DIRECTION: 1 }),
+    /Install and start the Brickwright SPIKE controller first/
+  );
   assert.equal(
     state.device.writes.length,
-    writesBefore + 1,
-    "only the native tunnel command is sent when it succeeds"
+    writesBefore,
+    "without a verified command interpreter the block sends nothing"
   );
-  const tunnel = unpackMessage(
-    Uint8Array.from(state.device.writes[writesBefore])
-  );
-  assert.equal(tunnel[0], 0x32);
-  const payloadSize = tunnel[1] | (tunnel[2] << 8);
-  assert.deepEqual(
-    JSON.parse(new TextDecoder().decode(Uint8Array.from(tunnel.slice(3)))),
-    { m: "motor", p: { port: 0, speed: 75 } }
-  );
-  assert.equal(payloadSize, tunnel.length - 3);
 });
 
 test("disconnect clears the partial frame and reconnect starts a fresh diagnostic session", async () => {
@@ -631,13 +860,16 @@ test("disconnect clears the partial frame and reconnect starts a fresh diagnosti
 });
 
 test("a fake-device write failure is surfaced in diagnostics", async () => {
-  const state = setup({ failRequestWrite: true });
+  const state = setup();
   await connect(state);
+  state.device.tx.emit(packMessage([0x29, 0x00]));
   await tick();
+  state.device.rx.failNextWrite = true;
   await assert.rejects(
     state.ext._peripheral._spike3.setDeviceNotifications(true),
     /simulated fake-device write failure/
   );
+  assert.equal(state.ext.isConnected(), false);
   const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
   assert.equal(diagnostics.notificationRequest.status, "write-error");
   assert.match(
@@ -649,6 +881,10 @@ test("a fake-device write failure is surfaced in diagnostics", async () => {
 test("SPIKE 3.x transport write errors propagate without starting Python fallback", async () => {
   const state = setup();
   await connect(state);
+  const controller = attachFakeControllerHub(state);
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+  await state.ext.installHubController({ SLOT: 19 });
+  assert.equal(controller.running, true);
   state.device.tx.emit(packMessage([0x29, 0x00]));
   await tick();
   const successfulWrites = state.device.writes.length;
@@ -664,25 +900,242 @@ test("SPIKE 3.x transport write errors propagate without starting Python fallbac
   );
 });
 
-test("SPIKE 3.x native unsupported commands reject; Python tunnel encoding follows the documented frame", async () => {
+test("a mid-frame BLE write failure disconnects and blocks later commands", async () => {
+  const state = setup();
+  await connect(state);
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+  const writesBefore = state.device.writes.length;
+  state.device.rx.failWriteNumber = writesBefore + 2;
+  await assert.rejects(
+    state.ext._peripheral._spike3._sendTunnelPayload("x".repeat(90)),
+    /simulated fake-device write failure/
+  );
+  assert.equal(state.device.writes.length, writesBefore + 1);
+  assert.equal(state.ext.isConnected(), false);
+  await assert.rejects(
+    state.ext._peripheral._spike3._sendTunnelPayload("another command"),
+    /接続|connected/i
+  );
+  assert.equal(state.device.writes.length, writesBefore + 1);
+});
+
+test("raw Python over TunnelMessage is rejected and sends no bytes", async () => {
   const state = setup();
   await connect(state);
   const hub = state.ext._peripheral._spike3;
   await assert.rejects(
     hub.sendCommand("scratch.display_text", { text: "Hello" }),
-    /no native/
+    /Text display is unavailable on SPIKE 3.x/
   );
   const before = state.device.writes.length;
-  await hub.sendPythonCommand('import hub; hub.display.show("Hello")');
-  await tick();
-  const tunnel = unpackMessage(Uint8Array.from(state.device.writes[before]));
-  assert.equal(tunnel[0], 0x32);
-  const payloadSize = tunnel[1] | (tunnel[2] << 8);
-  assert.equal(
-    new TextDecoder().decode(Uint8Array.from(tunnel.slice(3))),
-    'import hub; hub.display.show("Hello")\r\n'
+  await assert.rejects(
+    state.ext.displayText({ TEXT: "Hello" }),
+    /Text display is unavailable on SPIKE 3.x/
   );
-  assert.equal(payloadSize, tunnel.length - 3);
+  await assert.rejects(
+    hub.sendPythonCommand('import hub; hub.display.show("Hello")'),
+    /Raw Python is not executed by TunnelMessage/
+  );
+  assert.equal(state.device.writes.length, before);
+});
+
+test("controller installation is confirmed, CRC-checked, transferred, started, and version-probed", async () => {
+  const state = setup({ locale: "ja" });
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+  const original = Buffer.from(fakeHub.slots.get(19));
+  const confirmations = [];
+  state.context.Scratch.BWConfirm = (message) => {
+    confirmations.push(message);
+    return false;
+  };
+  const writesBeforeCancel = state.device.writes.length;
+  await state.ext.installHubController({ SLOT: 19 });
+  assert.equal(state.device.writes.length, writesBeforeCancel);
+  assert.deepEqual(fakeHub.slots.get(19), original);
+
+  state.context.Scratch.BWConfirm = (message) => {
+    confirmations.push(message);
+    return true;
+  };
+  const result = await state.ext.installHubController({ SLOT: 19 });
+  assert.equal(result.protocol, "brickwright-spike-controller");
+  assert.equal(result.version, 1);
+  assert.ok(confirmations.some((message) => message.includes("スロット19")));
+  assert.equal(fakeHub.running, true);
+  assert.equal(fakeHub.currentUpload.name, "brickwright.py");
+  assert.ok(state.device.writes.every((packet) => packet.length <= 64));
+  const uploadedMessages = unpackWrittenMessages(state.device.writes);
+  assert.ok(uploadedMessages.some((message) => message[0] === 0x46));
+  assert.ok(uploadedMessages.some((message) => message[0] === 0x0c));
+  assert.ok(uploadedMessages.some((message) => message[0] === 0x10));
+  assert.ok(uploadedMessages.some((message) => message[0] === 0x1e));
+  assert.ok(uploadedMessages.some((message) => message[0] === 0x32));
+  assert.notDeepEqual(fakeHub.slots.get(19), original);
+  assert.equal(
+    fakeHub.slots.get(19).toString("utf8").includes("module_tunnel"),
+    true
+  );
+  const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.controllerStatus, "ready");
+  assert.equal(diagnostics.controllerVersion, "brickwright-spike-controller/1");
+});
+
+test("host output blocks are interpreted by the fake controller and return execution acknowledgements", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+  await state.ext.installHubController({ SLOT: 19 });
+
+  await state.ext.motorStart({ PORT: "A", DIRECTION: 1 });
+  await state.ext.motorStartPower({ PORT: "A", POWER: 1 });
+  await state.ext.stopMotor({ PORT: "A", ACTION: "brake" });
+  await state.ext._peripheral.active.sendCommand(
+    "scratch.motor_run_for_degrees",
+    {
+      port: "A",
+      speed: 20,
+      degrees: 90,
+    }
+  );
+  await state.ext.setPixel({ X: 1, Y: 1, BRIGHTNESS: 0 });
+  await state.ext.setPixel({ X: 1, Y: 1, BRIGHTNESS: 100 });
+  await state.ext.displayClear();
+  await state.ext.playBeep({ FREQUENCY: 440, DURATION: 150 });
+  await state.ext.stopSound();
+
+  const writesBeforeUnsupportedStop = state.device.writes.length;
+  await assert.rejects(
+    state.ext._peripheral.active.sendCommand("scratch.motor_stop", {
+      port: "A",
+      stop: "hold",
+    }),
+    /motor stop action has not been verified/
+  );
+  assert.equal(state.device.writes.length, writesBeforeUnsupportedStop);
+
+  assert.deepEqual(
+    fakeHub.actions.map((action) => action.cmd),
+    [
+      "motor.run",
+      "motor.power",
+      "motor.stop",
+      "motor.run_degrees",
+      "matrix.pixel",
+      "matrix.pixel",
+      "matrix.clear",
+      "sound.beep",
+      "sound.stop",
+    ]
+  );
+  assert.equal(fakeHub.actions[0].velocity, 540);
+  assert.deepEqual(
+    [fakeHub.actions[4].brightness, fakeHub.actions[5].brightness],
+    [0, 100]
+  );
+  assert.equal(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).controllerStatus,
+    "ready"
+  );
+});
+
+test("controller serializes simultaneous commands and preserves their order", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+  await state.ext.installHubController({ SLOT: 19 });
+
+  const first = state.ext._peripheral.active.sendCommand(
+    "scratch.motor_start",
+    {
+      port: "A",
+      speed: 10,
+    }
+  );
+  const second = state.ext._peripheral.active.sendCommand(
+    "scratch.motor_stop",
+    {
+      port: "A",
+      stop: "brake",
+    }
+  );
+  await Promise.all([first, second]);
+  assert.deepEqual(
+    fakeHub.actions.map((action) => action.cmd),
+    ["motor.run", "motor.stop"]
+  );
+});
+
+test("controller execution failures reach the caller with technical detail", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+  await state.ext.installHubController({ SLOT: 19 });
+  fakeHub.rejectCommands.add("motor.run");
+  await assert.rejects(
+    state.ext.motorStart({ PORT: "A", DIRECTION: 1 }),
+    /simulated motor API failure/
+  );
+  const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.match(
+    diagnostics.lastCommunicationError,
+    /simulated motor API failure/
+  );
+});
+
+test("a controller command timeout fails visibly and is never retried", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+  await state.ext.installHubController({ SLOT: 19 });
+  fakeHub.ignoreCommands.add("motor.run");
+
+  const writesBefore = state.device.writes.length;
+  const command = state.ext._peripheral.active.sendCommand(
+    "scratch.motor_start",
+    {
+      port: "A",
+      speed: 10,
+    }
+  );
+  await tick();
+  state.clock.advance(4001);
+  await assert.rejects(command, /did not acknowledge the command in time/i);
+  assert.equal(state.device.writes.length, writesBefore + 1);
+  assert.equal(
+    fakeHub.actions.some((action) => action.cmd === "motor.run"),
+    false
+  );
+  assert.equal(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).controllerStatus,
+    "timeout"
+  );
+});
+
+test("failed transfer acknowledgement aborts before ProgramFlow starts a program", async () => {
+  const state = setup();
+  await connect(state);
+  attachFakeControllerHub(state, { failChunkIndex: 0 });
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+  state.context.Scratch.BWConfirm = () => true;
+  await assert.rejects(
+    state.ext.installHubController({ SLOT: 5 }),
+    /Hub rejected program chunk at byte 0/
+  );
+  const outgoing = unpackWrittenMessages(state.device.writes);
+  assert.equal(
+    outgoing.some((message) => message[0] === 0x1e),
+    false
+  );
+  assert.equal(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).controllerStatus,
+    "error"
+  );
 });
 
 test("SPIKE 3.x display text does not auto-send an unverified Python fallback", async () => {
@@ -691,7 +1144,7 @@ test("SPIKE 3.x display text does not auto-send an unverified Python fallback", 
   const writesBefore = state.device.writes.length;
   await assert.rejects(
     state.ext.displayText({ TEXT: "Hello" }),
-    /SPIKE 3\.xでは文字表示を利用できません/
+    /SPIKE 3.xでは文字表示を利用できません/
   );
   await tick();
   assert.equal(
@@ -701,7 +1154,7 @@ test("SPIKE 3.x display text does not auto-send an unverified Python fallback", 
   );
   assert.match(
     JSON.parse(state.ext.getCommunicationDiagnostics()).lastCommunicationError,
-    /SPIKE 3\.xでは文字表示を利用できません.*no native scratch\.display_text/
+    /SPIKE 3.xでは文字表示を利用できません/
   );
 });
 

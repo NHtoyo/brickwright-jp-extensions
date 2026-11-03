@@ -281,29 +281,30 @@ test("movement commands define motors on the hub when it is missing", async () =
   }
 });
 
-test("the pair survives a route switch and both fields agree", async () => {
+test("the selected movement pair survives switching to the SPIKE 3 route", async () => {
   const ext = loadExtension();
   const sent = captureSends(ext);
   const router = ext._peripheral;
   await ext.setMovementMotors({ PORT_A: "E", PORT_B: "F" });
   assert.deepEqual([...router.movementMotors], ["E", "F"]);
   assert.deepEqual([...router._movementMotors], ["E", "F"]);
-  // AUTO settling on the SPIKE 3 route after the pair was set.
+  // The selected pair is retained when switching protocols. Paired
+  // MotorPair commands still use the legacy Python API and are rejected on
+  // SPIKE 3 rather than being sent as unverified Python through TunnelMessage.
   router._activeProtocol = "spike3";
   assert.deepEqual([...router.movementMotors], ["E", "F"]);
   assert.deepEqual([...router._movementMotors], ["E", "F"]);
-  sent.length = 0;
-  await ext.motorPairMove({ STEERING: 0, SPEED: 50 });
-  assert.match(sent[0], /hub\.port\.E\.motor.*hub\.port\.F\.motor/);
+  assert.equal(sent.length, 1, "only the earlier legacy setup was sent");
 });
 
 // The generated hub Python must be valid: run it through CPython with stub
-// spike/mindstorms modules when python3 is on the machine.
-test("the MotorPair line is valid Python (python3, when present)", async () => {
+// spike/mindstorms modules when Python is on the machine.
+test("the MotorPair line is valid Python when Python is present", async () => {
   const { spawnSync } = await import("node:child_process");
-  const probe = spawnSync("python3", ["--version"]);
+  const python = process.platform === "win32" ? "python" : "python3";
+  const probe = spawnSync(python, ["--version"]);
   if (probe.status !== 0) {
-    console.log("  (python3 not found: this check did not run)");
+    console.log(`  (${python} not found: this check did not run)`);
     return;
   }
   const ext = loadExtension();
@@ -323,9 +324,12 @@ test("the MotorPair line is valid Python (python3, when present)", async () => {
     sent[1],
     "print('pair', motors.ports)",
   ].join("\n");
-  const run = spawnSync("python3", ["-c", program], { encoding: "utf8" });
+  const run = spawnSync(python, ["-c", program], { encoding: "utf8" });
   assert.equal(run.status, 0, run.stderr);
-  assert.equal(run.stdout, "stop ('A', 'B')\npair ('C', 'D')\n");
+  assert.equal(
+    run.stdout.replace(/\r\n/g, "\n"),
+    "stop ('A', 'B')\npair ('C', 'D')\n"
+  );
 });
 
 test("a SPIKE 3 notification with a 3x3 matrix record keeps the records after it", () => {
@@ -365,7 +369,7 @@ test("a SPIKE 3 notification with a 3x3 matrix record keeps the records after it
   assert.equal(hub.portValues.A.distance, 34.5);
 });
 
-test("two commands sent in the same millisecond both reach the hub, in order", async () => {
+test("SPIKE 3 rejects arbitrary Python snippets instead of sending them to TunnelMessage", async () => {
   const ext = loadExtension();
   const hub = ext._peripheral._spike3;
   const writes = [];
@@ -376,15 +380,15 @@ test("two commands sent in the same millisecond both reach the hub, in order", a
       return Promise.resolve();
     },
   };
-  // Back to back, as two blocks do when a busy browser fires two VM steps
-  // within one rate-limit interval. The second used to be dropped silently.
-  const first = hub.sendPythonCommand("motors.set_default_speed(30)");
-  const second = hub.sendPythonCommand("motors.start(0, speed=30)");
-  assert.equal(writes.length, 1, "the first goes at once");
-  await Promise.all([first, second]);
-  assert.equal(writes.length, 2, "the second is delayed, not lost");
-  const text = writes.map((w) => w.toString("latin1"));
-  assert.ok(text[0].length > 0 && text[1].length > 0);
+  await assert.rejects(
+    hub.sendPythonCommand("motors.set_default_speed(30)"),
+    /Raw Python is not executed by TunnelMessage/
+  );
+  await assert.rejects(
+    hub.sendPythonCommandRaw("motors.start(0, speed=30)"),
+    /Raw Python is not executed by TunnelMessage/
+  );
+  assert.equal(writes.length, 0, "no Python bytes are sent to the hub");
 });
 
 // SPIKE 3 device notifications read back through the blocks. The AXIS menu
@@ -427,22 +431,33 @@ test("raw colour channels read the colour record's red, green and blue", () => {
 
 // --- "start motor at % power": a duty cycle, not a speed ---------------------
 
-test("start motor at % power sends each firmware's documented duty-cycle call", async () => {
+test("start motor at % power uses the controller on SPIKE 3 and legacy fallback on 2.x", async () => {
   const ext = loadExtension();
   const sent = captureSends(ext);
-  // SPIKE 3: motor.set_duty_cycle(port, -10000..10000).
+  const commands = [];
+  ext._peripheral.sendCommand = (method, params) => {
+    commands.push({ method, params });
+    return Promise.resolve();
+  };
   ext._peripheral._activeProtocol = "spike3";
   await ext.motorStartPower({ PORT: "B", POWER: 50 });
-  assert.deepEqual(sent, [
-    "import motor; from hub import port; motor.set_duty_cycle(port.B, 5000)",
-  ]);
-  sent.length = 0;
+  assert.equal(
+    JSON.stringify(commands),
+    JSON.stringify([
+      { method: "scratch.motor_power", params: { port: "B", power: 5000 } },
+    ])
+  );
+  commands.length = 0;
   await ext.motorStartPower({ PORT: "B", POWER: 12.34 });
-  assert.deepEqual(sent, [
-    "import motor; from hub import port; motor.set_duty_cycle(port.B, 1234)",
-  ]);
+  assert.equal(
+    JSON.stringify(commands),
+    JSON.stringify([
+      { method: "scratch.motor_power", params: { port: "B", power: 1234 } },
+    ])
+  );
   // 2.x hub module: motor.pwm(-100..100), clamped, one call per port.
   sent.length = 0;
+  ext._peripheral.sendCommand = () => Promise.reject(new Error("unsupported"));
   ext._peripheral._activeProtocol = "repl";
   await ext.motorStartPower({ PORT: "A+C", POWER: -130 });
   assert.deepEqual(sent, [

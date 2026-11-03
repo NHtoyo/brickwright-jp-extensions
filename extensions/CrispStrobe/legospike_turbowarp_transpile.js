@@ -80,6 +80,38 @@
       getConnectionMode: "connection mode",
       getCommunicationDiagnostics: "communication diagnostics (JSON)",
       getCommunicationDiagnosticsSummary: "communication diagnostics (text)",
+      installHubController:
+        "install / start Brickwright controller in slot [SLOT]",
+      checkHubController: "check Brickwright controller response",
+      controllerConfirmOverwrite:
+        "This will clear and replace the program in hub slot {0}. Back it up first. Continue?",
+      controllerReady:
+        "Brickwright SPIKE controller is running and acknowledged.",
+      controllerFailed: "Could not start the Brickwright SPIKE controller: {0}",
+      controllerInvalidSlot: "Program slot must be between 0 and 19.",
+      operationFailed: "SPIKE operation failed: {0}",
+      controllerNotReady:
+        "Install and start the Brickwright SPIKE controller first.",
+      controllerTimeout:
+        "The hub controller did not acknowledge the command in time.",
+      controllerCommandFailed: "The hub could not execute the command",
+      controllerUnsupported:
+        "This SPIKE operation is not supported by the controller",
+      controllerUnsupportedStopAction:
+        "This motor stop action has not been verified on SPIKE 3.x",
+      pythonExecutionUnsupported:
+        "Raw Python is not executed by TunnelMessage. Use a supported SPIKE block or upload a Python program explicitly.",
+      "diag.controller": "Hub controller",
+      "diag.controllerVersion": "Controller version",
+      "diag.controllerStatus.not-installed": "not installed",
+      "diag.controllerStatus.installing": "installing",
+      "diag.controllerStatus.starting": "starting",
+      "diag.controllerStatus.ready": "ready and responding",
+      "diag.controllerStatus.timeout": "response timed out",
+      "diag.controllerStatus.error": "error",
+      "diag.controllerStatus.disconnected": "disconnected",
+      "diag.controllerStatus.not-verified": "not verified",
+      "diag.controllerStatus.checking": "checking",
       "diag.connection": "Bluetooth connection",
       "diag.connected": "connected",
       "diag.disconnected": "not connected",
@@ -306,6 +338,37 @@
       getConnectionMode: "接続モード",
       getCommunicationDiagnostics: "通信診断（JSON）",
       getCommunicationDiagnosticsSummary: "通信診断（表示用）",
+      installHubController:
+        "スロット [SLOT] にBrickwright制御プログラムを転送して起動",
+      checkHubController: "Brickwright制御プログラムの応答を確認",
+      controllerConfirmOverwrite:
+        "ハブのスロット{0}にあるプログラムを消去して置き換えます。先にバックアップしてください。続けますか？",
+      controllerReady:
+        "Brickwright SPIKE制御プログラムが起動し、応答しました。",
+      controllerFailed:
+        "Brickwright SPIKE制御プログラムを起動できませんでした: {0}",
+      controllerInvalidSlot: "プログラムスロットは0〜19で指定してください。",
+      operationFailed: "SPIKEの操作に失敗しました: {0}",
+      controllerNotReady:
+        "先にBrickwright SPIKE制御プログラムを転送して起動してください。",
+      controllerTimeout: "制御プログラムから時間内に応答がありませんでした。",
+      controllerCommandFailed: "ハブが命令を実行できませんでした",
+      controllerUnsupported: "このSPIKE命令は制御プログラムで未対応です",
+      controllerUnsupportedStopAction:
+        "SPIKE 3.xでは、このモーター停止方法は未検証です。",
+      pythonExecutionUnsupported:
+        "TunnelMessageはPythonを実行しません。対応するSPIKEブロックを使うか、Pythonプログラムを明示的に転送してください。",
+      "diag.controller": "ハブ制御プログラム",
+      "diag.controllerVersion": "制御プログラムのバージョン",
+      "diag.controllerStatus.not-installed": "未転送",
+      "diag.controllerStatus.installing": "転送中",
+      "diag.controllerStatus.starting": "起動中",
+      "diag.controllerStatus.ready": "応答あり・動作中",
+      "diag.controllerStatus.timeout": "応答タイムアウト",
+      "diag.controllerStatus.error": "エラー",
+      "diag.controllerStatus.disconnected": "切断済み",
+      "diag.controllerStatus.not-verified": "未確認",
+      "diag.controllerStatus.checking": "応答確認中",
       "diag.connection": "Bluetooth 接続",
       "diag.connected": "接続中",
       "diag.disconnected": "未接続",
@@ -1492,6 +1555,9 @@
     DEVICE_NOTIFICATION_RESPONSE: 0x29,
     TUNNEL: 0x32,
     DEVICE_NOTIFICATION: 0x3c,
+    START_FILE_UPLOAD_RESPONSE: 0x0d,
+    TRANSFER_CHUNK_RESPONSE: 0x11,
+    CLEAR_SLOT_RESPONSE: 0x47,
 
     // Device record types inside a DEVICE_NOTIFICATION payload
     DEV_BATTERY: 0x00,
@@ -1504,6 +1570,233 @@
     DEV_MATRIX_3X3: 0x0e,
     NOTIFICATION_RESPONSE_TIMEOUT_MS: 2000,
   };
+
+  // The wire protocol only carries TunnelMessage payloads; it does not define
+  // their meaning. This allow-listed controller is uploaded as a hub program
+  // and is the interpreter for Brickwright's private JSON command protocol.
+  // Its module_tunnel API is based on an independent third-party implementation
+  // and is checked at runtime by a versioned hello/acknowledgement. LEGO's
+  // published protocol does not guarantee this Python API on every Hub OS.
+  const SPIKE3_CONTROLLER_SOURCE = String.raw`import hub
+import motor
+import runloop
+import time
+try:
+    import json
+except ImportError:
+    import ujson as json
+from hub import port, light_matrix, sound
+
+CONTROLLER_PROTOCOL = "brickwright-spike-controller"
+CONTROLLER_VERSION = 1
+MAX_QUEUE = 32
+MAX_VELOCITY = 720
+HEARTBEAT_TIMEOUT_MS = 3000
+PORTS = {"A": port.A, "B": port.B, "C": port.C, "D": port.D, "E": port.E, "F": port.F}
+_tunnel = hub.config["module_tunnel"]
+_queue = []
+_active = False
+_last_heartbeat = None
+
+
+def _ticks_diff(new, old):
+    return time.ticks_diff(new, old)
+
+
+def _send(value):
+    _tunnel.send((json.dumps(value) + "\n").encode("utf-8"))
+
+
+def _error(request_id, code, message):
+    _send({"i": request_id, "ok": False, "error": code,
+           "detail": str(message)[:40]})
+
+
+def _success(request_id, result=None):
+    _send({"i": request_id, "ok": True, "result": result or 1})
+
+
+def _integer(value, name, minimum, maximum):
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(name + " must be an integer")
+    if value < minimum or value > maximum:
+        raise ValueError(name + " is outside its allowed range")
+    return value
+
+
+def _stop_all_motors():
+    for port_name in ("A", "B", "C", "D", "E", "F"):
+        try:
+            motor.stop(PORTS[port_name])
+        except Exception:
+            # Empty ports are expected; a later connection can still be safe.
+            pass
+
+
+def _receive(data):
+    global _active, _last_heartbeat
+    try:
+        if not isinstance(data, str):
+            data = data.decode("utf-8")
+        command = json.loads(data.strip())
+        if not isinstance(command, dict):
+            raise ValueError("command must be an object")
+        name = command.get("c")
+        if name in ("h", "p"):
+            _active = True
+            _last_heartbeat = time.ticks_ms()
+        if name not in (
+            "h", "p", "x",
+            "r", "s", "u", "d",
+            "t", "a",
+            "l", "m", "c",
+            "b", "q",
+        ):
+            raise ValueError("unsupported command")
+        if len(_queue) >= MAX_QUEUE:
+            _error(command.get("i"), "queue_full", "command queue is full")
+            return
+        _queue.append(command)
+    except Exception as error:
+        _error(None, "invalid_command", str(error))
+
+
+async def _dispatch(command):
+    global _active, _last_heartbeat
+    request_id = command.get("i")
+    name = command.get("c")
+    try:
+        if name == "h":
+            _active = True
+            _last_heartbeat = time.ticks_ms()
+            _success(request_id, "bw-spike-1")
+        elif name == "p":
+            _last_heartbeat = time.ticks_ms()
+            _active = True
+            _send({"c": "o", "version": CONTROLLER_VERSION})
+        elif name == "x":
+            _stop_all_motors()
+            sound.stop()
+            _success(request_id)
+        elif name == "r":
+            port_name = command.get("p")
+            if port_name not in PORTS:
+                raise ValueError("unknown motor port")
+            velocity = _integer(command.get("v"), "velocity", -MAX_VELOCITY, MAX_VELOCITY)
+            if velocity == 0:
+                motor.stop(PORTS[port_name])
+            else:
+                motor.run(PORTS[port_name], velocity)
+            _success(request_id, {"state": "accepted"})
+        elif name == "s":
+            port_name = command.get("p")
+            if port_name not in PORTS:
+                raise ValueError("unknown motor port")
+            motor.stop(PORTS[port_name])
+            _success(request_id, {"state": "stopped"})
+        elif name == "u":
+            port_name = command.get("p")
+            if port_name not in PORTS:
+                raise ValueError("unknown motor port")
+            duty_cycle = _integer(command.get("u"), "duty_cycle", -10000, 10000)
+            motor.set_duty_cycle(PORTS[port_name], duty_cycle)
+            _success(request_id, {"state": "started"})
+        elif name == "d":
+            port_name = command.get("p")
+            if port_name not in PORTS:
+                raise ValueError("unknown motor port")
+            degrees = _integer(command.get("d"), "degrees", -36000, 36000)
+            velocity = _integer(command.get("v"), "velocity", -MAX_VELOCITY, MAX_VELOCITY)
+            if velocity == 0:
+                raise ValueError("velocity must not be zero")
+            # SPIKE's native operation starts when called; its returned awaitable
+            # can be awaited by a standalone program to wait for completion.
+            # Keeping this command non-blocking lets a later stop command run.
+            motor.run_for_degrees(PORTS[port_name], degrees, velocity)
+            _success(request_id, {"state": "started"})
+        elif name == "t":
+            port_name = command.get("p")
+            if port_name not in PORTS:
+                raise ValueError("unknown motor port")
+            duration = _integer(command.get("t"), "duration_ms", 1, 60000)
+            velocity = _integer(command.get("v"), "velocity", -MAX_VELOCITY, MAX_VELOCITY)
+            if velocity == 0:
+                raise ValueError("velocity must not be zero")
+            motor.run_for_time(PORTS[port_name], duration, velocity)
+            _success(request_id, {"state": "started"})
+        elif name == "a":
+            port_name = command.get("p")
+            if port_name not in PORTS:
+                raise ValueError("unknown motor port")
+            position = _integer(command.get("g"), "position", -36000, 36000)
+            velocity = _integer(command.get("v"), "velocity", 1, MAX_VELOCITY)
+            motor.run_to_absolute_position(PORTS[port_name], position, velocity)
+            _success(request_id, {"state": "started"})
+        elif name == "l":
+            x = _integer(command.get("x"), "x", 0, 4)
+            y = _integer(command.get("y"), "y", 0, 4)
+            brightness = _integer(command.get("b"), "brightness", 0, 100)
+            light_matrix.set_pixel(x, y, brightness)
+            _success(request_id, {"state": "updated"})
+        elif name == "c":
+            light_matrix.clear()
+            _success(request_id, {"state": "cleared"})
+        elif name == "m":
+            pixels = command.get("z")
+            if not isinstance(pixels, str) or len(pixels) != 25 or not pixels.isdigit():
+                raise ValueError("pixel pattern must contain 25 digits")
+            for index in range(25):
+                brightness = int(pixels[index]) * 100 // 9
+                light_matrix.set_pixel(index % 5, index // 5, brightness)
+            _success(request_id, {"state": "updated"})
+        elif name == "b":
+            frequency = _integer(command.get("f"), "frequency", 100, 2000)
+            duration = _integer(command.get("t"), "duration_ms", 20, 2000)
+            await sound.beep(frequency, duration, 100)
+            _success(request_id, {"state": "played"})
+        elif name == "q":
+            sound.stop()
+            _success(request_id, {"state": "stopped"})
+        else:
+            raise ValueError("unsupported command")
+    except Exception as error:
+        _error(request_id, "execution_failed", str(error))
+
+
+async def _process_next():
+    if _queue:
+        await _dispatch(_queue.pop(0))
+
+
+async def _check_watchdog(now=None):
+    global _active, _last_heartbeat
+    if not _active or _last_heartbeat is None:
+        return False
+    current = time.ticks_ms() if now is None else now
+    if _ticks_diff(current, _last_heartbeat) <= HEARTBEAT_TIMEOUT_MS:
+        return False
+    _stop_all_motors()
+    sound.stop()
+    _active = False
+    _last_heartbeat = None
+    return True
+
+
+def _initialize():
+    _tunnel.callback(_receive)
+
+
+async def _main():
+    _initialize()
+    while True:
+        await _check_watchdog()
+        await _process_next()
+        await runloop.sleep_ms(10)
+
+
+if __name__ == "__main__":
+    runloop.run(_main())
+`;
 
   const COBS = {
     /**
@@ -1927,7 +2220,15 @@
       this._writeChain = this._writeChain
         .catch(() => {})
         .then(async () => {
-          if (!this._rx) return;
+          if (!this._rx || !this._connected) {
+            const error = new Error(
+              "SPIKE BLE RX characteristic is unavailable"
+            );
+            error.code = "ERR_HUB_NOT_CONNECTED";
+            throw error;
+          }
+          // The official BLE transport permits one encoded frame to be sent
+          // as sequential writes no larger than max_packet_size.
           for (let i = 0; i < bytes.length; i += this._maxPacketSize) {
             const chunk = bytes.slice(i, i + this._maxPacketSize);
             if (this._rx.writeValueWithoutResponse) {
@@ -1938,10 +2239,10 @@
           }
         })
         .catch((error) => {
-          // A failed write means the link is gone; the disconnect handler
-          // reports it. Keep the queue usable for a later reconnect and keep
-          // the failure visible to the diagnostics reporter and caller.
+          // A failed chunk can leave the hub with a partial COBS frame. Stop
+          // using this connection so later commands cannot be appended to it.
           if (this._errorCallback) this._errorCallback(error);
+          this.disconnect();
           throw error;
         });
       return this._writeChain;
@@ -2780,6 +3081,7 @@ continuous_sensor_loop()
       this._link = null;
       this._frame = [];
       this._maxPacketSize = 20;
+      this._maxMessageSize = 100;
       this._maxChunkSize = 100;
       this._firmware = null;
       this._rpcVersion = null;
@@ -2787,6 +3089,13 @@ continuous_sensor_loop()
       this._streamingRequested = false;
       this._streamingFallback = null;
       this._pendingNotificationRequest = null;
+      this._pendingProtocolResponses = new Map();
+      this._pendingControllerCommands = new Map();
+      this._controllerCommandId = 0;
+      this._controllerCommandQueue = Promise.resolve();
+      this._controllerReady = false;
+      this._controllerVersion = null;
+      this._controllerHeartbeatTimer = null;
 
       this._rateLimiter = new RateLimiter(BTSendRateMax);
       this._portValues = {};
@@ -2860,6 +3169,9 @@ continuous_sensor_loop()
         malformedNotificationCount: 0,
         unsupportedRecordCount: 0,
         lastCommunicationError: "",
+        controllerStatus: "not-installed",
+        controllerVersion: null,
+        lastControllerResponseAt: null,
       };
       this._matrix5x5 = null;
       this._notificationResponseTimeout = null;
@@ -2885,6 +3197,16 @@ continuous_sensor_loop()
       if (request.status === "pending") {
         request.status = "write-error";
         this._settleNotificationRequest(error);
+      }
+      for (const [type, pending] of this._pendingProtocolResponses) {
+        this._pendingProtocolResponses.delete(type);
+        clearTimeout(pending.timeout);
+        pending.reject(error);
+      }
+      for (const [id, pending] of this._pendingControllerCommands) {
+        this._pendingControllerCommands.delete(id);
+        clearTimeout(pending.timeout);
+        pending.reject(error);
       }
     }
 
@@ -2930,6 +3252,9 @@ continuous_sensor_loop()
         malformedNotificationCount:
           this._diagnostics.malformedNotificationCount,
         unsupportedRecordCount: this._diagnostics.unsupportedRecordCount,
+        controllerStatus: this._diagnostics.controllerStatus,
+        controllerVersion: this._diagnostics.controllerVersion,
+        lastControllerResponseAt: this._diagnostics.lastControllerResponseAt,
         lastCommunicationError: this._diagnostics.lastCommunicationError,
       };
     }
@@ -3030,7 +3355,31 @@ continuous_sensor_loop()
         this._streamingFallback = null;
       }
       this._streamingRequested = false;
-      this._diagnostics.notificationRequest.status = "disconnected";
+      this._controllerReady = false;
+      this._controllerVersion = null;
+      this._diagnostics.controllerStatus = "disconnected";
+      this._diagnostics.controllerVersion = null;
+      if (this._controllerHeartbeatTimer !== null) {
+        clearInterval(this._controllerHeartbeatTimer);
+        this._controllerHeartbeatTimer = null;
+      }
+      for (const pending of this._pendingProtocolResponses.values()) {
+        clearTimeout(pending.timeout);
+        pending.reject(
+          new Error("SPIKE hub disconnected during protocol request")
+        );
+      }
+      this._pendingProtocolResponses.clear();
+      for (const pending of this._pendingControllerCommands.values()) {
+        clearTimeout(pending.timeout);
+        pending.reject(
+          new Error("SPIKE hub disconnected during controller command")
+        );
+      }
+      this._pendingControllerCommands.clear();
+      if (this._diagnostics.notificationRequest.status !== "write-error") {
+        this._diagnostics.notificationRequest.status = "disconnected";
+      }
       this._frame = [];
       this._portValues = {};
       this._resetSensors();
@@ -3043,67 +3392,133 @@ continuous_sensor_loop()
     }
 
     stopAll() {
-      if (!this.isConnected()) return;
-      this.stopAllMotors();
-      this.stopSound();
+      if (!this.isConnected()) {
+        return Promise.reject(this._notConnectedError());
+      }
+      return this._sendControllerCommand("controller.stop_all");
     }
 
     stopSound() {
-      return this.sendPythonCommand("import hub; hub.sound.stop()");
+      return this._sendControllerCommand("sound.stop");
     }
 
     stopAllMotors() {
-      return this.sendPythonCommand(
-        'import hub; [hub.port[p].motor.stop() for p in "ABCDEF" if hasattr(hub.port[p], "motor")]'
-      );
+      return this._sendControllerCommand("controller.stop_all");
     }
 
     // ------------------------------------------------------------------ send
 
     /**
-     * The 2.x hub's JSON-RPC verbs, answered natively where 3.x has an
-     * equivalent and rejected where it does not.
-     *
-     * An unsupported verb has a typed rejection so callers can decide whether
-     * a legacy fallback is appropriate. Transport errors use their own error
-     * and must reach the block caller. The 2.x firmware was inconsistent about
-     * its JSON-RPC verbs, so those callers retain their legacy fallback.
-     *
-     * The generic Python TunnelMessage format does not prove that a particular
-     * Python API is safe or supported by a given Hub OS. The display-text block
-     * therefore reports its unsupported state instead of sending that
-     * unverified fallback.
+     * Translate only known Scratch operations to the uploaded controller's
+     * explicit command whitelist. A successful BLE write alone is not treated
+     * as a successful hub operation; every command waits for a controller ack.
      */
     sendCommand(method, params) {
       const p = params || {};
-      const portId = SpikePorts.indexOf(String(p.port || "").toUpperCase());
+      const port = String(p.port || "").toUpperCase();
+      if (port && !SpikePorts.includes(port)) {
+        return Promise.reject(
+          this._unsupportedError(`invalid motor port ${port}`)
+        );
+      }
+      const velocity = (value) =>
+        Math.max(-720, Math.min(720, Math.round(this._speed(value) * 7.2)));
 
       switch (method) {
         case "scratch.motor_start":
         case "scratch.motor_set_speed":
-          if (portId < 0) break;
           return this._sendTunnelJSON({
-            m: "motor",
-            p: { port: portId, speed: this._speed(p.speed) },
+            cmd: "motor.run",
+            port,
+            velocity: velocity(p.speed),
           });
-
         case "scratch.motor_stop":
-          if (portId < 0) break;
+          if (p.stop && String(p.stop).toLowerCase() !== "brake") {
+            const error = new Error(t("controllerUnsupportedStopAction"));
+            error.code = "ERR_UNSUPPORTED_HUB_COMMAND";
+            this._recordCommunicationError(error);
+            return Promise.reject(error);
+          }
+          return this._sendTunnelJSON({ cmd: "motor.stop", port });
+        case "scratch.motor_power":
           return this._sendTunnelJSON({
-            m: "motor",
-            p: {
-              port: portId,
-              speed: 0,
-              end_state: SpikeMotorStopMode[p.stop] ?? p.stop ?? 1,
-            },
+            cmd: "motor.power",
+            port,
+            power: Math.max(
+              -10000,
+              Math.min(10000, Math.round(Number(p.power)))
+            ),
           });
-
+        case "scratch.motor_run_for_degrees":
+          return this._sendTunnelJSON({
+            cmd: "motor.run_degrees",
+            port,
+            degrees: Math.max(
+              -36000,
+              Math.min(36000, Math.trunc(Number(p.degrees) || 0))
+            ),
+            velocity: velocity(p.speed),
+          });
+        case "scratch.motor_run_timed":
+          return this._sendTunnelJSON({
+            cmd: "motor.run_time",
+            port,
+            duration_ms: Math.max(
+              1,
+              Math.min(60000, Math.trunc(Number(p.time) || 1))
+            ),
+            velocity: velocity(p.speed),
+          });
+        case "scratch.motor_run_to_position":
+          return this._sendTunnelJSON({
+            cmd: "motor.run_to_position",
+            port,
+            position: Math.max(
+              -36000,
+              Math.min(36000, Math.trunc(Number(p.position) || 0))
+            ),
+            velocity: Math.max(1, Math.abs(velocity(p.speed))),
+          });
+        case "scratch.display_set_pixel":
+          return this._sendTunnelJSON({
+            cmd: "matrix.pixel",
+            x: Math.trunc(Number(p.x)),
+            y: Math.trunc(Number(p.y)),
+            brightness: Math.max(
+              0,
+              Math.min(100, Math.round(Number(p.brightness) * (100 / 9)))
+            ),
+          });
+        case "scratch.display_clear":
+          return this._sendTunnelJSON({ cmd: "matrix.clear" });
+        case "scratch.display_pattern": {
+          const pixels = String(p.pixels || "")
+            .replace(/\D/g, "")
+            .padEnd(25, "0")
+            .slice(0, 25)
+            .split("")
+            .map((pixel) => (pixel === "0" ? 0 : 100));
+          return this._sendTunnelJSON({ cmd: "matrix.pattern", pixels });
+        }
+        case "scratch.display_text": {
+          const error = new Error(t("displayTextUnsupported"));
+          error.code = "ERR_UNSUPPORTED_HUB_COMMAND";
+          this._recordCommunicationError(error);
+          return Promise.reject(error);
+        }
+        case "scratch.sound_beep":
+          return this._sendTunnelJSON({
+            cmd: "sound.beep",
+            frequency: Math.trunc(Number(p.frequency)),
+            duration_ms: Math.trunc(Number(p.duration)),
+          });
         default:
-          break;
+          return Promise.reject(
+            this._unsupportedError(
+              `SPIKE 3.x controller does not support ${method}`
+            )
+          );
       }
-      const error = new Error(`spike3 has no native ${method}`);
-      error.code = "ERR_UNSUPPORTED_HUB_COMMAND";
-      return Promise.reject(error);
     }
 
     _speed(value) {
@@ -3115,30 +3530,426 @@ continuous_sensor_loop()
     }
 
     _sendTunnelJSON(command) {
-      return this.sendPythonCommandRaw(JSON.stringify(command));
+      return this._enqueueControllerCommand(command.cmd, command);
     }
 
-    /** Tunnel a payload verbatim — no trailing newline, no REPL framing. */
-    sendPythonCommandRaw(text) {
-      if (!this.isConnected()) return Promise.resolve();
-      const bytes = new TextEncoder().encode(text);
+    _notConnectedError() {
+      const error = new Error(t("notConnected"));
+      error.code = "ERR_HUB_NOT_CONNECTED";
+      return error;
+    }
+
+    _unsupportedError(message) {
+      const error = new Error(`${t("controllerUnsupported")}: ${message}`);
+      error.code = "ERR_UNSUPPORTED_HUB_COMMAND";
+      this._recordCommunicationError(error);
+      return error;
+    }
+
+    _sendTunnelPayload(payload) {
+      if (!this.isConnected()) return Promise.reject(this._notConnectedError());
+      const bytes = new TextEncoder().encode(payload);
+      if (bytes.length > 0xffff) {
+        return Promise.reject(
+          this._unsupportedError("TunnelMessage is too large")
+        );
+      }
       const message = new Uint8Array(3 + bytes.length);
       message[0] = SPIKE3.TUNNEL;
       message[1] = bytes.length & 0xff;
       message[2] = (bytes.length >> 8) & 0xff;
       message.set(bytes, 3);
+      if (
+        this._link?.kind === "gatt" &&
+        message.length > this._maxMessageSize
+      ) {
+        return Promise.reject(
+          this._unsupportedError(
+            `controller message exceeds the negotiated BLE message size (${this._maxMessageSize})`
+          )
+        );
+      }
       return this._send(message, true);
+    }
+
+    _enqueueControllerCommand(commandName, fields, allowNotReady = false) {
+      const run = () =>
+        this._sendControllerCommand(commandName, fields, allowNotReady);
+      const pending = this._controllerCommandQueue.then(run, run);
+      this._controllerCommandQueue = pending.catch(() => {});
+      return pending;
+    }
+
+    _sendControllerCommand(commandName, fields = {}, allowNotReady = false) {
+      if (!this.isConnected()) return Promise.reject(this._notConnectedError());
+      if (!allowNotReady && !this._controllerReady) {
+        const error = new Error(t("controllerNotReady"));
+        error.code = "ERR_CONTROLLER_NOT_READY";
+        this._recordCommunicationError(error);
+        return Promise.reject(error);
+      }
+      const requestId = ++this._controllerCommandId;
+      const command = this._encodeControllerCommand(
+        commandName,
+        fields,
+        requestId
+      );
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          if (!this._pendingControllerCommands.has(requestId)) return;
+          this._pendingControllerCommands.delete(requestId);
+          const error = new Error(t("controllerTimeout"));
+          error.code = "ERR_CONTROLLER_TIMEOUT";
+          this._controllerReady = false;
+          this._diagnostics.controllerStatus = "timeout";
+          this._recordCommunicationError(error);
+          reject(error);
+        }, 4000);
+        this._pendingControllerCommands.set(requestId, {
+          resolve,
+          reject,
+          timeout,
+          commandName,
+        });
+        this._sendTunnelPayload(JSON.stringify(command)).catch((error) => {
+          const pending = this._pendingControllerCommands.get(requestId);
+          if (!pending) return;
+          this._pendingControllerCommands.delete(requestId);
+          clearTimeout(pending.timeout);
+          this._recordTransportError(error);
+          reject(error);
+        });
+      });
+    }
+
+    _encodeControllerCommand(commandName, fields, requestId) {
+      const commandCodes = {
+        "controller.hello": "h",
+        "controller.ping": "p",
+        "controller.stop_all": "x",
+        "motor.run": "r",
+        "motor.stop": "s",
+        "motor.power": "u",
+        "motor.run_degrees": "d",
+        "motor.run_time": "t",
+        "motor.run_to_position": "a",
+        "matrix.pixel": "l",
+        "matrix.pattern": "m",
+        "matrix.clear": "c",
+        "sound.beep": "b",
+        "sound.stop": "q",
+      };
+      const fieldCodes = {
+        port: "p",
+        velocity: "v",
+        degrees: "d",
+        duration_ms: "t",
+        position: "g",
+        power: "u",
+        x: "x",
+        y: "y",
+        brightness: "b",
+        pixels: "z",
+        ["text"]: "t",
+        frequency: "f",
+      };
+      const code = commandCodes[commandName];
+      if (!code)
+        throw this._unsupportedError(
+          `unsupported controller command ${commandName}`
+        );
+      const encoded = { i: requestId, c: code };
+      for (const [key, value] of Object.entries(fields)) {
+        if (key === "cmd") continue;
+        const fieldCode = fieldCodes[key];
+        if (!fieldCode)
+          throw this._unsupportedError(`unsupported controller field ${key}`);
+        encoded[fieldCode] =
+          key === "pixels" && Array.isArray(value)
+            ? value.map((pixel) => (Number(pixel) > 0 ? "9" : "0")).join("")
+            : value;
+      }
+      return encoded;
+    }
+
+    _handleTunnelMessage(data) {
+      if (data.length < 3) {
+        this._recordCommunicationError("truncated TunnelMessage header");
+        return;
+      }
+      const payloadSize = data[1] | (data[2] << 8);
+      if (payloadSize !== data.length - 3) {
+        this._recordCommunicationError(
+          `TunnelMessage payload size mismatch: expected ${payloadSize}, received ${data.length - 3}`
+        );
+        return;
+      }
+      let response;
+      try {
+        response = JSON.parse(new TextDecoder().decode(data.slice(3)).trim());
+      } catch (error) {
+        this._recordCommunicationError(
+          `invalid controller response JSON: ${error.message}`
+        );
+        return;
+      }
+      if (!response || typeof response !== "object") {
+        this._recordCommunicationError("controller response must be an object");
+        return;
+      }
+      if (response.c === "o" || response.event === "pong") {
+        this._lastControllerPongAt = Date.now();
+        this._diagnostics.lastControllerResponseAt = this._lastControllerPongAt;
+        return;
+      }
+      const requestId = response.i ?? response.request_id;
+      const pending = this._pendingControllerCommands.get(requestId);
+      if (!pending) {
+        if (response.ok === false) {
+          this._recordCommunicationError(
+            `${response.error?.code || response.error || "controller_error"}: ${response.error?.message || response.detail || "unknown controller error"}`
+          );
+        }
+        return;
+      }
+      this._pendingControllerCommands.delete(requestId);
+      clearTimeout(pending.timeout);
+      if (response.ok !== true) {
+        const detail =
+          response.error?.message ||
+          response.detail ||
+          "controller rejected the command";
+        const error = new Error(`${t("controllerCommandFailed")}: ${detail}`);
+        error.code =
+          response.error?.code || response.error || "ERR_CONTROLLER_COMMAND";
+        this._recordCommunicationError(`${error.message} (${detail})`);
+        pending.reject(error);
+        return;
+      }
+      const result =
+        response.result === "bw-spike-1" &&
+        pending.commandName === "controller.hello"
+          ? { protocol: "brickwright-spike-controller", version: 1 }
+          : response.result || {};
+      if (
+        pending.commandName === "controller.hello" &&
+        result.protocol === "brickwright-spike-controller" &&
+        result.version === 1
+      ) {
+        this._controllerReady = true;
+        this._controllerVersion = `${result.protocol}/${result.version}`;
+        this._diagnostics.controllerStatus = "ready";
+        this._diagnostics.controllerVersion = this._controllerVersion;
+        this._startControllerHeartbeat();
+      }
+      this._diagnostics.lastControllerResponseAt = Date.now();
+      pending.resolve(result);
+    }
+
+    _startControllerHeartbeat() {
+      if (this._controllerHeartbeatTimer !== null) {
+        clearInterval(this._controllerHeartbeatTimer);
+      }
+      this._controllerHeartbeatTimer = setInterval(() => {
+        if (!this.isConnected() || !this._controllerReady) return;
+        this._sendTunnelPayload(JSON.stringify({ c: "p" })).catch((error) =>
+          this._recordTransportError(error)
+        );
+      }, 1000);
+    }
+
+    _requestHubResponse(message, responseType, timeoutMs = 5000) {
+      if (!this.isConnected()) return Promise.reject(this._notConnectedError());
+      if (this._pendingProtocolResponses.has(responseType)) {
+        return Promise.reject(
+          this._unsupportedError("another request for this response is pending")
+        );
+      }
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          const pending = this._pendingProtocolResponses.get(responseType);
+          if (!pending) return;
+          this._pendingProtocolResponses.delete(responseType);
+          const error = new Error(
+            `Hub protocol response 0x${responseType.toString(16)} timed out`
+          );
+          error.code = "ERR_HUB_PROTOCOL_TIMEOUT";
+          this._recordCommunicationError(error);
+          reject(error);
+        }, timeoutMs);
+        this._pendingProtocolResponses.set(responseType, {
+          resolve,
+          reject,
+          timeout,
+        });
+        this._send(message, true).catch((error) => {
+          const pending = this._pendingProtocolResponses.get(responseType);
+          if (!pending) return;
+          this._pendingProtocolResponses.delete(responseType);
+          clearTimeout(pending.timeout);
+          reject(error);
+        });
+      });
+    }
+
+    _handleProtocolResponse(data) {
+      const pending = this._pendingProtocolResponses.get(data[0]);
+      if (!pending) return false;
+      this._pendingProtocolResponses.delete(data[0]);
+      clearTimeout(pending.timeout);
+      if (data.length < 2) {
+        pending.reject(
+          new Error(`truncated protocol response 0x${data[0].toString(16)}`)
+        );
+      } else {
+        pending.resolve({ ok: data[1] === 0, status: data[1] });
+      }
+      return true;
+    }
+
+    _crc32(data, seed = 0) {
+      const paddedLength = Math.ceil(data.length / 4) * 4;
+      let crc = (seed ^ 0xffffffff) >>> 0;
+      for (let i = 0; i < paddedLength; i++) {
+        const byte = i < data.length ? data[i] : 0;
+        crc ^= byte;
+        for (let bit = 0; bit < 8; bit++) {
+          crc = crc & 1 ? (crc >>> 1) ^ 0xedb88320 : crc >>> 1;
+        }
+      }
+      return (crc ^ 0xffffffff) >>> 0;
+    }
+
+    async _waitForInfoResponse(timeoutMs = 3000) {
+      if (this._diagnostics.infoResponseReceivedAt !== null) return;
+      await new Promise((resolve, reject) => {
+        let waiter;
+        const timeout = setTimeout(() => {
+          this._infoResponseWaiters = (this._infoResponseWaiters || []).filter(
+            (candidate) => candidate !== waiter
+          );
+          reject(new Error("Hub InfoResponse timed out"));
+        }, timeoutMs);
+        this._infoResponseWaiters = this._infoResponseWaiters || [];
+        waiter = {
+          resolve: () => {
+            clearTimeout(timeout);
+            resolve();
+          },
+        };
+        this._infoResponseWaiters.push(waiter);
+      });
+    }
+
+    probeController() {
+      if (!this.isConnected()) return Promise.reject(this._notConnectedError());
+      this._diagnostics.controllerStatus = "checking";
+      return this._enqueueControllerCommand("controller.hello", {}, true)
+        .then((result) => {
+          if (
+            result.protocol !== "brickwright-spike-controller" ||
+            result.version !== 1
+          ) {
+            throw new Error("Hub controller returned an incompatible version");
+          }
+          return result;
+        })
+        .catch((error) => {
+          this._controllerReady = false;
+          this._diagnostics.controllerStatus = "error";
+          this._recordCommunicationError(error);
+          throw error;
+        });
+    }
+
+    async installController(slot) {
+      if (!this.isConnected()) throw this._notConnectedError();
+      if (!Number.isInteger(slot) || slot < 0 || slot > 19) {
+        throw this._unsupportedError(
+          "program slot must be an integer from 0 to 19"
+        );
+      }
+      if (this._link?.kind !== "gatt") {
+        throw this._unsupportedError(
+          "controller installation requires BLE GATT"
+        );
+      }
+      this._diagnostics.controllerStatus = "installing";
+      this._controllerReady = false;
+      try {
+        await this._waitForInfoResponse();
+        const program = new TextEncoder().encode(SPIKE3_CONTROLLER_SOURCE);
+        const clear = await this._requestHubResponse(
+          Uint8Array.from([SPIKE3.CLEAR_SLOT_REQUEST, slot]),
+          SPIKE3.CLEAR_SLOT_RESPONSE
+        );
+        // The official example permits a non-acknowledged clear because the
+        // slot may already be empty. The user has confirmed this exact slot.
+        void clear;
+        const filename = new TextEncoder().encode("brickwright.py");
+        const upload = new Uint8Array(38);
+        upload[0] = SPIKE3.START_FILE_UPLOAD_REQUEST;
+        upload.set(filename.slice(0, 31), 1);
+        upload[33] = slot;
+        new DataView(upload.buffer).setUint32(34, this._crc32(program), true);
+        const startUpload = await this._requestHubResponse(
+          upload,
+          SPIKE3.START_FILE_UPLOAD_RESPONSE
+        );
+        if (!startUpload.ok)
+          throw new Error("Hub rejected StartFileUploadRequest");
+
+        let runningCrc = 0;
+        for (
+          let offset = 0;
+          offset < program.length;
+          offset += this._maxChunkSize
+        ) {
+          const chunk = program.slice(offset, offset + this._maxChunkSize);
+          runningCrc = this._crc32(chunk, runningCrc);
+          const request = new Uint8Array(7 + chunk.length);
+          request[0] = SPIKE3.TRANSFER_CHUNK_REQUEST;
+          const view = new DataView(request.buffer);
+          view.setUint32(1, runningCrc, true);
+          view.setUint16(5, chunk.length, true);
+          request.set(chunk, 7);
+          const response = await this._requestHubResponse(
+            request,
+            SPIKE3.TRANSFER_CHUNK_RESPONSE
+          );
+          if (!response.ok) {
+            throw new Error(`Hub rejected program chunk at byte ${offset}`);
+          }
+        }
+
+        const started = await this._requestHubResponse(
+          Uint8Array.from([SPIKE3.PROGRAM_FLOW_REQUEST, 0, slot]),
+          SPIKE3.PROGRAM_FLOW_RESPONSE
+        );
+        if (!started.ok) throw new Error("Hub rejected ProgramFlowRequest");
+        this._diagnostics.controllerStatus = "starting";
+        return await this.probeController();
+      } catch (error) {
+        this._controllerReady = false;
+        this._diagnostics.controllerStatus = "error";
+        this._recordCommunicationError(error);
+        throw error;
+      }
+    }
+
+    /** Arbitrary Python source has no execution semantics in TunnelMessage. */
+    sendPythonCommandRaw(text) {
+      void text;
+      return Promise.reject(
+        this._unsupportedError(t("pythonExecutionUnsupported"))
+      );
     }
 
     sendPythonCommand(pythonCode) {
-      if (!this.isConnected()) return Promise.resolve();
-      const bytes = new TextEncoder().encode(`${pythonCode}\r\n`);
-      const message = new Uint8Array(3 + bytes.length);
-      message[0] = SPIKE3.TUNNEL;
-      message[1] = bytes.length & 0xff;
-      message[2] = (bytes.length >> 8) & 0xff;
-      message.set(bytes, 3);
-      return this._send(message, true);
+      void pythonCode;
+      return Promise.reject(
+        this._unsupportedError(t("pythonExecutionUnsupported"))
+      );
     }
 
     sendRaw(text) {
@@ -3152,7 +3963,7 @@ continuous_sensor_loop()
     }
 
     _send(message, useLimiter = false) {
-      if (!this.isConnected()) return Promise.resolve();
+      if (!this.isConnected()) return Promise.reject(this._notConnectedError());
       if (useLimiter) {
         return whenSlot(
           this._rateLimiter,
@@ -3330,6 +4141,7 @@ continuous_sensor_loop()
     }
 
     _handleMessage(data) {
+      if (this._handleProtocolResponse(data)) return;
       switch (data[0]) {
         case SPIKE3.INFO_RESPONSE:
           this._handleInfoResponse(data);
@@ -3339,6 +4151,15 @@ continuous_sensor_loop()
           break;
         case SPIKE3.DEVICE_NOTIFICATION_RESPONSE:
           this._handleDeviceNotificationResponse(data);
+          break;
+        case SPIKE3.START_FILE_UPLOAD_RESPONSE:
+        case SPIKE3.TRANSFER_CHUNK_RESPONSE:
+        case SPIKE3.CLEAR_SLOT_RESPONSE:
+        case SPIKE3.PROGRAM_FLOW_RESPONSE:
+          this._handleProtocolResponse(data);
+          break;
+        case SPIKE3.TUNNEL:
+          this._handleTunnelMessage(data);
           break;
         case SPIKE3.CONSOLE_NOTIFICATION: {
           const text = new TextDecoder().decode(data.slice(1));
@@ -3394,7 +4215,7 @@ continuous_sensor_loop()
      * one running the same protocol, so it is kept.
      */
     _handleInfoResponse(data) {
-      if (data.length < 15) {
+      if (data.length < 17) {
         this._diagnostics.malformedMessageCount++;
         this._recordCommunicationError("truncated InfoResponse");
         return;
@@ -3404,10 +4225,13 @@ continuous_sensor_loop()
       this._firmware = `${data[5]}.${data[6]}.${view.getUint16(7, true)}`;
       this._diagnostics.infoResponseReceivedAt = Date.now();
       this._maxPacketSize = view.getUint16(9, true) || 20;
+      this._maxMessageSize = view.getUint16(11, true) || 100;
       this._maxChunkSize = view.getUint16(13, true) || 100;
       if (this._link && this._link.setMaxPacketSize) {
         this._link.setMaxPacketSize(this._maxPacketSize);
       }
+      for (const waiter of this._infoResponseWaiters || []) waiter.resolve();
+      this._infoResponseWaiters = [];
       this._requestStreamingOnce();
     }
 
@@ -5785,6 +6609,22 @@ continuous_sensor_loop()
             text: t("getCommunicationDiagnosticsSummary"),
           },
           {
+            opcode: "installHubController",
+            blockType: BlockType.COMMAND,
+            text: t("installHubController"),
+            arguments: {
+              SLOT: {
+                type: ArgumentType.NUMBER,
+                defaultValue: 19,
+              },
+            },
+          },
+          {
+            opcode: "checkHubController",
+            blockType: BlockType.COMMAND,
+            text: t("checkHubController"),
+          },
+          {
             opcode: "setConnectionMode",
             blockType: BlockType.COMMAND,
             text: t("setConnectionMode"),
@@ -7537,6 +8377,27 @@ continuous_sensor_loop()
         "color: #44aaff;"
       );
 
+      if (this._peripheral.protocol === "spike3") {
+        const speeds = ports.map(
+          (port) => this._peripheral.motorSettings[port].speed * direction
+        );
+        const slowest = speeds.reduce(
+          (current, speed) => Math.min(current, Math.abs(speed)),
+          Infinity
+        );
+        return Promise.all(
+          ports.map((port, index) =>
+            this._peripheral.sendCommand("scratch.motor_run_for_degrees", {
+              port,
+              speed: speeds[index],
+              degrees: Math.floor(degrees),
+            })
+          )
+        ).then(() =>
+          this._waitForMovement(ports, Math.floor(degrees), slowest)
+        );
+      }
+
       let slowest = 0;
       ports.forEach((port) => {
         const setting = this._peripheral.motorSettings[port];
@@ -7564,6 +8425,13 @@ continuous_sensor_loop()
       if (!port) return;
       const position = Cast.toNumber(args.POSITION);
       const speed = this._peripheral.motorSettings[port].speed;
+      if (this._peripheral.protocol === "spike3") {
+        return this._peripheral.sendCommand("scratch.motor_run_to_position", {
+          port,
+          position,
+          speed,
+        });
+      }
       return this._peripheral.sendPythonCommand(
         `hub.port.${port}.motor.run_to_position(${position}, speed=${speed})`
       );
@@ -7721,6 +8589,12 @@ continuous_sensor_loop()
 
     // Display implementations
     displayText(args) {
+      if (this._peripheral.protocol === "spike3") {
+        const error = new Error(t("displayTextUnsupported"));
+        error.code = "ERR_UNSUPPORTED_HUB_COMMAND";
+        this._peripheral.active._recordCommunicationError(error);
+        return Promise.reject(error);
+      }
       const text = Cast.toString(args.TEXT);
       const standardCommand = this._peripheral.sendCommand(
         "scratch.display_text",
@@ -7730,21 +8604,9 @@ continuous_sensor_loop()
         this._peripheral.sendPythonCommand(
           `import hub; hub.display.show(${pyStringLiteral(text)})`
         );
-      return standardCommand.catch((error) => {
-        // The SPIKE 3.x TunnelMessage format is documented, but this fallback
-        // Python API has not been verified on the reported Hub OS 1.6.62.
-        // Do not send it automatically when the native display command is not
-        // available; keep the REPL fallback for the legacy protocol only.
-        if (this._peripheral.protocol === "spike3") {
-          const userError = new Error(t("displayTextUnsupported"));
-          userError.code = error.code;
-          this._peripheral.active._recordCommunicationError(
-            `${userError.message} (${error.message})`
-          );
-          throw userError;
-        }
-        return altCommand();
-      });
+      return standardCommand.catch((error) =>
+        this._sendPythonFallback(error, altCommand)
+      );
     }
 
     displayImage(args) {
@@ -7762,6 +8624,11 @@ continuous_sensor_loop()
         })
         .join("");
 
+      if (this._peripheral.protocol === "spike3") {
+        return this._peripheral.sendCommand("scratch.display_pattern", {
+          pixels: symbol,
+        });
+      }
       return this._peripheral.sendPythonCommand(
         `import hub; hub.display.show(hub.Image("${formatted}"))`
       );
@@ -8295,6 +9162,65 @@ continuous_sensor_loop()
     // though the palette looks fuller without it.
     // ========================================================================
 
+    installHubController(args) {
+      if (!this._peripheral.isConnected()) {
+        alert(t("notConnected"));
+        return Promise.reject(new Error(t("notConnected")));
+      }
+      if (this._peripheral.protocol !== "spike3") {
+        const error = new Error(t("controllerUnsupported"));
+        error.code = "ERR_UNSUPPORTED_HUB_COMMAND";
+        alert(t("operationFailed", error.message));
+        return Promise.reject(error);
+      }
+      const slot = Math.trunc(Cast.toNumber(args.SLOT));
+      if (slot < 0 || slot > 19) {
+        const error = new Error(t("controllerInvalidSlot"));
+        alert(t("operationFailed", error.message));
+        return Promise.reject(error);
+      }
+
+      // Program slots cannot be inspected through the published BLE protocol.
+      // This confirmation is required every time before ClearSlotRequest is sent.
+      return askYesNo(t("controllerConfirmOverwrite", slot)).then((yes) => {
+        if (!yes) return;
+        return this._peripheral.active
+          .installController(slot)
+          .then((result) => {
+            alert(t("controllerReady"));
+            return result;
+          })
+          .catch((error) => {
+            alert(t("controllerFailed", error.message));
+            throw error;
+          });
+      });
+    }
+
+    checkHubController() {
+      if (!this._peripheral.isConnected()) {
+        const error = new Error(t("notConnected"));
+        alert(t("operationFailed", error.message));
+        return Promise.reject(error);
+      }
+      if (this._peripheral.protocol !== "spike3") {
+        const error = new Error(t("controllerUnsupported"));
+        error.code = "ERR_UNSUPPORTED_HUB_COMMAND";
+        alert(t("operationFailed", error.message));
+        return Promise.reject(error);
+      }
+      return this._peripheral.active
+        .probeController()
+        .then((result) => {
+          alert(t("controllerReady"));
+          return result;
+        })
+        .catch((error) => {
+          alert(t("controllerFailed", error.message));
+          throw error;
+        });
+    }
+
     connectHub() {
       return this._peripheral.scan();
     }
@@ -8367,6 +9293,8 @@ continuous_sensor_loop()
         `${t("diag.connection")}: ${diagnostics.connected ? t("diag.connected") : t("diag.disconnected")}`,
         `${t("diag.firmware")}: ${diagnostics.firmwareVersion || unavailable}`,
         `${t("diag.notification")}: ${notificationLabel}`,
+        `${t("diag.controller")}: ${diagnostics.protocol === "spike3" ? t(`diag.controllerStatus.${diagnostics.controllerStatus || "not-installed"}`) : notApplicable}`,
+        `${t("diag.controllerVersion")}: ${diagnostics.controllerVersion || unavailable}`,
         `${t("diag.imuCount")}: ${diagnostics.imuNotificationCount ?? notApplicable}`,
         `${t("diag.lastImu")}: ${formatTimestamp(diagnostics.lastImuReceivedAt)}`,
         `${t("diag.angles")}: ${angleSummary}`,
@@ -8383,10 +9311,7 @@ continuous_sensor_loop()
     }
 
     _sendPythonFallback(error, fallbackCommand) {
-      if (
-        this._peripheral.protocol === "spike3" &&
-        error?.code !== "ERR_UNSUPPORTED_HUB_COMMAND"
-      ) {
+      if (this._peripheral.protocol === "spike3") {
         throw error;
       }
       return fallbackCommand();
@@ -8441,24 +9366,21 @@ continuous_sensor_loop()
       return Promise.all(promises).then(() => {});
     }
 
-    /**
-     * Start at a power (duty cycle), unregulated: the "More Motors" block.
-     * There is no JSON-RPC or tunnel verb for it that is documented, so both
-     * firmwares get their documented MicroPython call: SPIKE 3's
-     * motor.set_duty_cycle (-10000..10000) and the 2.x hub module's
-     * motor.pwm (-100..100). Power 0 lets the motor coast, as a duty of 0 does.
-     */
+    /** Start at a bounded unregulated duty cycle through the controller. */
     motorStartPower(args) {
       const ports = this._validatePorts(Cast.toString(args.PORT));
-      // SPIKE 3 resolves a hundredth of a percent; the 2.x pwm a whole one.
       const power = MathUtil.clamp(Cast.toNumber(args.POWER), -100, 100);
-      const spike3 = this._peripheral.protocol === "spike3";
+      const dutyCycle = Math.round(power * 100);
       const promises = ports.map((port) =>
-        this._peripheral.sendPythonCommand(
-          spike3
-            ? `import motor; from hub import port; motor.set_duty_cycle(port.${port}, ${Math.round(power * 100)})`
-            : `import hub; hub.port.${port}.motor.pwm(${Math.round(power)})`
-        )
+        this._peripheral
+          .sendCommand("scratch.motor_power", { port, power: dutyCycle })
+          .catch((error) =>
+            this._sendPythonFallback(error, () =>
+              this._peripheral.sendPythonCommand(
+                `import hub; hub.port.${port}.motor.pwm(${Math.round(power)})`
+              )
+            )
+          )
       );
       return Promise.all(promises).then(() => {});
     }
