@@ -105,12 +105,41 @@
       "diag.roll": "Roll",
       "diag.yaw": "Yaw",
       "diag.motorPorts": "Motor ports seen in notifications",
-      "diag.motorPosition": "position",
-      "diag.motorSpeed": "speed",
+      "diag.motorPosition": "relative position",
+      "diag.motorAbsolutePosition": "absolute position",
+      "diag.motorSpeed": "speed value",
       "diag.noMotorPorts": "no motor record received",
       "diag.cobsErrors": "COBS decode errors",
       "diag.unsupportedRecords": "Unsupported records",
-      "diag.lastError": "Last communication error",
+      "diag.lastError": "Communication error summary",
+      "diag.technicalDetail": "Technical detail",
+      "diag.error.notAcknowledged":
+        "The hub rejected the sensor notification request. Check firmware support and the selected transport.",
+      "diag.error.timeout":
+        "The hub did not respond to the sensor notification request in time.",
+      "diag.error.disconnected":
+        "The connection to the hub was lost while waiting for a response.",
+      "diag.error.notConnected": "The SPIKE hub is not connected.",
+      "diag.error.unknownResponse":
+        "The hub returned an unrecognized response status ({0}).",
+      "diag.error.cobs": "A Bluetooth frame could not be decoded ({0}).",
+      "diag.error.unsupportedRecord":
+        "The hub sent a notification record this extension does not support ({0}).",
+      "diag.error.infoResponse":
+        "The firmware information response from the hub was incomplete.",
+      "diag.error.notificationHeader":
+        "The sensor notification header from the hub was incomplete.",
+      "diag.error.imuRecord": "The IMU data from the hub was incomplete.",
+      "diag.error.motorRecord": "The motor data from the hub was incomplete.",
+      "diag.error.otherRecord":
+        "The {0} sensor data from the hub was incomplete.",
+      "diag.error.payloadSize":
+        "The sensor notification length did not match its declared size (expected {0} bytes, received {1}).",
+      "diag.error.emptyMessage": "The hub sent an empty Bluetooth message.",
+      "diag.error.bluetoothUnavailable":
+        "Web Bluetooth is unavailable in this browser.",
+      "diag.error.other":
+        "A communication error occurred. See the technical detail below.",
       "diag.none": "none",
       setConnectionMode: "set connection mode to [MODE]",
       enableStreamingMode: "enable streaming mode",
@@ -302,12 +331,44 @@
       "diag.roll": "Roll",
       "diag.yaw": "Yaw",
       "diag.motorPorts": "通知で検出したモーターポート",
-      "diag.motorPosition": "位置",
-      "diag.motorSpeed": "回転速度",
+      "diag.motorPosition": "相対位置",
+      "diag.motorAbsolutePosition": "絶対位置",
+      "diag.motorSpeed": "速度値",
       "diag.noMotorPorts": "モーター通知は未受信",
       "diag.cobsErrors": "COBS解析エラー",
       "diag.unsupportedRecords": "未対応レコード",
-      "diag.lastError": "最終通信エラー",
+      "diag.lastError": "通信エラーの概要",
+      "diag.technicalDetail": "技術詳細",
+      "diag.error.notAcknowledged":
+        "ハブがセンサー通知要求を受け付けませんでした。ファームウェアの対応状況と接続方式を確認してください。",
+      "diag.error.timeout":
+        "センサー通知要求に対するハブの応答が時間内にありませんでした。",
+      "diag.error.disconnected":
+        "応答を待っている間にハブとの接続が切れました。",
+      "diag.error.notConnected": "SPIKEハブに接続されていません。",
+      "diag.error.unknownResponse":
+        "ハブから未対応の応答状態（{0}）が返されました。",
+      "diag.error.cobs": "Bluetoothフレームを解析できませんでした（{0}）。",
+      "diag.error.unsupportedRecord":
+        "この拡張機能が未対応の通知レコード（{0}）をハブから受信しました。",
+      "diag.error.infoResponse":
+        "ハブから受信したファームウェア情報が途中で途切れています。",
+      "diag.error.notificationHeader":
+        "ハブから受信したセンサー通知のヘッダーが途中で途切れています。",
+      "diag.error.imuRecord":
+        "ハブから受信したIMUデータが途中で途切れています。",
+      "diag.error.motorRecord":
+        "ハブから受信したモーターデータが途中で途切れています。",
+      "diag.error.otherRecord":
+        "ハブから受信した{0}センサーのデータが途中で途切れています。",
+      "diag.error.payloadSize":
+        "センサー通知の長さが申告されたサイズと一致しません（申告値 {0} バイト、受信値 {1} バイト）。",
+      "diag.error.emptyMessage":
+        "ハブから空のBluetoothメッセージを受信しました。",
+      "diag.error.bluetoothUnavailable":
+        "このブラウザーではWeb Bluetoothを利用できません。",
+      "diag.error.other":
+        "通信エラーが発生しました。詳しい内容は下の技術詳細を確認してください。",
       "diag.none": "なし",
       setConnectionMode: "接続モードを [MODE] にする",
       enableStreamingMode: "センサー通知を有効にする",
@@ -832,6 +893,74 @@
       message = message.replaceAll(`{${index}}`, String(value));
     });
     return message;
+  }
+
+  function summarizeCommunicationError(error) {
+    const message = String(error || "");
+    if (message === "hub did not acknowledge device notifications") {
+      return t("diag.error.notAcknowledged");
+    }
+    if (message === "device notification response timed out") {
+      return t("diag.error.timeout");
+    }
+    if (
+      message === "disconnected while awaiting device notification response"
+    ) {
+      return t("diag.error.disconnected");
+    }
+    if (message === "not connected to SPIKE hub") {
+      return t("diag.error.notConnected");
+    }
+    const unknownResponse = message.match(
+      /^unknown device notification response status: (.+)$/i
+    );
+    if (unknownResponse) {
+      return t("diag.error.unknownResponse", unknownResponse[1]);
+    }
+    const cobsFailure = message.match(/^COBS decode failed: (.+)$/i);
+    if (cobsFailure) {
+      return t("diag.error.cobs", cobsFailure[1]);
+    }
+    const unsupportedRecord = message.match(
+      /^unsupported device record: (0x[\da-f]+)$/i
+    );
+    if (unsupportedRecord) {
+      return t("diag.error.unsupportedRecord", unsupportedRecord[1]);
+    }
+    if (message === "truncated InfoResponse") {
+      return t("diag.error.infoResponse");
+    }
+    if (message === "truncated DeviceNotification header") {
+      return t("diag.error.notificationHeader");
+    }
+    const truncatedRecord = message.match(/^truncated (.+) record$/i);
+    if (truncatedRecord) {
+      const record = truncatedRecord[1].toLowerCase();
+      const key =
+        record === "imu"
+          ? "diag.error.imuRecord"
+          : record === "motor"
+            ? "diag.error.motorRecord"
+            : "diag.error.otherRecord";
+      return key === "diag.error.otherRecord" ? t(key, record) : t(key);
+    }
+    const payloadMismatch = message.match(
+      /^DeviceNotification payload size mismatch: expected (\d+), received (\d+)$/
+    );
+    if (payloadMismatch) {
+      return t(
+        "diag.error.payloadSize",
+        payloadMismatch[1],
+        payloadMismatch[2]
+      );
+    }
+    if (message === "COBS frame decoded to an empty message") {
+      return t("diag.error.emptyMessage");
+    }
+    if (message === "Web Bluetooth is not available in this browser") {
+      return t("diag.error.bluetoothUnavailable");
+    }
+    return t("diag.error.other");
   }
 
   // Localize menu labels separately from their stored values. Scratch saves a
@@ -3357,14 +3486,22 @@ continuous_sensor_loop()
             break;
 
           case SPIKE3.DEV_MOTOR: {
-            // 12 bytes: type, port, absolute(int16 @2), power(int16 @4),
-            // ?(@6), speed(int8 @7), position(int32 @8).
+            // 12 bytes per LEGO's SPIKE Prime protocol:
+            // type, port, motor type, absolute position(int16 @3),
+            // power(int16 @5), speed(int8 @7), counted position(int32 @8).
             if (remaining < 12) {
               this._recordMalformedNotification("truncated motor record");
               return;
             }
             const port = SpikePorts[data[offset + 1]];
             if (port) {
+              const readInt16 = (index) => {
+                const value =
+                  data[offset + index] | (data[offset + index + 1] << 8);
+                return value > 32767 ? value - 65536 : value;
+              };
+              const absolutePosition = readInt16(3);
+              const power = readInt16(5);
               const rawSpeed = data[offset + 7];
               const speed = rawSpeed > 127 ? rawSpeed - 256 : rawSpeed;
               let position =
@@ -3373,19 +3510,24 @@ continuous_sensor_loop()
                 (data[offset + 10] << 16) |
                 (data[offset + 11] << 24);
               if (position > 2147483647) position -= 4294967296;
-              const absolute = ((position % 360) + 360) % 360;
+              // The legacy position reporter is a normalized 0..359 angle;
+              // the separate absolute-position reporter retains LEGO's
+              // signed -180..179 value. The int32 field is the accumulated
+              // relative position and must not be used for either absolute
+              // reading.
+              const normalizedPosition = ((absolutePosition % 360) + 360) % 360;
               this._portValues[port] = {
                 type: "motor",
                 speed: speed,
                 degreesCounted: position,
-                position: absolute,
-                power: 0,
+                position: normalizedPosition,
+                power: power,
                 relativePosition: position,
-                absolutePosition: position,
+                absolutePosition: absolutePosition,
               };
               this._sensors.motorPositions[port] = {
                 relativePosition: position,
-                absolutePosition: position,
+                absolutePosition: absolutePosition,
                 speed: speed,
               };
             }
@@ -8214,7 +8356,7 @@ continuous_sensor_loop()
       const motorSummary = Object.entries(motorPorts)
         .map(
           ([port, values]) =>
-            `${port}: ${t("diag.motorPosition")} ${values.relativePosition}°, ${t("diag.motorSpeed")} ${values.speed}°/s`
+            `${port}: ${t("diag.motorPosition")} ${values.relativePosition}°, ${t("diag.motorAbsolutePosition")} ${values.absolutePosition}°, ${t("diag.motorSpeed")} ${values.speed}`
         )
         .join("; ");
       const formatTimestamp = (timestamp) =>
@@ -8231,7 +8373,12 @@ continuous_sensor_loop()
         `${t("diag.motorPorts")}: ${motorSummary || t("diag.noMotorPorts")}`,
         `${t("diag.cobsErrors")}: ${diagnostics.cobsDecodeFailureCount ?? notApplicable}`,
         `${t("diag.unsupportedRecords")}: ${diagnostics.unsupportedRecordCount ?? notApplicable}`,
-        `${t("diag.lastError")}: ${diagnostics.lastCommunicationError || t("diag.none")}`,
+        `${t("diag.lastError")}: ${diagnostics.lastCommunicationError ? summarizeCommunicationError(diagnostics.lastCommunicationError) : t("diag.none")}`,
+        ...(diagnostics.lastCommunicationError
+          ? [
+              `${t("diag.technicalDetail")}: ${diagnostics.lastCommunicationError}`,
+            ]
+          : []),
       ].join("\n");
     }
 

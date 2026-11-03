@@ -432,12 +432,34 @@ test("motor position and 5x5 matrix records are parsed from one notification", a
     packMessage(notification(bytes(motorRecord(), [0x02], pixels)))
   );
   const hub = state.ext._peripheral._spike3;
+  assert.equal(hub.portValues.A.position, 323);
+  assert.equal(hub.portValues.A.absolutePosition, -37);
   assert.equal(hub.portValues.A.relativePosition, -123456);
+  assert.equal(hub.portValues.A.degreesCounted, -123456);
+  assert.equal(hub.portValues.A.power, -500);
   assert.equal(hub.portValues.A.speed, -12);
+  assert.equal(state.ext.getPosition({ PORT: "A" }), 323);
+  assert.equal(state.ext.getRelativePosition({ PORT: "A" }), -123456);
+  assert.equal(state.ext.getAbsolutePosition({ PORT: "A" }), -37);
+  assert.equal(state.ext.getSpeed({ PORT: "A" }), -112);
   const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
   assert.equal(diagnostics.motorNotificationCount, 1);
   assert.equal(diagnostics.matrix5x5NotificationCount, 1);
   assert.deepEqual(diagnostics.lastMatrix5x5, Array.from(pixels));
+});
+
+test("truncated motor records are rejected without replacing the last angle", async () => {
+  const state = setup();
+  await connect(state);
+  const hub = state.ext._peripheral._spike3;
+  state.device.tx.emit(packMessage(notification(motorRecord())));
+  const before = { ...hub.portValues.A };
+  const truncated = motorRecord().slice(0, 11);
+  state.device.tx.emit(packMessage(notification(truncated)));
+  assert.deepEqual({ ...hub.portValues.A }, before);
+  const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.malformedNotificationCount, 1);
+  assert.match(diagnostics.lastCommunicationError, /truncated motor record/);
 });
 
 test("localized diagnostic summary distinguishes missing IMU data and lists motor positions", async () => {
@@ -458,7 +480,40 @@ test("localized diagnostic summary distinguishes missing IMU data and lists moto
   assert.match(received, /Pitch 12°/);
   assert.match(received, /Roll -3°/);
   assert.match(received, /Yaw -9°/);
-  assert.match(received, /A: 位置 -123456°/);
+  assert.match(received, /A: 相対位置 -123456°, 絶対位置 -37°/);
+  assert.match(received, /速度値 -12/);
+});
+
+test("Japanese communication diagnostics summarize errors and retain raw details", async () => {
+  const state = setup({ locale: "ja" });
+  await connect(state);
+  const hub = state.ext._peripheral._spike3;
+  const cases = [
+    [
+      "device notification response timed out",
+      /センサー通知要求に対するハブの応答が時間内にありませんでした/,
+    ],
+    [
+      "COBS decode failed: truncated COBS block",
+      /Bluetoothフレームを解析できませんでした/,
+    ],
+    ["unsupported device record: 0x7f", /未対応の通知レコード（0x7f）/],
+    [
+      "DeviceNotification payload size mismatch: expected 4, received 2",
+      /申告値 4 バイト、受信値 2 バイト/,
+    ],
+  ];
+  const summaries = [];
+  for (const [rawError, expectedSummary] of cases) {
+    hub._recordCommunicationError(rawError);
+    const summary = state.ext.getCommunicationDiagnosticsSummary();
+    const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+    assert.match(summary, expectedSummary);
+    assert.ok(summary.includes(`技術詳細: ${rawError}`));
+    assert.equal(diagnostics.lastCommunicationError, rawError);
+    summaries.push(summary);
+  }
+  assert.equal(new Set(summaries).size, cases.length);
 });
 
 test("split COBS frames and multiple frames in one BLE notification are reassembled", async () => {
