@@ -78,6 +78,7 @@
       getHubType: "hub type",
       getFirmwareVersion: "hub firmware version",
       getConnectionMode: "connection mode",
+      getCommunicationDiagnostics: "communication diagnostics (JSON)",
       setConnectionMode: "set connection mode to [MODE]",
       enableStreamingMode: "enable streaming mode",
       disableStreamingMode: "disable streaming mode",
@@ -218,6 +219,27 @@
         "To upload to SPIKE Prime:\n1. Save project as .llsp file\n2. Open in SPIKE Prime app\n3. Upload to hub\n\nOr use Bluetooth file transfer if available.",
       confirmDelete: "Delete {0} from hub?",
     },
+    ja: {
+      extensionName: "LEGO SPIKE Prime",
+      connectionLabel: "🔌 接続",
+      connectHub: "ハブに接続",
+      connectHubAt: "ブリッジに接続 [URL]",
+      disconnectHub: "切断",
+      isConnected: "接続中？",
+      getHubType: "ハブの種類",
+      getFirmwareVersion: "ハブのファームウェアバージョン",
+      getConnectionMode: "接続モード",
+      getCommunicationDiagnostics: "通信診断（JSON）",
+      setConnectionMode: "接続モードを [MODE] にする",
+      enableStreamingMode: "センサー通知を有効にする",
+      disableStreamingMode: "センサー通知を無効にする",
+      "mode.auto": "自動検出",
+      "mode.scratchlinkBle": "Scratch Link（BLE）",
+      "mode.scratchlinkBt": "Scratch Link（Bluetooth Classic）",
+      "mode.webBle": "Web Bluetooth",
+      "mode.bridge": "ローカルブリッジ",
+      displayText: "ハブに [TEXT] と表示する",
+    },
     de: {
       // Verbindung & Modi
       connectionLabel: "🔌 Verbindung",
@@ -228,6 +250,7 @@
       getHubType: "Hub-Typ",
       getFirmwareVersion: "Hub-Firmware-Version",
       getConnectionMode: "Verbindungsmodus",
+      getCommunicationDiagnostics: "Kommunikationsdiagnose (JSON)",
       setConnectionMode: "Verbindungsmodus auf [MODE] setzen",
       enableStreamingMode: "Streaming-Modus einschalten",
       disableStreamingMode: "Streaming-Modus ausschalten",
@@ -379,6 +402,7 @@
       getHubType: "type de hub",
       getFirmwareVersion: "version du micrologiciel du hub",
       getConnectionMode: "mode de connexion",
+      getCommunicationDiagnostics: "diagnostics de communication (JSON)",
       setConnectionMode: "définir le mode de connexion sur [MODE]",
       enableStreamingMode: "activer le mode diffusion",
       disableStreamingMode: "désactiver le mode diffusion",
@@ -982,6 +1006,7 @@
     DEV_COLOR: 0x0c,
     DEV_DISTANCE: 0x0d,
     DEV_MATRIX_3X3: 0x0e,
+    NOTIFICATION_RESPONSE_TIMEOUT_MS: 2000,
   };
 
   const COBS = {
@@ -1260,17 +1285,26 @@
    * picked as both the discovery result and the connection.
    */
   class WebBLELink {
-    constructor(runtime, extensionId, connectCallback, resetCallback = null) {
+    constructor(
+      runtime,
+      extensionId,
+      connectCallback,
+      resetCallback = null,
+      errorCallback = null
+    ) {
       this._runtime = runtime;
       this._extensionId = extensionId;
       this._connectCallback = connectCallback;
       this._resetCallback = resetCallback;
+      this._errorCallback = errorCallback;
       this._device = null;
       this._server = null;
       this._rx = null;
       this._tx = null;
       this._connected = false;
       this._characteristicDidChangeCallback = null;
+      this._deviceDisconnectListener = null;
+      this._characteristicChangedListener = null;
       this._writeChain = Promise.resolve();
       this._maxPacketSize = 20;
     }
@@ -1291,11 +1325,16 @@
         filters: [{ services: [SPIKE3.SERVICE_LC] }],
         optionalServices: [SPIKE3.SERVICE_LC],
       });
-      this._device.addEventListener("gattserverdisconnected", () => {
+      this._deviceDisconnectListener = () => {
         this._connected = false;
+        this._removeListeners();
         if (this._resetCallback) this._resetCallback();
         this._runtime.emit(this._runtime.constructor.PERIPHERAL_DISCONNECTED);
-      });
+      };
+      this._device.addEventListener(
+        "gattserverdisconnected",
+        this._deviceDisconnectListener
+      );
       return this._device;
     }
 
@@ -1306,7 +1345,7 @@
       this._rx = await service.getCharacteristic(SPIKE3.RX_CHAR_LC);
       this._tx = await service.getCharacteristic(SPIKE3.TX_CHAR_LC);
       await this._tx.startNotifications();
-      this._tx.addEventListener("characteristicvaluechanged", (event) => {
+      this._characteristicChangedListener = (event) => {
         if (!this._characteristicDidChangeCallback) return;
         const view = event.target.value;
         const bytes = new Uint8Array(
@@ -1317,7 +1356,11 @@
         this._characteristicDidChangeCallback(
           Base64Util.uint8ArrayToBase64(bytes)
         );
-      });
+      };
+      this._tx.addEventListener(
+        "characteristicvaluechanged",
+        this._characteristicChangedListener
+      );
       this._connected = true;
       this._runtime.emit(this._runtime.constructor.PERIPHERAL_CONNECTED);
       if (this._connectCallback) this._connectCallback();
@@ -1333,7 +1376,34 @@
         // A disconnect that fails because the device already went away is the
         // outcome we wanted.
       }
+      this._removeListeners();
       this._runtime.emit(this._runtime.constructor.PERIPHERAL_DISCONNECTED);
+    }
+
+    _removeListeners() {
+      if (
+        this._device &&
+        typeof this._device.removeEventListener === "function" &&
+        this._deviceDisconnectListener
+      ) {
+        this._device.removeEventListener(
+          "gattserverdisconnected",
+          this._deviceDisconnectListener
+        );
+      }
+      if (
+        this._tx &&
+        typeof this._tx.removeEventListener === "function" &&
+        this._characteristicChangedListener
+      ) {
+        this._tx.removeEventListener(
+          "characteristicvaluechanged",
+          this._characteristicChangedListener
+        );
+      }
+      this._deviceDisconnectListener = null;
+      this._characteristicChangedListener = null;
+      this._characteristicDidChangeCallback = null;
     }
 
     isConnected() {
@@ -1359,6 +1429,7 @@
           ? Base64Util.base64ToUint8Array(message)
           : Uint8Array.from(message);
       this._writeChain = this._writeChain
+        .catch(() => {})
         .then(async () => {
           if (!this._rx) return;
           for (let i = 0; i < bytes.length; i += this._maxPacketSize) {
@@ -1370,10 +1441,11 @@
             }
           }
         })
-        .catch(() => {
+        .catch((error) => {
           // A failed write means the link is gone; the disconnect handler
-          // reports it. Swallowing here keeps one bad packet from poisoning
-          // every later write in the chain.
+          // reports it. Keep the queue usable for a later reconnect and keep
+          // the failure visible to the diagnostics reporter.
+          if (this._errorCallback) this._errorCallback(error);
         });
       return this._writeChain;
     }
@@ -2235,6 +2307,7 @@ continuous_sensor_loop()
         F: new SpikeMotorSetting(),
       };
       this._resetSensors();
+      this._resetCommunicationDiagnostics();
 
       this.reset = this.reset.bind(this);
       this._onConnect = this._onConnect.bind(this);
@@ -2266,6 +2339,83 @@ continuous_sensor_loop()
           freefall: false,
         },
         motorPositions: {},
+      };
+    }
+
+    _resetCommunicationDiagnostics() {
+      this._diagnostics = {
+        infoResponseReceivedAt: null,
+        notificationRequest: {
+          enabled: false,
+          intervalMs: 0,
+          status: "not-requested",
+          requestedAt: null,
+          responseAt: null,
+          responseCode: null,
+        },
+        lastImuReceivedAt: null,
+        imuNotificationCount: 0,
+        motorNotificationCount: 0,
+        matrix5x5NotificationCount: 0,
+        cobsDecodeFailureCount: 0,
+        malformedMessageCount: 0,
+        malformedNotificationCount: 0,
+        unsupportedRecordCount: 0,
+        lastCommunicationError: "",
+      };
+      this._matrix5x5 = null;
+      this._notificationResponseTimeout = null;
+    }
+
+    _clearNotificationResponseTimeout() {
+      if (this._notificationResponseTimeout !== null) {
+        clearTimeout(this._notificationResponseTimeout);
+        this._notificationResponseTimeout = null;
+      }
+    }
+
+    _recordCommunicationError(error) {
+      this._diagnostics.lastCommunicationError =
+        error instanceof Error
+          ? error.message
+          : String(error || "unknown error");
+    }
+
+    _recordTransportError(error) {
+      this._recordCommunicationError(error);
+      const request = this._diagnostics.notificationRequest;
+      if (request.status === "pending") {
+        request.status = "write-error";
+        this._clearNotificationResponseTimeout();
+      }
+    }
+
+    _recordMalformedNotification(message) {
+      this._diagnostics.malformedNotificationCount++;
+      this._recordCommunicationError(message);
+    }
+
+    getDiagnostics(connectionMode = "") {
+      return {
+        protocol: "spike3",
+        connected: this.isConnected(),
+        connectionMode,
+        firmwareVersion: this._firmware,
+        rpcVersion: this._rpcVersion,
+        infoResponseReceivedAt: this._diagnostics.infoResponseReceivedAt,
+        notificationRequest: { ...this._diagnostics.notificationRequest },
+        lastImuReceivedAt: this._diagnostics.lastImuReceivedAt,
+        imuNotificationCount: this._diagnostics.imuNotificationCount,
+        motorNotificationCount: this._diagnostics.motorNotificationCount,
+        matrix5x5NotificationCount:
+          this._diagnostics.matrix5x5NotificationCount,
+        lastMatrix5x5: this._matrix5x5 ? [...this._matrix5x5] : null,
+        cobsDecodeFailureCount: this._diagnostics.cobsDecodeFailureCount,
+        malformedMessageCount: this._diagnostics.malformedMessageCount,
+        malformedNotificationCount:
+          this._diagnostics.malformedNotificationCount,
+        unsupportedRecordCount: this._diagnostics.unsupportedRecordCount,
+        lastCommunicationError: this._diagnostics.lastCommunicationError,
       };
     }
 
@@ -2353,6 +2503,13 @@ continuous_sensor_loop()
     }
 
     reset() {
+      this._clearNotificationResponseTimeout();
+      if (this._streamingFallback !== null) {
+        clearTimeout(this._streamingFallback);
+        this._streamingFallback = null;
+      }
+      this._streamingRequested = false;
+      this._diagnostics.notificationRequest.status = "disconnected";
       this._frame = [];
       this._portValues = {};
       this._resetSensors();
@@ -2361,6 +2518,7 @@ continuous_sensor_loop()
       this._replOutput = "";
       this._replHistory = [];
       this._firmware = null;
+      this._rpcVersion = null;
     }
 
     stopAll() {
@@ -2494,19 +2652,32 @@ continuous_sensor_loop()
     // --------------------------------------------------------------- receive
 
     _onConnect() {
-      this._link.startNotifications(
+      this._clearNotificationResponseTimeout();
+      if (this._streamingFallback !== null)
+        clearTimeout(this._streamingFallback);
+      this._streamingFallback = null;
+      this._frame = [];
+      this._firmware = null;
+      this._rpcVersion = null;
+      this._resetCommunicationDiagnostics();
+      this._streamingRequested = false;
+      const notifications = this._link.startNotifications(
         SPIKE3.SERVICE,
         SPIKE3.TX_CHAR,
         this._onMessage
       );
-      this._streamingRequested = false;
+      if (notifications && typeof notifications.catch === "function") {
+        notifications.catch((error) => this._recordTransportError(error));
+      }
       // Ask what we are talking to. Device streaming is requested the moment
       // it answers (see _handleInfoResponse) rather than after a fixed wait:
       // the InfoResponse is also what carries the packet size, so asking
       // before it arrives means sending at the wrong MTU. Both BLE extensions
       // used a 500 ms timer instead, which was slower when the hub was quick
       // and still too early when it was not.
-      this._send(Uint8Array.from([SPIKE3.INFO_REQUEST]), false);
+      this._send(Uint8Array.from([SPIKE3.INFO_REQUEST]), false).catch((error) =>
+        this._recordTransportError(error)
+      );
       // A hub that never answers still gets asked, so a missing InfoResponse
       // costs the packet size rather than every sensor reading.
       this._streamingFallback = setTimeout(
@@ -2522,7 +2693,9 @@ continuous_sensor_loop()
         clearTimeout(this._streamingFallback);
         this._streamingFallback = null;
       }
-      this.setDeviceNotifications(true);
+      this.setDeviceNotifications(true).catch((error) =>
+        this._recordTransportError(error)
+      );
     }
 
     /**
@@ -2537,7 +2710,29 @@ continuous_sensor_loop()
       message[0] = SPIKE3.DEVICE_NOTIFICATION_REQUEST;
       message[1] = interval & 0xff;
       message[2] = (interval >> 8) & 0xff;
-      return this._send(message, false);
+      const request = this._diagnostics.notificationRequest;
+      this._clearNotificationResponseTimeout();
+      request.enabled = this._streaming;
+      request.intervalMs = interval;
+      request.status = this.isConnected() ? "pending" : "not-connected";
+      request.requestedAt = Date.now();
+      request.responseAt = null;
+      request.responseCode = null;
+      if (request.status === "pending") {
+        this._notificationResponseTimeout = setTimeout(() => {
+          this._notificationResponseTimeout = null;
+          if (request.status === "pending") {
+            request.status = "timeout";
+            this._recordCommunicationError(
+              "device notification response timed out"
+            );
+          }
+        }, SPIKE3.NOTIFICATION_RESPONSE_TIMEOUT_MS);
+      }
+      return this._send(message, false).catch((error) => {
+        this._recordTransportError(error);
+        throw error;
+      });
     }
 
     get streaming() {
@@ -2546,7 +2741,14 @@ continuous_sensor_loop()
 
     /** Bytes arrive base64-encoded, in MTU-sized pieces, delimited by 0x02. */
     _onMessage(message) {
-      const bytes = Base64Util.base64ToUint8Array(message);
+      let bytes;
+      try {
+        bytes = Base64Util.base64ToUint8Array(message);
+      } catch (error) {
+        this._diagnostics.malformedMessageCount++;
+        this._recordCommunicationError(error);
+        return;
+      }
       for (const byte of bytes) {
         if (byte !== SPIKE3.DELIMITER) {
           this._frame.push(byte);
@@ -2563,8 +2765,17 @@ continuous_sensor_loop()
             data = COBS.unpack(frame);
           } catch (e) {
             data = null;
+            this._diagnostics.cobsDecodeFailureCount++;
+            this._recordCommunicationError(`COBS decode failed: ${e.message}`);
           }
-          if (data && data.length) this._handleMessage(data);
+          if (data && data.length) {
+            this._handleMessage(data);
+          } else if (data) {
+            this._diagnostics.malformedMessageCount++;
+            this._recordCommunicationError(
+              "COBS frame decoded to an empty message"
+            );
+          }
         }
       }
     }
@@ -2576,6 +2787,9 @@ continuous_sensor_loop()
           break;
         case SPIKE3.DEVICE_NOTIFICATION:
           this._handleDeviceNotification(data);
+          break;
+        case SPIKE3.DEVICE_NOTIFICATION_RESPONSE:
+          this._handleDeviceNotificationResponse(data);
           break;
         case SPIKE3.CONSOLE_NOTIFICATION: {
           const text = new TextDecoder().decode(data.slice(1));
@@ -2590,6 +2804,33 @@ continuous_sensor_loop()
       }
     }
 
+    _handleDeviceNotificationResponse(data) {
+      if (data.length < 2) {
+        this._diagnostics.malformedMessageCount++;
+        this._recordCommunicationError(
+          "truncated device notification response"
+        );
+        return;
+      }
+      const request = this._diagnostics.notificationRequest;
+      this._clearNotificationResponseTimeout();
+      request.responseAt = Date.now();
+      request.responseCode = data[1];
+      if (data[1] === 0) {
+        request.status = "acknowledged";
+      } else if (data[1] === 1) {
+        request.status = "not-acknowledged";
+        this._recordCommunicationError(
+          "hub did not acknowledge device notifications"
+        );
+      } else {
+        request.status = "unknown-response-status";
+        this._recordCommunicationError(
+          `unknown device notification response status: ${data[1]}`
+        );
+      }
+    }
+
     /**
      * InfoResponse carries the versions the legacy extensions threw away: the
      * RPC version at +1, the firmware version at +5, then the two sizes. The
@@ -2597,10 +2838,15 @@ continuous_sensor_loop()
      * one running the same protocol, so it is kept.
      */
     _handleInfoResponse(data) {
-      if (data.length < 15) return;
+      if (data.length < 15) {
+        this._diagnostics.malformedMessageCount++;
+        this._recordCommunicationError("truncated InfoResponse");
+        return;
+      }
       const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
       this._rpcVersion = `${data[1]}.${data[2]}.${view.getUint16(3, true)}`;
       this._firmware = `${data[5]}.${data[6]}.${view.getUint16(7, true)}`;
+      this._diagnostics.infoResponseReceivedAt = Date.now();
       this._maxPacketSize = view.getUint16(9, true) || 20;
       this._maxChunkSize = view.getUint16(13, true) || 100;
       if (this._link && this._link.setMaxPacketSize) {
@@ -2615,19 +2861,38 @@ continuous_sensor_loop()
      * 2.x stream parser produces.
      */
     _handleDeviceNotification(data) {
+      if (data.length < 3) {
+        this._recordMalformedNotification(
+          "truncated DeviceNotification header"
+        );
+        return;
+      }
+      const payloadSize = data[1] | (data[2] << 8);
+      if (payloadSize !== data.length - 3) {
+        this._recordMalformedNotification(
+          `DeviceNotification payload size mismatch: expected ${payloadSize}, received ${data.length - 3}`
+        );
+        return;
+      }
       let offset = 3;
       while (offset < data.length) {
         const type = data[offset];
         const remaining = data.length - offset;
         switch (type) {
           case SPIKE3.DEV_BATTERY:
-            if (remaining < 2) return;
+            if (remaining < 2) {
+              this._recordMalformedNotification("truncated battery record");
+              return;
+            }
             this._sensors.battery = data[offset + 1];
             offset += 2;
             break;
 
           case SPIKE3.DEV_IMU: {
-            if (remaining < 21) return;
+            if (remaining < 21) {
+              this._recordMalformedNotification("truncated IMU record");
+              return;
+            }
             const s16 = (lo) => {
               const v = data[offset + lo] | (data[offset + lo + 1] << 8);
               return v > 32767 ? v - 65536 : v;
@@ -2648,14 +2913,29 @@ continuous_sensor_loop()
             this._sensors.gyroFiltered.x = this._sensors.gyro.x;
             this._sensors.gyroFiltered.y = this._sensors.gyro.y;
             this._sensors.gyroFiltered.z = this._sensors.gyro.z;
+            this._diagnostics.imuNotificationCount++;
+            this._diagnostics.lastImuReceivedAt = Date.now();
             offset += 21;
             break;
           }
 
+          case SPIKE3.DEV_MATRIX_5X5:
+            if (remaining < 26) {
+              this._recordMalformedNotification("truncated 5x5 matrix record");
+              return;
+            }
+            this._matrix5x5 = Array.from(data.slice(offset + 1, offset + 26));
+            this._diagnostics.matrix5x5NotificationCount++;
+            offset += 26;
+            break;
+
           case SPIKE3.DEV_MOTOR: {
             // 12 bytes: type, port, absolute(int16 @2), power(int16 @4),
             // ?(@6), speed(int8 @7), position(int32 @8).
-            if (remaining < 12) return;
+            if (remaining < 12) {
+              this._recordMalformedNotification("truncated motor record");
+              return;
+            }
             const port = SpikePorts[data[offset + 1]];
             if (port) {
               const rawSpeed = data[offset + 7];
@@ -2682,12 +2962,16 @@ continuous_sensor_loop()
                 speed: speed,
               };
             }
+            this._diagnostics.motorNotificationCount++;
             offset += 12;
             break;
           }
 
           case SPIKE3.DEV_COLOR: {
-            if (remaining < 9) return;
+            if (remaining < 9) {
+              this._recordMalformedNotification("truncated color record");
+              return;
+            }
             const port = SpikePorts[data[offset + 1]];
             if (port) {
               const red = data[offset + 3] | (data[offset + 4] << 8);
@@ -2711,7 +2995,10 @@ continuous_sensor_loop()
           }
 
           case SPIKE3.DEV_DISTANCE: {
-            if (remaining < 4) return;
+            if (remaining < 4) {
+              this._recordMalformedNotification("truncated distance record");
+              return;
+            }
             const port = SpikePorts[data[offset + 1]];
             if (port) {
               let mm = data[offset + 2] | (data[offset + 3] << 8);
@@ -2731,7 +3018,10 @@ continuous_sensor_loop()
           }
 
           case SPIKE3.DEV_FORCE: {
-            if (remaining < 4) return;
+            if (remaining < 4) {
+              this._recordMalformedNotification("truncated force record");
+              return;
+            }
             const port = SpikePorts[data[offset + 1]];
             if (port) {
               this._portValues[port] = {
@@ -2746,7 +3036,10 @@ continuous_sensor_loop()
 
           case SPIKE3.DEV_MATRIX_3X3: {
             // Type, port and nine pixel bytes, as emitted by the SPIKE 3 hub.
-            if (remaining < 11) return;
+            if (remaining < 11) {
+              this._recordMalformedNotification("truncated 3x3 matrix record");
+              return;
+            }
             const port = SpikePorts[data[offset + 1]];
             if (port) {
               this._portValues[port] = {
@@ -2761,6 +3054,10 @@ continuous_sensor_loop()
           default:
             // An unknown record has an unknown width, so the rest of the
             // payload cannot be walked safely. Stop rather than guess.
+            this._diagnostics.unsupportedRecordCount++;
+            this._recordCommunicationError(
+              `unsupported device record: 0x${type.toString(16).padStart(2, "0")}`
+            );
             return;
         }
       }
@@ -3036,13 +3333,17 @@ continuous_sensor_loop()
             this._runtime,
             this._extensionId,
             this._spike3._onConnect,
-            this._spike3.reset
+            this._spike3.reset,
+            this._spike3._recordTransportError.bind(this._spike3)
           );
           this._spike3.attach(link);
           // Web Bluetooth has no discovery step of its own: the browser's
           // chooser IS the discovery, and it must run from the gesture that
           // opened it. So this goes straight to connecting.
-          return link.connectPeripheral().catch(() => this._emitRequestError());
+          return link.connectPeripheral().catch((error) => {
+            this._spike3._recordTransportError(error);
+            this._emitRequestError();
+          });
         }
 
         case HubMode.BRIDGE: {
@@ -3238,6 +3539,20 @@ continuous_sensor_loop()
           ? HubRouter.SPIKE3_CAPABILITIES
           : HubRouter.REPL_CAPABILITIES;
       return caps.indexOf(capability) !== -1;
+    }
+
+    getCommunicationDiagnostics() {
+      const connectionMode = this._resolvedMode || this._mode;
+      if (this._activeProtocol === "spike3") {
+        return this._spike3.getDiagnostics(connectionMode);
+      }
+      return {
+        protocol: "repl",
+        connected: this.isConnected(),
+        connectionMode,
+        firmwareVersion: this._repl.firmwareVersion || null,
+        sensorNotifications: "not-applicable-to-repl-protocol",
+      };
     }
   }
 
@@ -4889,6 +5204,11 @@ continuous_sensor_loop()
             opcode: "getConnectionMode",
             blockType: BlockType.REPORTER,
             text: t("getConnectionMode"),
+          },
+          {
+            opcode: "getCommunicationDiagnostics",
+            blockType: BlockType.REPORTER,
+            text: t("getCommunicationDiagnostics"),
           },
           {
             opcode: "setConnectionMode",
@@ -6786,10 +7106,11 @@ continuous_sensor_loop()
         "scratch.display_text",
         { text: text }
       );
-      const altCommand = this._peripheral.sendPythonCommand(
-        `import hub; hub.display.show("${text.replace(/"/g, '\\"')}")`
-      );
-      return standardCommand.catch(() => altCommand);
+      const altCommand = () =>
+        this._peripheral.sendPythonCommand(
+          `import hub; hub.display.show(${pyStringLiteral(text)})`
+        );
+      return standardCommand.catch(() => altCommand());
     }
 
     displayImage(args) {
@@ -7367,6 +7688,10 @@ continuous_sensor_loop()
      */
     getConnectionMode() {
       return this._peripheral.resolvedMode || this._peripheral.mode;
+    }
+
+    getCommunicationDiagnostics() {
+      return JSON.stringify(this._peripheral.getCommunicationDiagnostics());
     }
 
     setConnectionMode(args) {
