@@ -292,7 +292,7 @@
       "diag.yaw": "Yaw",
       "diag.motorPorts": "通知で検出したモーターポート",
       "diag.motorPosition": "位置",
-      "diag.motorSpeed": "速度",
+      "diag.motorSpeed": "回転速度",
       "diag.noMotorPorts": "モーター通知は未受信",
       "diag.cobsErrors": "COBS解析エラー",
       "diag.unsupportedRecords": "未対応レコード",
@@ -309,6 +309,124 @@
       displayText: "ハブに [TEXT] と表示する",
       displayTextUnsupported:
         "SPIKE 3.xでは文字表示を利用できません。未検証のPython命令は送信しませんでした。",
+      startMotor: "モーター [PORT] を [SPEED]% の回転速度で動かす",
+      stopMotor: "モーター [PORT] を [ACTION] で止める",
+      motorPairMove: "ステアリング [STEERING]、速さ [SPEED]% で動かす",
+      displayShowImage: "ハブのライトマトリクスに画像 [IMAGE] を表示する",
+      setLightMatrixPixel:
+        "[PORT] の3×3ライトの x:[X] y:[Y] を明るさ [BRIGHTNESS]% にする",
+      getFaceUp: "ハブの上向き面",
+      getDistanceIn: "[PORT] の距離（[UNIT]）",
+      transpilationLabel: "📝 コード生成",
+      transpileProject: "プロジェクトをSPIKE Pythonコードに変換する",
+      showCode: "生成したコードを表示する",
+      downloadCode: "Pythonファイル（.py）としてダウンロードする",
+      uploadToHub: "Bluetoothでコードをハブに送信する",
+      getTranspiledCode: "変換後のコード",
+      fileManagementLabel: "📁 ハブ内のファイル",
+      uploadScriptToHub: "スクリプトを [NAME] としてハブに保存する",
+      runScriptOnHub: "ハブ上のスクリプト [NAME] を実行する",
+      renameScriptOnHub:
+        "ハブ上のスクリプト [OLD] の名前を [NEW] に変更する",
+      deleteScriptOnHub: "ハブ上のスクリプト [NAME] を削除する",
+      listScriptsOnHub: "ハブ上のスクリプト一覧を表示する",
+      stopRunningScript: "実行中のスクリプトを停止する",
+      scriptName: "my_program.py",
+      oldScriptName: "old.py",
+      newScriptName: "new.py",
+      setMovementMotors:
+        "移動用モーターを [PORT_A] と [PORT_B] に設定する",
+      moveForward: "[DIRECTION] に [VALUE] [UNIT] 進む",
+      steer: "ステアリング [STEERING] で動かす",
+      startTank: "左 [LEFT_SPEED]%、右 [RIGHT_SPEED]% の速さで動かす",
+      setMovementSpeed: "移動速度を [SPEED]% に設定する",
+      stopMovement: "移動を停止する",
+      motorRunFor: "[PORT] のモーターを [DIRECTION] に [VALUE] [UNIT] 動かす",
+      motorRunToPosition:
+        "[PORT] のモーターを位置 [POSITION] 度まで動かす",
+      motorStart: "[PORT] のモーターを [DIRECTION] に回転させる",
+      motorStop: "[PORT] のモーターを止める",
+      motorSetSpeed:
+        "[PORT] モーターの回転速度を [SPEED]% に設定する",
+      motorStartPower: "[PORT] のモーターを出力 [POWER]% で回転させる",
+      motorSetStopAction: "[PORT] モーターの停止方法を [ACTION] にする",
+      getPosition: "[PORT] モーターの位置（度）",
+      getRelativePosition: "[PORT] モーターの相対位置（度）",
+      getAbsolutePosition: "[PORT] モーターの絶対位置（度）",
+      getSpeed: "[PORT] モーターの回転速度（度/秒）",
+      resetMotorPosition: "[PORT] モーターの位置を [POSITION] 度に設定する",
+      displayImage: "ライトマトリクスに [MATRIX] を表示する",
+      displayPattern: "ライトマトリクスにパターン [PATTERN] を表示する",
+      displayClear: "ライトマトリクスを消灯する",
+      setPixel: "x:[X] y:[Y] のライトを明るさ [BRIGHTNESS]% にする",
+      rotateDisplay: "ライトマトリクスを [ANGLE] 度回転する",
+      setCenterButtonColor: "ハブ中央のボタンを [COLOR] に光らせる",
+      getAngle: "[AXIS] の角度",
+      getGyroRate: "[AXIS] のジャイロ角速度（度/秒）",
+      getFilteredGyroRate: "[AXIS] のフィルター済みジャイロ角速度（度/秒）",
+      getAcceleration: "[AXIS] の加速度（ミリg）",
+      getFilteredAcceleration: "[AXIS] のフィルター済み加速度（ミリg）",
+      resetYaw: "Yaw角を0にする",
+      presetYaw: "Yaw角を [ANGLE] 度に設定する",
+      setMatrix3x3ColorGrid:
+        "[PORT] の3×3ライトを色設定する：[P1][P2][P3] [P4][P5][P6] [P7][P8][P9]",
+      setMatrix3x3Custom: "[PORT] の3×3ライトにパターン [PATTERN] を表示する",
+      setMatrix3x3SolidColor:
+        "[PORT] の3×3ライトを [COLOR]、明るさ [BRIGHTNESS] にする",
+      clearMatrix3x3: "[PORT] の3×3ライトを消灯する",
+      whenGesture: "ハブが [GESTURE] したとき",
+      isGesture: "ハブは [GESTURE] していますか？",
+      getOrientation: "ハブの向き",
+      playHubSound: "ハブのサウンド [SOUND] を再生する",
+      playBeep: "[FREQUENCY] Hz の音を [DURATION] ms 鳴らす",
+      playNote: "音符 [NOTE] を [SECS] 秒鳴らす",
+      playWaveBeep:
+        "[WAVEFORM] 波形の [FREQUENCY] Hz の音を [DURATION] ms 鳴らす",
+      setVolume: "音量を [VOLUME]% に設定する",
+      stopSound: "すべての音を止める",
+      getBatteryLevel: "バッテリー残量（%）",
+      getBatteryTemperature: "バッテリーの温度",
+      getHubTemperature: "ハブの温度",
+      getHubCurrent: "ハブの電流（mA）",
+      getHubVoltage: "ハブの電圧（mV）",
+      getTimer: "タイマーの値",
+      resetTimer: "タイマーをリセットする",
+      getDistance: "[PORT] の距離",
+      setDistanceLights:
+        "[PORT] の距離センサーのライトを [TL] [TR] [BL] [BR] に設定する",
+      getColor: "[PORT] の色",
+      getReflection: "[PORT] の反射光",
+      getAmbientLight: "[PORT] の周囲の明るさ",
+      getColorRGB: "[PORT] の生の [CHANNEL] 値",
+      getForce: "[PORT] のフォースセンサーの値",
+      isForceSensorPressed: "[PORT] のフォースセンサーは押されていますか？",
+      whenColor: "[PORT] が [COLOR] を検出したとき",
+      isColor: "[PORT] は [COLOR] を検出していますか？",
+      whenForceSensor: "[PORT] が [STATE] のとき",
+      isButtonPressed: "[BUTTON] ボタンは押されていますか？",
+      whenButtonPressed: "[BUTTON] ボタンが押されたとき",
+      writeLogFile: "[TEXT] をログファイル [FILENAME] に追加する",
+      readLogFile: "ログファイル [FILENAME] を読み込む",
+      deleteLogFile: "ファイル [FILENAME] を削除する",
+      listFiles: "ファイル一覧を表示する",
+      runReplCommand: "Python REPLで実行：[CODE]",
+      getReplOutput: "REPLの出力",
+      clearReplOutput: "REPLの出力を消去する",
+      getReplHistory: "REPLの [INDEX] 番目のコマンド",
+      runPythonCommand: "Pythonを実行：[CODE]",
+      runHubCommand: "ハブのコマンドを実行：[CODE]",
+      exitScript: "Pythonスクリプトを終了する",
+      noCodeGenerated: "コードはまだ生成されていません。",
+      generateFirst: "先にコードを生成してください。",
+      notConnected: "SPIKE Primeハブに接続されていません。",
+      uploadFailed: "送信に失敗しました。",
+      uploadSuccess: "送信しました。",
+      downloaded: "ダウンロードしました。",
+      generatedCode: "生成したSPIKE Pythonコード",
+      close: "閉じる",
+      uploadInstructions:
+        "SPIKE Primeにコードを転送する方法：\n1. プロジェクトを .llsp ファイルとして保存します。\n2. SPIKEアプリでファイルを開きます。\n3. ハブにプログラムを転送します。\n\n利用できる場合は、Bluetoothでファイルを転送する方法もあります。",
+      confirmDelete: "ハブから {0} を削除しますか？",
     },
     de: {
       // Verbindung & Modi
@@ -689,6 +807,60 @@
   function t(key) {
     return translations[currentLang]?.[key] || translations["en"][key] || key;
   }
+
+  // Localize menu labels separately from their stored values. Scratch saves a
+  // menu's value into the project, so the labels may change by locale while the
+  // values must remain the English protocol identifiers already used by blocks.
+  const menuLabels = {
+    en: {
+      "unit.rotations": "rotations", "unit.degrees": "degrees", "unit.seconds": "seconds",
+      "color.red": "Red", "color.green": "Green", "color.blue": "Blue", "color.yellow": "Yellow",
+      "color.cyan": "Cyan", "color.magenta": "Magenta", "color.white": "White", "color.black": "Black",
+      "state.pressed": "pressed", "state.hardPressed": "hard pressed", "state.released": "released",
+      "action.coast": "coast", "action.brake": "brake", "action.hold": "hold",
+      "button.center": "center", "button.connect": "connect",
+      left: "left", right: "right", forward: "forward", backward: "backward",
+      tapped: "tapped", doubletapped: "double tapped", shake: "shake", freefall: "free fall",
+      "matrix.off": "Off", "matrix.magenta": "Magenta", "matrix.violet": "Violet",
+      "matrix.blue": "Blue", "matrix.turquoise": "Turquoise", "matrix.mint": "Mint",
+      "matrix.green": "Green", "matrix.yellow": "Yellow", "matrix.orange": "Orange",
+      "matrix.red": "Red", "matrix.white": "White",
+      "center.off": "Off", "center.pink": "Pink", "center.purple": "Purple", "center.blue": "Blue",
+      "center.teal": "Teal", "center.green": "Green", "center.lime": "Lime", "center.yellow": "Yellow",
+      "center.orange": "Orange", "center.red": "Red", "center.white": "White", "center.grey": "Grey",
+      "pattern.heart": "heart", "pattern.smile": "smile", "pattern.sad": "sad", "pattern.angry": "angry",
+      "pattern.surprised": "surprised", "pattern.wink": "wink", "pattern.arrow_up": "arrow up",
+      "pattern.arrow_down": "arrow down", "pattern.arrow_left": "arrow left", "pattern.arrow_right": "arrow right",
+      "pattern.check": "check", "pattern.x": "cross", "pattern.square": "square", "pattern.triangle": "triangle",
+      "pattern.diamond": "diamond", "pattern.plus": "plus", "pattern.minus": "minus", "pattern.dot": "dot",
+      "pattern.frame": "frame", "pattern.spiral": "spiral"
+    },
+    ja: {
+      "unit.rotations": "回転", "unit.degrees": "度", "unit.seconds": "秒",
+      "color.red": "赤", "color.green": "緑", "color.blue": "青", "color.yellow": "黄",
+      "color.cyan": "シアン", "color.magenta": "マゼンタ", "color.white": "白", "color.black": "黒",
+      "state.pressed": "押されている", "state.hardPressed": "強く押されている", "state.released": "離されている",
+      "action.coast": "惰性", "action.brake": "ブレーキ", "action.hold": "保持",
+      "button.center": "中央", "button.connect": "接続",
+      left: "左", right: "右", forward: "前進", backward: "後退",
+      tapped: "タップされたとき", doubletapped: "2回タップされたとき", shake: "振られたとき", freefall: "自由落下したとき",
+      "matrix.off": "消灯", "matrix.magenta": "マゼンタ", "matrix.violet": "紫",
+      "matrix.blue": "青", "matrix.turquoise": "ターコイズ", "matrix.mint": "ミント",
+      "matrix.green": "緑", "matrix.yellow": "黄", "matrix.orange": "オレンジ",
+      "matrix.red": "赤", "matrix.white": "白",
+      "center.off": "消灯", "center.pink": "ピンク", "center.purple": "紫", "center.blue": "青",
+      "center.teal": "青緑", "center.green": "緑", "center.lime": "黄緑", "center.yellow": "黄",
+      "center.orange": "オレンジ", "center.red": "赤", "center.white": "白", "center.grey": "灰色",
+      "pattern.heart": "ハート", "pattern.smile": "笑顔", "pattern.sad": "悲しい顔", "pattern.angry": "怒った顔",
+      "pattern.surprised": "驚いた顔", "pattern.wink": "ウィンク", "pattern.arrow_up": "上矢印",
+      "pattern.arrow_down": "下矢印", "pattern.arrow_left": "左矢印", "pattern.arrow_right": "右矢印",
+      "pattern.check": "チェック", "pattern.x": "バツ印", "pattern.square": "四角形", "pattern.triangle": "三角形",
+      "pattern.diamond": "ひし形", "pattern.plus": "プラス", "pattern.minus": "マイナス", "pattern.dot": "点",
+      "pattern.frame": "枠", "pattern.spiral": "らせん"
+    }
+  };
+  const mt = (key) => menuLabels[currentLang]?.[key] || menuLabels.en[key] || key;
+  const menuItem = (key, value) => ({text: mt(key), value});
 
   // Watch for language changes
   if (typeof window !== "undefined") {
@@ -6503,13 +6675,15 @@ continuous_sensor_loop()
           },
           MOTOR_UNIT: {
             acceptReporters: false,
-            items: ["rotations", "degrees", "seconds"],
+            items: [menuItem("unit.rotations", "rotations"), menuItem("unit.degrees", "degrees"),
+              menuItem("unit.seconds", "seconds")],
           },
           AXIS: { acceptReporters: false, items: ["pitch", "roll", "yaw"] },
           AXIS_XYZ: { acceptReporters: false, items: ["x", "y", "z"] },
           RGB_CHANNEL: {
             acceptReporters: false,
-            items: ["red", "green", "blue"],
+            items: [menuItem("color.red", "red"), menuItem("color.green", "green"),
+              menuItem("color.blue", "blue")],
           },
           DIRECTION: {
             acceptReporters: false,
@@ -6520,7 +6694,9 @@ continuous_sensor_loop()
           },
           DISPLAY_PATTERN: {
             acceptReporters: false,
-            items: Object.keys(DisplayPatterns),
+            items: Object.keys(DisplayPatterns).map((value) =>
+              menuItem(`pattern.${value}`, value)
+            ),
           },
           ROTATION_ANGLE: {
             acceptReporters: false,
@@ -6528,11 +6704,14 @@ continuous_sensor_loop()
           },
           CENTER_LED_COLOR: {
             acceptReporters: false,
-            items: Object.keys(CenterLEDColors),
+            items: Object.keys(CenterLEDColors).map((value) =>
+              menuItem(`center.${value.toLowerCase()}`, value)
+            ),
           },
           GESTURE: {
             acceptReporters: false,
-            items: [t("tapped"), t("doubletapped"), t("shake"), t("freefall")],
+            items: [menuItem("tapped", "tapped"), menuItem("doubletapped", "doubletapped"),
+              menuItem("shake", "shake"), menuItem("freefall", "freefall")],
           },
           HUB_SOUND: { acceptReporters: false, items: HubSoundFiles },
           WAVEFORM: {
@@ -6541,51 +6720,48 @@ continuous_sensor_loop()
           },
           BUTTON: {
             acceptReporters: false,
-            items: [t("left"), "center", t("right"), "connect"],
+            items: [menuItem("left", "left"), menuItem("button.center", "center"), menuItem("right", "right"),
+              menuItem("button.connect", "connect")],
           },
           MOVE_DIRECTION: {
             acceptReporters: false,
-            items: [t("forward"), t("backward")],
+            items: [menuItem("forward", "forward"), menuItem("backward", "backward")],
           },
           MOVE_UNIT: {
             acceptReporters: false,
-            items: ["cm", "in", "rotations", "degrees", "seconds"],
+            items: ["cm", "in", menuItem("unit.rotations", "rotations"),
+              menuItem("unit.degrees", "degrees"), menuItem("unit.seconds", "seconds")],
           },
           STOP_ACTION: {
             acceptReporters: false,
-            items: ["coast", "brake", "hold"],
+            items: [menuItem("action.coast", "coast"), menuItem("action.brake", "brake"),
+              menuItem("action.hold", "hold")],
           },
           COLOR: {
             acceptReporters: true,
-            items: [
-              "red",
-              "green",
-              "blue",
-              "yellow",
-              "cyan",
-              "magenta",
-              "white",
-              "black",
-            ],
+            items: ["red", "green", "blue", "yellow", "cyan", "magenta", "white", "black"].map((value) =>
+              menuItem(`color.${value}`, value)
+            ),
           },
           FORCE_STATE: {
             acceptReporters: false,
-            items: ["pressed", "hard pressed", "released"],
+            items: [menuItem("state.pressed", "pressed"), menuItem("state.hardPressed", "hard pressed"),
+              menuItem("state.released", "released")],
           },
           MATRIX_COLOR_EMOJI: {
             acceptReporters: false,
             items: [
-              { text: "⚫ Off", value: "⚫" },
-              { text: "🟣 Magenta", value: "🟣" },
-              { text: "🟪 Violet", value: "🟪" },
-              { text: "🔵 Blue", value: "🔵" },
-              { text: "🔷 Turquoise", value: "🔷" },
-              { text: "🟢 Mint", value: "🟢" },
-              { text: "🟩 Green", value: "🟩" },
-              { text: "🟡 Yellow", value: "🟡" },
-              { text: "🟠 Orange", value: "🟠" },
-              { text: "🔴 Red", value: "🔴" },
-              { text: "⚪ White", value: "⚪" },
+              { text: `⚫ ${mt("matrix.off")}`, value: "⚫" },
+              { text: `🟣 ${mt("matrix.magenta")}`, value: "🟣" },
+              { text: `🟪 ${mt("matrix.violet")}`, value: "🟪" },
+              { text: `🔵 ${mt("matrix.blue")}`, value: "🔵" },
+              { text: `🔷 ${mt("matrix.turquoise")}`, value: "🔷" },
+              { text: `🟢 ${mt("matrix.mint")}`, value: "🟢" },
+              { text: `🟩 ${mt("matrix.green")}`, value: "🟩" },
+              { text: `🟡 ${mt("matrix.yellow")}`, value: "🟡" },
+              { text: `🟠 ${mt("matrix.orange")}`, value: "🟠" },
+              { text: `🔴 ${mt("matrix.red")}`, value: "🔴" },
+              { text: `⚪ ${mt("matrix.white")}`, value: "⚪" },
             ],
           },
           BRIGHTNESS_1_TO_10: {

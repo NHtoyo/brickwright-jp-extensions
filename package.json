@@ -11,7 +11,7 @@
     "dev": "node development/server.js",
     "build": "node development/build-production.js",
     "deploy": "npx gh-pages -d build",
-    "validate": "node development/validate.js",
+    "validate": "node development/validate.js && node development/validate-japanese-translations.js && node development/test-spikeprime-japanese-menus.js",
     "lint": "eslint development extensions --max-warnings=0",
     "format": "prettier . --write",
     "check-format": "prettier . --check",

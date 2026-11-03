@@ -87,7 +87,7 @@
     !!target && !target.isStage && runtime.targets.indexOf(target) !== -1;
 
   const spriteMenu = () => {
-    const items = [{ text: "myself", value: MYSELF }];
+    const items = [{ text: Scratch.translate("myself"), value: MYSELF }];
     for (const t of runtime.targets) {
       if (t.isOriginal && !t.isStage) {
         items.push({ text: t.getName(), value: t.getName() });
@@ -169,12 +169,12 @@
         blocks: [
           {
             blockType: Scratch.BlockType.LABEL,
-            text: "Geometry",
+            text: Scratch.translate("Geometry"),
           },
           {
             opcode: "isDestroyed",
             blockType: Scratch.BlockType.BOOLEAN,
-            text: "[SPRITE] is deleted",
+            text: Scratch.translate("[SPRITE] is deleted"),
             arguments: {
               SPRITE: { type: Scratch.ArgumentType.STRING, menu: "sprites" },
             },
@@ -182,7 +182,7 @@
           {
             opcode: "distanceBetween",
             blockType: Scratch.BlockType.REPORTER,
-            text: "distance between [A] and [B]",
+            text: Scratch.translate("distance between [A] and [B]"),
             arguments: {
               A: { type: Scratch.ArgumentType.STRING, menu: "sprites" },
               B: { type: Scratch.ArgumentType.STRING, menu: "sprites" },
@@ -191,7 +191,7 @@
           {
             opcode: "angleFrom",
             blockType: Scratch.BlockType.REPORTER,
-            text: "angle from [A] to [B] in radians",
+            text: Scratch.translate("angle from [A] to [B] in radians"),
             arguments: {
               A: { type: Scratch.ArgumentType.STRING, menu: "sprites" },
               B: { type: Scratch.ArgumentType.STRING, menu: "sprites" },
@@ -200,7 +200,7 @@
           {
             opcode: "directionFrom",
             blockType: Scratch.BlockType.REPORTER,
-            text: "direction from [A] to [B]",
+            text: Scratch.translate("direction from [A] to [B]"),
             arguments: {
               A: { type: Scratch.ArgumentType.STRING, menu: "sprites" },
               B: { type: Scratch.ArgumentType.STRING, menu: "sprites" },
@@ -209,7 +209,7 @@
           {
             opcode: "placeAngleFrom",
             blockType: Scratch.BlockType.COMMAND,
-            text: "place [MOVE] at angle [ANGLE] radians distance [DISTANCE] from [FROM]",
+            text: Scratch.translate("place [MOVE] at angle [ANGLE] radians distance [DISTANCE] from [FROM]"),
             arguments: {
               MOVE: { type: Scratch.ArgumentType.STRING, menu: "sprites" },
               ANGLE: { type: Scratch.ArgumentType.NUMBER, defaultValue: 0 },
@@ -220,7 +220,7 @@
           {
             opcode: "countWithin",
             blockType: Scratch.BlockType.REPORTER,
-            text: "number of [KIND] sprites within [DISTANCE] of [SPRITE]",
+            text: Scratch.translate("number of [KIND] sprites within [DISTANCE] of [SPRITE]"),
             arguments: {
               KIND: {
                 type: Scratch.ArgumentType.STRING,
@@ -233,7 +233,7 @@
           {
             opcode: "nearestDistance",
             blockType: Scratch.BlockType.REPORTER,
-            text: "distance to nearest [KIND] sprite from [SPRITE]",
+            text: Scratch.translate("distance to nearest [KIND] sprite from [SPRITE]"),
             arguments: {
               KIND: {
                 type: Scratch.ArgumentType.STRING,
@@ -245,7 +245,7 @@
           {
             opcode: "nearestDirection",
             blockType: Scratch.BlockType.REPORTER,
-            text: "direction to nearest [KIND] sprite from [SPRITE]",
+            text: Scratch.translate("direction to nearest [KIND] sprite from [SPRITE]"),
             arguments: {
               KIND: {
                 type: Scratch.ArgumentType.STRING,
@@ -257,12 +257,12 @@
           "---",
           {
             blockType: Scratch.BlockType.LABEL,
-            text: "Velocity (stage units per second)",
+            text: Scratch.translate("Velocity (stage units per second)"),
           },
           {
             opcode: "setVelocity",
             blockType: Scratch.BlockType.COMMAND,
-            text: "set [SPRITE] velocity to vx [VX] vy [VY]",
+            text: Scratch.translate("set [SPRITE] velocity to vx [VX] vy [VY]"),
             arguments: {
               SPRITE: { type: Scratch.ArgumentType.STRING, menu: "sprites" },
               VX: { type: Scratch.ArgumentType.NUMBER, defaultValue: 0 },
@@ -272,7 +272,7 @@
           {
             opcode: "setVelocityAtAngle",
             blockType: Scratch.BlockType.COMMAND,
-            text: "set [SPRITE] velocity at angle [ANGLE] radians speed [SPEED]",
+            text: Scratch.translate("set [SPRITE] velocity at angle [ANGLE] radians speed [SPEED]"),
             arguments: {
               SPRITE: { type: Scratch.ArgumentType.STRING, menu: "sprites" },
               ANGLE: { type: Scratch.ArgumentType.NUMBER, defaultValue: 0 },
@@ -282,7 +282,7 @@
           {
             opcode: "setVelocityToward",
             blockType: Scratch.BlockType.COMMAND,
-            text: "set [SPRITE] velocity toward [TARGET] speed [SPEED]",
+            text: Scratch.translate("set [SPRITE] velocity toward [TARGET] speed [SPEED]"),
             arguments: {
               SPRITE: { type: Scratch.ArgumentType.STRING, menu: "sprites" },
               TARGET: { type: Scratch.ArgumentType.STRING, menu: "sprites" },
@@ -292,7 +292,7 @@
           {
             opcode: "setAcceleration",
             blockType: Scratch.BlockType.COMMAND,
-            text: "set [SPRITE] acceleration to ax [AX] ay [AY]",
+            text: Scratch.translate("set [SPRITE] acceleration to ax [AX] ay [AY]"),
             arguments: {
               SPRITE: { type: Scratch.ArgumentType.STRING, menu: "sprites" },
               AX: { type: Scratch.ArgumentType.NUMBER, defaultValue: 0 },
@@ -302,7 +302,7 @@
           {
             opcode: "jump",
             blockType: Scratch.BlockType.COMMAND,
-            text: "make [SPRITE] jump [PIXELS] units",
+            text: Scratch.translate("make [SPRITE] jump [PIXELS] units"),
             arguments: {
               SPRITE: { type: Scratch.ArgumentType.STRING, menu: "sprites" },
               PIXELS: { type: Scratch.ArgumentType.NUMBER, defaultValue: 100 },
@@ -311,7 +311,7 @@
           {
             opcode: "stopMoving",
             blockType: Scratch.BlockType.COMMAND,
-            text: "stop moving [SPRITE]",
+            text: Scratch.translate("stop moving [SPRITE]"),
             arguments: {
               SPRITE: { type: Scratch.ArgumentType.STRING, menu: "sprites" },
             },
@@ -319,7 +319,7 @@
           {
             opcode: "getVelocity",
             blockType: Scratch.BlockType.REPORTER,
-            text: "[AXIS] velocity of [SPRITE]",
+            text: Scratch.translate("[AXIS] velocity of [SPRITE]"),
             arguments: {
               AXIS: { type: Scratch.ArgumentType.STRING, menu: "axes" },
               SPRITE: { type: Scratch.ArgumentType.STRING, menu: "sprites" },
@@ -328,12 +328,12 @@
           "---",
           {
             blockType: Scratch.BlockType.LABEL,
-            text: "General",
+            text: Scratch.translate("General"),
           },
           {
             opcode: "radiansToDegrees",
             blockType: Scratch.BlockType.REPORTER,
-            text: "convert [VALUE] radians to degrees",
+            text: Scratch.translate("convert [VALUE] radians to degrees"),
             arguments: {
               VALUE: {
                 type: Scratch.ArgumentType.NUMBER,
@@ -344,7 +344,7 @@
           {
             opcode: "degreesToRadians",
             blockType: Scratch.BlockType.REPORTER,
-            text: "convert [VALUE] degrees to radians",
+            text: Scratch.translate("convert [VALUE] degrees to radians"),
             arguments: {
               VALUE: { type: Scratch.ArgumentType.NUMBER, defaultValue: 180 },
             },
@@ -352,7 +352,7 @@
           {
             opcode: "round",
             blockType: Scratch.BlockType.REPORTER,
-            text: "round [VALUE] to [DIGITS] decimal places",
+            text: Scratch.translate("round [VALUE] to [DIGITS] decimal places"),
             arguments: {
               VALUE: {
                 type: Scratch.ArgumentType.NUMBER,
@@ -364,7 +364,7 @@
           {
             opcode: "constant",
             blockType: Scratch.BlockType.REPORTER,
-            text: "[CONSTANT]",
+            text: Scratch.translate("[CONSTANT]"),
             arguments: {
               CONSTANT: {
                 type: Scratch.ArgumentType.STRING,
