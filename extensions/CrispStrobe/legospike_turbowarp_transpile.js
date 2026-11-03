@@ -10146,7 +10146,12 @@ continuous_sensor_loop()
       textarea.value = formattedJson;
       textarea.setAttribute("aria-label", t("diagnosticsDialogTitle"));
       Object.assign(textarea.style, {
+        backgroundColor: "#f9fafb",
+        border: "1px solid #d1d5db",
+        borderRadius: "4px",
         boxSizing: "border-box",
+        color: "#111827",
+        colorScheme: "light",
         flex: "1 1 auto",
         fontFamily: "Consolas, Monaco, monospace",
         fontSize: "13px",
@@ -10154,6 +10159,8 @@ continuous_sensor_loop()
         minHeight: "0",
         overflow: "auto",
         resize: "vertical",
+        scrollbarColor: "#9ca3af #f9fafb",
+        scrollbarWidth: "thin",
         whiteSpace: "pre",
         width: "100%",
       });

@@ -224,6 +224,10 @@ const textarea = findElement(
   (element) => element.tagName === "TEXTAREA"
 );
 assert.ok(textarea.readOnly, "diagnostic JSON can be selected but not edited");
+assert.equal(textarea.style.backgroundColor, "#f9fafb");
+assert.equal(textarea.style.color, "#111827");
+assert.equal(textarea.style.colorScheme, "light");
+assert.equal(textarea.style.border, "1px solid #d1d5db");
 assert.deepEqual(JSON.parse(textarea.value), diagnostics);
 assert.ok(textarea.value.startsWith('{\n  "protocol"'), "JSON is indented");
 assert.ok(textarea.value.endsWith("\n}"), "the full JSON value is present");
