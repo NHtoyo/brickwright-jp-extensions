@@ -22,6 +22,11 @@ from unittest.mock import patch
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 EXTENSION = ROOT / "extensions/CrispStrobe/legospike_turbowarp_transpile.js"
 SMOKE_PROGRAM = ROOT / "development/fixtures/spikeprime-startup-smoke.py"
+STARTUP_PROBES = {
+    "00": ROOT / "development/fixtures/spikeprime-startup-00-runloop.py",
+    "01": ROOT / "development/fixtures/spikeprime-startup-01-public-imports.py",
+    "02": ROOT / "development/fixtures/spikeprime-startup-02-tunnel-registration.py",
+}
 SOURCE = EXTENSION.read_text(encoding="utf-8")
 SOURCE_MATCH = re.search(
     r"const SPIKE3_CONTROLLER_SOURCE = String\.raw`(.*?)`;", SOURCE, re.DOTALL
@@ -298,6 +303,25 @@ class SpikeControllerFakeHubTests(unittest.TestCase):
             "tunnel.send(",
         ):
             self.assertNotIn(forbidden_call, smoke_source)
+
+    def test_startup_probes_compile_and_do_not_control_hardware(self):
+        forbidden_calls = (
+            "motor.run(",
+            "motor.stop(",
+            "motor.run_for_degrees(",
+            "light_matrix.set_pixel(",
+            "light_matrix.clear(",
+            "sound.beep(",
+            "tunnel.send(",
+            "runloop.run(_main())",
+        )
+        for probe_id, filename in STARTUP_PROBES.items():
+            with self.subTest(probe=probe_id):
+                probe_source = filename.read_text(encoding="utf-8")
+                compile(probe_source, str(filename), "exec")
+                self.assertIn("runloop.run(main())", probe_source)
+                for forbidden_call in forbidden_calls:
+                    self.assertNotIn(forbidden_call, probe_source)
 
     def test_fake_hub_imports_runtime_modules_and_hub_exports(self):
         self.assertIn("BWCTRL:boot:imports-ok", self.boot_output)

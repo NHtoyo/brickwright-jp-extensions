@@ -316,6 +316,7 @@ function setup({
   failRequestWrite = false,
   failWriteMessageType = null,
   locale = "en",
+  developerMode = false,
 } = {}) {
   const clock = new FakeClock();
   const runtime = new FakeRuntime();
@@ -377,6 +378,9 @@ function setup({
       setTimeout: clock.setTimeout.bind(clock),
       clearTimeout: clock.clearTimeout.bind(clock),
       addEventListener() {},
+      location: {
+        search: developerMode ? "?spikePrimeDiagnostics=1" : "",
+      },
     },
     document: { documentElement: { lang: locale } },
     console: { log() {}, warn() {}, error() {}, info() {}, debug() {} },
@@ -752,6 +756,121 @@ function attachFakeControllerHub(
     }
   };
   return controller;
+}
+
+function attachFakeStartupProbeHub(
+  state,
+  {
+    failChunkIndex = -1,
+    emitStartNotification = true,
+    emitStopNotification = true,
+    stopImmediatelyAfterStart = false,
+    consoleOutput = "",
+  } = {}
+) {
+  const { device } = state;
+  const slots = new Map([[7, Buffer.from("existing program in slot 7")]]);
+  const fake = {
+    slots,
+    upload: null,
+    running: false,
+    chunkIndex: 0,
+    flowStarts: 0,
+    flowStops: 0,
+  };
+  const emit = (message) => device.tx.emit(packMessage(message));
+  const status = (type, ok) => emit(Uint8Array.from([type, ok ? 0 : 1]));
+  device.protocolHandler = (message) => {
+    const messageBytes = Uint8Array.from(message);
+    switch (message[0]) {
+      case 0x46:
+        status(0x47, slots.delete(message[1]));
+        break;
+      case 0x0c: {
+        const terminator = message.indexOf(0, 1);
+        assert.notEqual(terminator, -1);
+        const view = new DataView(messageBytes.buffer);
+        fake.upload = {
+          fileName: Buffer.from(message.slice(1, terminator)).toString("utf8"),
+          slot: message[terminator + 1],
+          expectedCrc: view.getUint32(terminator + 2, true),
+          chunks: [],
+          runningCrc: 0,
+        };
+        fake.chunkIndex = 0;
+        status(0x0d, true);
+        break;
+      }
+      case 0x10: {
+        const upload = fake.upload;
+        const view = new DataView(messageBytes.buffer);
+        const runningCrc = view.getUint32(1, true);
+        const length = view.getUint16(5, true);
+        const chunk = Buffer.from(message.slice(7));
+        if (
+          !upload ||
+          fake.chunkIndex === failChunkIndex ||
+          length !== chunk.length ||
+          crc32Aligned(chunk, upload.runningCrc) !== runningCrc
+        ) {
+          status(0x11, false);
+          break;
+        }
+        upload.runningCrc = runningCrc;
+        upload.chunks.push(chunk);
+        fake.chunkIndex++;
+        status(0x11, true);
+        break;
+      }
+      case 0x1e: {
+        const isStop = message[1] === 1;
+        if (message.length !== 3 || !fake.upload) {
+          status(0x1f, false);
+          break;
+        }
+        if (isStop) {
+          fake.flowStops++;
+          fake.running = false;
+          status(0x1f, true);
+          if (emitStopNotification) emit(Uint8Array.from([0x20, 1]));
+          break;
+        }
+        fake.flowStarts++;
+        const program = Buffer.concat(fake.upload.chunks);
+        if (
+          message[2] !== fake.upload.slot ||
+          crc32Aligned(program) !== fake.upload.expectedCrc
+        ) {
+          status(0x1f, false);
+          break;
+        }
+        fake.slots.set(fake.upload.slot, program);
+        fake.running = true;
+        status(0x1f, true);
+        if (consoleOutput) {
+          emit(
+            Uint8Array.from([
+              0x21,
+              ...new TextEncoder().encode(`${consoleOutput}\0`),
+            ])
+          );
+        }
+        if (emitStartNotification) emit(Uint8Array.from([0x20, 0]));
+        if (stopImmediatelyAfterStart) {
+          fake.running = false;
+          emit(Uint8Array.from([0x20, 1]));
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  };
+  // connect() sends the ordinary sensor-notification request before this
+  // command interpreter is installed. Complete that pending fake response so
+  // the probe tests do not accidentally advance its timeout while observing.
+  device.tx.emit(packMessage(Uint8Array.from([0x29, 0])));
+  return fake;
 }
 
 test("Web Bluetooth requests notifications and records the hub acknowledgement", async () => {
@@ -1218,6 +1337,245 @@ test("controller installation is confirmed, CRC-checked, transferred, started, a
     "controller-hello-acknowledged"
   );
   assert.equal(diagnostics.lastProgramFlowNotification.action, "start");
+});
+
+test("startup probe block and menu are hidden unless developer mode is opted in", () => {
+  const regularInfo = setup().ext.getInfo();
+  assert.equal(
+    regularInfo.blocks.some((block) => block.opcode === "runStartupProbe"),
+    false
+  );
+  assert.equal(regularInfo.menus.SPIKE_STARTUP_PROBE, undefined);
+
+  const developerInfo = setup({
+    developerMode: true,
+    locale: "ja",
+  }).ext.getInfo();
+  const probeBlock = developerInfo.blocks.find(
+    (block) => block.opcode === "runStartupProbe"
+  );
+  assert.ok(probeBlock);
+  assert.match(probeBlock.text, /SPIKE起動プローブ/);
+  assert.deepEqual(
+    Array.from(
+      developerInfo.menus.SPIKE_STARTUP_PROBE.items,
+      (item) => item.value
+    ),
+    ["00", "01", "02"]
+  );
+  assert.match(
+    developerInfo.menus.SPIKE_STARTUP_PROBE.items[0].text,
+    /runloop/
+  );
+});
+
+test("startup probe overwrite confirmation names the slot and cancellation sends nothing", async () => {
+  const state = setup({ developerMode: true, locale: "ja" });
+  await connect(state);
+  attachFakeStartupProbeHub(state);
+  const before = state.device.writes.length;
+  let confirmation = "";
+  state.context.Scratch.BWConfirm = (message) => {
+    confirmation = message;
+    return false;
+  };
+
+  const result = await state.ext.runStartupProbe({ PROBE: "00", SLOT: 7 });
+  assert.equal(result, undefined);
+  assert.match(confirmation, /プローブ00/);
+  assert.match(confirmation, /スロット7/);
+  assert.match(confirmation, /brickwright-probe-00\.py/);
+  assert.match(confirmation, /SPIKEアプリで上書きしてよいスロットか確認/);
+  assert.equal(state.device.writes.length, before);
+  assert.deepEqual(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).startupProbeRuns,
+    []
+  );
+});
+
+test("selected probe 00 transfers only its fixture and records verified start and stop", async () => {
+  const state = setup({ developerMode: true, locale: "ja" });
+  await connect(state);
+  const fakeHub = attachFakeStartupProbeHub(state, {
+    consoleOutput: "simulated console line",
+  });
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+  const confirmations = [];
+  state.context.Scratch.BWConfirm = (message) => {
+    confirmations.push(message);
+    return true;
+  };
+
+  const resultPromise = state.ext.runStartupProbe({ PROBE: "00", SLOT: 7 });
+  await waitUntil(
+    () =>
+      JSON.parse(state.ext.getCommunicationDiagnostics()).startupProbeRuns[0]
+        ?.stage === "observing-running-program",
+    "probe 00 reaches the observation window"
+  );
+  state.clock.advance(3000);
+  const result = await resultPromise;
+
+  assert.equal(result.probeId, "00");
+  assert.equal(result.slot, 7);
+  assert.equal(result.outcome, "success");
+  assert.equal(result.notifications.start.action, "start");
+  assert.equal(result.notifications.stop.action, "stop");
+  assert.equal(result.transferResponses.startFileUpload.ok, true);
+  assert.ok(result.transferResponses.transferChunks.length > 0);
+  assert.ok(
+    result.transferResponses.transferChunks.every((chunk) => chunk.ok === true)
+  );
+  assert.equal(result.transferResponses.programFlowStart.ok, true);
+  assert.equal(result.transferResponses.programFlowStop.ok, true);
+  assert.ok(result.runtimeMs >= 0);
+  assert.ok(result.executionDurationMs >= 0);
+  assert.equal(result.consoleOutput[0].text, "simulated console line");
+  assert.match(confirmations[0], /スロット7/);
+
+  const fixture = fs
+    .readFileSync(
+      path.join(here, "fixtures/spikeprime-startup-00-runloop.py"),
+      "utf8"
+    )
+    .replace(/\r\n/g, "\n");
+  assert.equal(fakeHub.upload.fileName, "brickwright-probe-00.py");
+  assert.equal(fakeHub.slots.get(7).toString("utf8"), fixture);
+  assert.equal(fakeHub.flowStarts, 1, "only the selected probe is started");
+  assert.equal(fakeHub.flowStops, 1, "the selected probe is stopped once");
+  const writtenMessages = unpackWrittenMessages(state.device.writes);
+  assert.equal(
+    writtenMessages.some((message) => message[0] === 0x32),
+    false,
+    "the diagnostic flow does not send TunnelMessage or Python commands"
+  );
+  const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.startupProbeRuns[0].outcome, "success");
+});
+
+for (const probeId of ["01", "02"]) {
+  test(`selected probe ${probeId} is the exact reviewed fixture`, async () => {
+    const state = setup({ developerMode: true });
+    await connect(state);
+    const fakeHub = attachFakeStartupProbeHub(state);
+    const hub = state.ext._peripheral._spike3;
+    hub._rateLimiter.reserve = () => 0;
+    const runPromise = hub.runStartupProbe(probeId, 7, {
+      observationMs: 0,
+      startTimeoutMs: 10,
+      stopTimeoutMs: 10,
+    });
+    await waitUntil(
+      () =>
+        JSON.parse(state.ext.getCommunicationDiagnostics()).startupProbeRuns[0]
+          ?.stage === "observing-running-program",
+      `probe ${probeId} reaches the observation window`
+    );
+    state.clock.advance(0);
+    const result = await runPromise;
+    const fixture = fs
+      .readFileSync(
+        path.join(
+          here,
+          `fixtures/spikeprime-startup-${probeId}-${probeId === "01" ? "public-imports" : "tunnel-registration"}.py`
+        ),
+        "utf8"
+      )
+      .replace(/\r\n/g, "\n");
+    assert.equal(result.outcome, "success");
+    assert.equal(fakeHub.slots.get(7).toString("utf8"), fixture);
+    assert.equal(fakeHub.flowStarts, 1);
+    assert.equal(fakeHub.flowStops, 1);
+  });
+}
+
+test("missing probe start notification is indeterminate even if stop cleanup responds", async () => {
+  const state = setup({ developerMode: true });
+  await connect(state);
+  attachFakeStartupProbeHub(state, { emitStartNotification: false });
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  const runPromise = hub.runStartupProbe("00", 7, {
+    observationMs: 0,
+    startTimeoutMs: 20,
+    stopTimeoutMs: 20,
+  });
+  await waitUntil(
+    () =>
+      JSON.parse(state.ext.getCommunicationDiagnostics()).startupProbeRuns[0]
+        ?.stage === "waiting-for-start-notification",
+    "probe waits for its start notification"
+  );
+  state.clock.advance(20);
+  const result = await runPromise;
+  assert.equal(result.outcome, "indeterminate");
+  assert.equal(result.notifications.start, null);
+  assert.equal(result.transferResponses.programFlowStart.ok, true);
+  assert.equal(result.transferResponses.programFlowStop.ok, true);
+  assert.equal(result.notifications.stop.action, "stop");
+});
+
+test("missing probe stop notification is indeterminate", async () => {
+  const state = setup({ developerMode: true });
+  await connect(state);
+  attachFakeStartupProbeHub(state, { emitStopNotification: false });
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  const runPromise = hub.runStartupProbe("00", 7, {
+    observationMs: 5,
+    startTimeoutMs: 20,
+    stopTimeoutMs: 20,
+  });
+  await waitUntil(
+    () =>
+      JSON.parse(state.ext.getCommunicationDiagnostics()).startupProbeRuns[0]
+        ?.stage === "observing-running-program",
+    "probe reaches its observation window"
+  );
+  state.clock.advance(5);
+  await waitUntil(
+    () =>
+      JSON.parse(state.ext.getCommunicationDiagnostics()).startupProbeRuns[0]
+        ?.stage === "waiting-for-stop-notification",
+    "probe waits for stop notification"
+  );
+  state.clock.advance(20);
+  const result = await runPromise;
+  assert.equal(result.outcome, "indeterminate");
+  assert.equal(result.notifications.start.action, "start");
+  assert.equal(result.notifications.stop, null);
+  assert.equal(result.transferResponses.programFlowStop.ok, true);
+});
+
+test("a probe that stops before the host stop request is classified as failure", async () => {
+  const state = setup({ developerMode: true });
+  await connect(state);
+  attachFakeStartupProbeHub(state, { stopImmediatelyAfterStart: true });
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  const result = await hub.runStartupProbe("00", 7, {
+    observationMs: 50,
+    startTimeoutMs: 20,
+    stopTimeoutMs: 20,
+  });
+  assert.equal(result.outcome, "failure");
+  assert.match(result.reason, /stopped during the observation window/i);
+  assert.equal(result.notifications.start.action, "start");
+  assert.equal(result.notifications.stop.action, "stop");
+  assert.equal(result.transferResponses.programFlowStop, null);
+});
+
+test("a failed probe transfer is recorded as failure and does not start the slot", async () => {
+  const state = setup({ developerMode: true });
+  await connect(state);
+  const fakeHub = attachFakeStartupProbeHub(state, { failChunkIndex: 0 });
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  const result = await hub.runStartupProbe("00", 7);
+  assert.equal(result.outcome, "failure");
+  assert.equal(result.transferResponses.transferChunks[0].ok, false);
+  assert.equal(result.transferResponses.programFlowStart, null);
+  assert.equal(fakeHub.flowStarts, 0);
 });
 
 test("a GATT disconnect after ProgramFlowResponse is distinct from a failed BLE write", async () => {

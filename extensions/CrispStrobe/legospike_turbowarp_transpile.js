@@ -63,6 +63,19 @@
     );
   };
 
+  // This diagnostic-only block is deliberately absent from ordinary builds.
+  // A developer must opt in by opening the editor with
+  // ?spikePrimeDiagnostics=1 before loading the extension.
+  const isStartupProbeDeveloperMode = () => {
+    try {
+      return /(?:^|[?&])spikePrimeDiagnostics=1(?:&|$)/.test(
+        window.location.search
+      );
+    } catch (error) {
+      return false;
+    }
+  };
+
   // ============================================================================
   // TRANSLATIONS
   // ============================================================================
@@ -91,6 +104,20 @@
       diagnosticsJsonSaveFailed: "Could not save the JSON file.",
       diagnosticsDialogUnavailable:
         "The diagnostics dialog is unavailable in this environment.",
+      startupProbeBlock: "run SPIKE startup probe [PROBE] in slot [SLOT]",
+      startupProbe00Label: "Probe 00 — runloop only",
+      startupProbe01Label: "Probe 01 — public API imports",
+      startupProbe02Label: "Probe 02 — module_tunnel callback",
+      startupProbeConfirmOverwrite:
+        "This will clear and replace hub slot {0} with {1} ({2}), file {3}. Brickwright cannot inspect or restore the program currently in that slot. Check in the SPIKE app that this slot is safe to overwrite. The probe sends no motor, LED, or sound commands. Brickwright waits up to 7 seconds for a start notification; if received, it observes the probe for 3 seconds and requests it to stop. If start is not reported, the result is indeterminate and Brickwright attempts a stop request to this slot. Continue?",
+      startupProbeInvalid: "Unknown startup probe or invalid slot.",
+      startupProbeFinished:
+        "Probe {0}: {1}. Open Communication diagnostics (JSON) for transfer responses, notifications, elapsed time, and console output.",
+      "diag.startupProbeOutcome.success": "success",
+      "diag.startupProbeOutcome.failure": "failure",
+      "diag.startupProbeOutcome.indeterminate": "indeterminate",
+      "diag.startupProbeOutcome.running": "running",
+      startupProbeExecutionFailed: "Startup probe failed: {0}",
       installHubController:
         "install / start Brickwright controller in slot [SLOT]",
       checkHubController: "check Brickwright controller response",
@@ -415,6 +442,20 @@
       diagnosticsJsonSaveFailed: "JSONファイルを保存できませんでした。",
       diagnosticsDialogUnavailable:
         "この環境では通信診断ダイアログを表示できません。",
+      startupProbeBlock: "SPIKE起動プローブ[PROBE]をスロット[SLOT]で実行",
+      startupProbe00Label: "プローブ00 — runloopのみ",
+      startupProbe01Label: "プローブ01 — 公開APIのimport",
+      startupProbe02Label: "プローブ02 — module_tunnelの登録",
+      startupProbeConfirmOverwrite:
+        "ハブのスロット{0}を消去し、{1}（{2}、ファイル名 {3}）で置き換えます。Brickwrightから現在のスロット内容を確認・復元することはできません。SPIKEアプリで上書きしてよいスロットか確認してください。このプローブはモーター・LED・音を操作しません。起動通知を最大7秒待ち、通知が届いた場合は3秒間観測して停止要求を送ります。起動通知が届かない場合は判定不能と記録し、同じスロットへ停止要求を試みます。続けますか？",
+      startupProbeInvalid: "プローブまたはスロット番号が正しくありません。",
+      startupProbeFinished:
+        "プローブ{0}の判定: {1}。転送応答・通知・経過時間・コンソール出力は「通信診断（JSON）」で確認できます。",
+      "diag.startupProbeOutcome.success": "成功",
+      "diag.startupProbeOutcome.failure": "失敗",
+      "diag.startupProbeOutcome.indeterminate": "判定不能",
+      "diag.startupProbeOutcome.running": "実行中",
+      startupProbeExecutionFailed: "起動プローブに失敗しました: {0}",
       installHubController:
         "スロット [SLOT] にBrickwright制御プログラムを転送して起動",
       checkHubController: "Brickwright制御プログラムの応答を確認",
@@ -1964,6 +2005,95 @@ else:
     raise RuntimeError("runloop.run returned before the controller stopped")
 `;
 
+  // These are intentionally the same three no-hardware probes kept in
+  // development/fixtures. A transport test asserts byte-for-byte source
+  // equivalence so the UI cannot silently drift from the reviewed fixtures.
+  const SPIKE_STARTUP_PROBES = {
+    "00": {
+      labelKey: "startupProbe00Label",
+      fileName: "brickwright-probe-00.py",
+      source: String.raw`"""No-hardware SPIKE startup probe: runloop only.
+
+Do not transfer or start this program without the user's explicit approval.
+It does not import hub APIs, access module_tunnel, print, or control hardware.
+"""
+
+import runloop
+
+
+async def main():
+    while True:
+        await runloop.sleep_ms(1000)
+
+
+runloop.run(main())
+`,
+    },
+    "01": {
+      labelKey: "startupProbe01Label",
+      fileName: "brickwright-probe-01.py",
+      source: String.raw`"""No-hardware SPIKE startup probe: public API imports plus runloop.
+
+Do not transfer or start this program without the user's explicit approval.
+It does not access module_tunnel, print, or control hardware.
+"""
+
+import hub
+import motor
+import runloop
+import time
+
+try:
+    import json
+except ImportError:
+    import ujson as json
+
+from hub import light_matrix, port, sound
+
+PORTS = {"A": port.A, "B": port.B, "C": port.C, "D": port.D, "E": port.E, "F": port.F}
+
+
+async def main():
+    while True:
+        await runloop.sleep_ms(1000)
+
+
+runloop.run(main())
+`,
+    },
+    "02": {
+      labelKey: "startupProbe02Label",
+      fileName: "brickwright-probe-02.py",
+      source: String.raw`"""No-hardware SPIKE startup probe: module_tunnel lookup and callback.
+
+Do not transfer or start this program without the user's explicit approval.
+It registers, but never invokes, a receive callback and never sends tunnel data.
+It does not print or control hardware.
+"""
+
+import hub
+import runloop
+
+tunnel = hub.config["module_tunnel"]
+
+
+def receive(_data):
+    pass
+
+
+tunnel.callback(receive)
+
+
+async def main():
+    while True:
+        await runloop.sleep_ms(1000)
+
+
+runloop.run(main())
+`,
+    },
+  };
+
   const COBS = {
     /**
      * COBS with the run codes offset by 3, so that no code can be 0x00, 0x01
@@ -3422,6 +3552,9 @@ continuous_sensor_loop()
         lastKnownControllerVersion,
         lastControllerResponseAt: null,
         controllerInstallAttempt: previous?.controllerInstallAttempt || null,
+        startupProbeRuns: previous?.startupProbeRuns
+          ? JSON.parse(JSON.stringify(previous.startupProbeRuns))
+          : [],
         lastSuccessfulControllerStage:
           previous?.lastSuccessfulControllerStage || null,
         lastProgramFlowNotification:
@@ -3601,6 +3734,9 @@ continuous_sensor_loop()
         ],
         recentConsoleOutput: this._diagnostics.recentConsoleOutput,
         recentEvents: [...this._diagnostics.recentEvents],
+        startupProbeRuns: JSON.parse(
+          JSON.stringify(this._diagnostics.startupProbeRuns || [])
+        ),
         lastFirmwareVersion: this._diagnostics.lastFirmwareVersion,
         lastCommunicationError: this._diagnostics.lastCommunicationError,
       };
@@ -3738,6 +3874,26 @@ continuous_sensor_loop()
           name: disconnect.error?.name || "HubDisconnectedError",
           stack: disconnect.error?.stack || "",
         };
+      }
+      const probeRun = this._activeStartupProbe;
+      if (probeRun && probeRun.outcome === "running") {
+        probeRun.disconnect = {
+          timestamp,
+          origin,
+          requested: Boolean(disconnect.requested),
+          errorName: disconnect.error?.name || null,
+          errorMessage: disconnect.error?.message || null,
+        };
+        this._recordDiagnosticEvent("startup-probe-disconnect", {
+          probeId: probeRun.probeId,
+          slot: probeRun.slot,
+          origin,
+        });
+        for (const waiter of Object.values(probeRun.flowWaiters || {})) {
+          clearTimeout(waiter.timeout);
+          waiter.resolve(null);
+        }
+        probeRun.flowWaiters = {};
       }
       for (const waiter of this._controllerStartWaiters) {
         clearTimeout(waiter.timeout);
@@ -4618,6 +4774,369 @@ continuous_sensor_loop()
       }
     }
 
+    _waitForStartupProbeNotification(
+      run,
+      action,
+      timeoutMs,
+      afterTimestamp = run.startedAt
+    ) {
+      const existing = run.notifications.flow.find(
+        (item) => item.action === action && item.timestamp >= afterTimestamp
+      );
+      if (existing) return Promise.resolve(existing);
+      return new Promise((resolve) => {
+        const key = `${action}:${afterTimestamp}:${Math.random()}`;
+        const waiter = {
+          action,
+          afterTimestamp,
+          timeout: setTimeout(() => {
+            delete run.flowWaiters[key];
+            resolve(null);
+          }, timeoutMs),
+          resolve: (notification) => {
+            clearTimeout(waiter.timeout);
+            delete run.flowWaiters[key];
+            resolve(notification);
+          },
+        };
+        run.flowWaiters[key] = waiter;
+      });
+    }
+
+    _finishStartupProbeRun(run, outcome, reason) {
+      run.outcome = outcome;
+      run.reason = reason;
+      run.finishedAt = Date.now();
+      run.runtimeMs = run.finishedAt - run.startedAt;
+      run.executionDurationMs =
+        run.executionStartedAt === null
+          ? null
+          : (run.executionFinishedAt || run.finishedAt) -
+            run.executionStartedAt;
+      run.stage = "finished";
+      this._recordDiagnosticEvent("startup-probe-finished", {
+        probeId: run.probeId,
+        slot: run.slot,
+        outcome,
+        reason,
+        runtimeMs: run.runtimeMs,
+      });
+      if (this._activeStartupProbe === run) this._activeStartupProbe = null;
+      return JSON.parse(JSON.stringify(run));
+    }
+
+    async runStartupProbe(
+      probeId,
+      slot,
+      { observationMs = 3000, startTimeoutMs = 7000, stopTimeoutMs = 3000 } = {}
+    ) {
+      const probe = SPIKE_STARTUP_PROBES[String(probeId)];
+      if (!probe || !Number.isInteger(slot) || slot < 0 || slot > 19) {
+        throw this._unsupportedError("unknown startup probe or invalid slot");
+      }
+      if (!this.isConnected()) throw this._notConnectedError();
+      if (this._link?.kind !== "gatt") {
+        throw this._unsupportedError("startup probes require BLE GATT");
+      }
+      if (
+        this._activeStartupProbe ||
+        this._diagnostics.controllerInstallAttempt?.outcome === "in-progress"
+      ) {
+        throw this._unsupportedError(
+          "another SPIKE program operation is active"
+        );
+      }
+
+      const boundedDuration = (value, fallback, max) => {
+        const number = Number(value);
+        return Number.isFinite(number)
+          ? Math.max(0, Math.min(max, Math.trunc(number)))
+          : fallback;
+      };
+      observationMs = boundedDuration(observationMs, 3000, 30000);
+      startTimeoutMs = boundedDuration(startTimeoutMs, 7000, 30000);
+      stopTimeoutMs = boundedDuration(stopTimeoutMs, 3000, 30000);
+
+      const startedAt = Date.now();
+      const run = {
+        probeId: String(probeId),
+        label: t(probe.labelKey),
+        slot,
+        fileName: probe.fileName,
+        sourceBytes: new TextEncoder().encode(probe.source).length,
+        outcome: "running",
+        reason: "",
+        stage: "waiting-info-response",
+        startedAt,
+        finishedAt: null,
+        runtimeMs: null,
+        executionStartedAt: null,
+        executionFinishedAt: null,
+        executionDurationMs: null,
+        transferredBytes: 0,
+        transferResponses: {
+          infoResponse: null,
+          clearSlot: null,
+          startFileUpload: null,
+          transferChunks: [],
+          programFlowStart: null,
+          programFlowStop: null,
+        },
+        notifications: {
+          flow: [],
+          start: null,
+          stop: null,
+        },
+        consoleOutput: [],
+        flowWaiters: {},
+        disconnect: null,
+        error: null,
+      };
+      this._activeStartupProbe = run;
+      this._diagnostics.startupProbeRuns.push(run);
+      if (this._diagnostics.startupProbeRuns.length > 3) {
+        this._diagnostics.startupProbeRuns.splice(
+          0,
+          this._diagnostics.startupProbeRuns.length - 3
+        );
+      }
+      this._recordDiagnosticEvent("startup-probe-started", {
+        probeId: run.probeId,
+        slot,
+        fileName: probe.fileName,
+        sourceBytes: run.sourceBytes,
+      });
+
+      const request = async (key, message, responseType, record) => {
+        const requestAt = Date.now();
+        Object.assign(record, {
+          step: key,
+          requestAt,
+          messageType: message[0],
+          status: "pending",
+        });
+        try {
+          const response = await this._requestHubResponse(
+            message,
+            responseType
+          );
+          Object.assign(record, {
+            responseAt: Date.now(),
+            ok: response.ok,
+            responseStatus: response.status,
+            status: response.ok ? "acknowledged" : "rejected",
+          });
+          return response;
+        } catch (error) {
+          Object.assign(record, {
+            responseAt: Date.now(),
+            status: "error",
+            error: {
+              name: error?.name || "Error",
+              message: error?.message || String(error),
+              stack: error?.stack || "",
+            },
+          });
+          throw error;
+        }
+      };
+
+      try {
+        await this._waitForInfoResponse();
+        run.transferResponses.infoResponse = {
+          receivedAt: this._diagnostics.infoResponseReceivedAt,
+          firmwareVersion: this._firmware,
+          rpcVersion: this._rpcVersion,
+        };
+
+        run.stage = "clearing-slot";
+        const clearRecord = {};
+        run.transferResponses.clearSlot = clearRecord;
+        // A non-zero clear response is recorded (an empty slot may report it)
+        // and the confirmed target proceeds through the official upload flow.
+        await request(
+          "clearSlot",
+          this._buildClearSlotRequest(slot),
+          SPIKE3.CLEAR_SLOT_RESPONSE,
+          clearRecord
+        );
+
+        const program = new TextEncoder().encode(probe.source);
+        run.stage = "starting-file-upload";
+        const uploadRecord = {};
+        run.transferResponses.startFileUpload = uploadRecord;
+        const upload = await request(
+          "startFileUpload",
+          this._buildStartFileUploadRequest(
+            probe.fileName,
+            slot,
+            this._crc32(program)
+          ),
+          SPIKE3.START_FILE_UPLOAD_RESPONSE,
+          uploadRecord
+        );
+        if (!upload.ok) throw new Error("Hub rejected StartFileUploadRequest");
+
+        let runningCrc = 0;
+        for (let offset = 0, index = 0; offset < program.length; index++) {
+          const chunk = program.slice(offset, offset + this._maxChunkSize);
+          const record = { index, offset, length: chunk.length };
+          run.transferResponses.transferChunks.push(record);
+          runningCrc = this._crc32(chunk, runningCrc);
+          const response = await request(
+            `transferChunk:${index}`,
+            this._buildTransferChunkRequest(runningCrc, chunk),
+            SPIKE3.TRANSFER_CHUNK_RESPONSE,
+            record
+          );
+          if (!response.ok) {
+            throw new Error(`Hub rejected program chunk at byte ${offset}`);
+          }
+          run.transferredBytes += chunk.length;
+          offset += chunk.length;
+        }
+
+        run.stage = "requesting-program-start";
+        const startRecord = {};
+        run.transferResponses.programFlowStart = startRecord;
+        const startResponse = await request(
+          "programFlowStart",
+          this._buildProgramFlowRequest(false, slot),
+          SPIKE3.PROGRAM_FLOW_RESPONSE,
+          startRecord
+        );
+        if (!startResponse.ok)
+          throw new Error("Hub rejected ProgramFlowRequest");
+
+        run.stage = "waiting-for-start-notification";
+        const start = await this._waitForStartupProbeNotification(
+          run,
+          "start",
+          startTimeoutMs,
+          startRecord.requestAt
+        );
+        if (start) run.executionStartedAt = start.timestamp;
+        if (run.prematureStopNotification) {
+          run.executionFinishedAt = run.prematureStopNotification.timestamp;
+          return this._finishStartupProbeRun(
+            run,
+            "failure",
+            run.notifications.start
+              ? "The program stopped during the observation window before Brickwright requested the diagnostic stop."
+              : "The program stopped before a start notification was received."
+          );
+        }
+        if (!start) {
+          run.stage = "start-notification-missing";
+          if (this.isConnected()) {
+            const stopRecord = {};
+            run.transferResponses.programFlowStop = stopRecord;
+            run.stopRequestAt = Date.now();
+            try {
+              const stopResponse = await request(
+                "programFlowStop",
+                this._buildProgramFlowRequest(true, slot),
+                SPIKE3.PROGRAM_FLOW_RESPONSE,
+                stopRecord
+              );
+              if (stopResponse.ok) {
+                await this._waitForStartupProbeNotification(
+                  run,
+                  "stop",
+                  stopTimeoutMs,
+                  run.stopRequestAt
+                );
+              }
+            } catch (cleanupError) {
+              run.cleanupError = {
+                name: cleanupError?.name || "Error",
+                message: cleanupError?.message || String(cleanupError),
+              };
+            }
+          }
+          return this._finishStartupProbeRun(
+            run,
+            "indeterminate",
+            "The hub accepted the start request but no start notification arrived; execution could not be verified."
+          );
+        }
+
+        run.stage = "observing-running-program";
+        const spontaneousStop = await this._waitForStartupProbeNotification(
+          run,
+          "stop",
+          observationMs,
+          start.timestamp
+        );
+        if (spontaneousStop) {
+          run.executionFinishedAt = spontaneousStop.timestamp;
+          return this._finishStartupProbeRun(
+            run,
+            "failure",
+            "The program stopped before Brickwright requested the diagnostic stop."
+          );
+        }
+
+        run.stage = "requesting-diagnostic-stop";
+        const stopRecord = {};
+        run.transferResponses.programFlowStop = stopRecord;
+        run.stopRequestAt = Date.now();
+        const stopResponse = await request(
+          "programFlowStop",
+          this._buildProgramFlowRequest(true, slot),
+          SPIKE3.PROGRAM_FLOW_RESPONSE,
+          stopRecord
+        );
+        if (!stopResponse.ok) {
+          return this._finishStartupProbeRun(
+            run,
+            "indeterminate",
+            "The probe stayed active for the observation window, but the hub rejected the stop request."
+          );
+        }
+        run.stage = "waiting-for-stop-notification";
+        const stop = await this._waitForStartupProbeNotification(
+          run,
+          "stop",
+          stopTimeoutMs,
+          run.stopRequestAt
+        );
+        if (!stop) {
+          return this._finishStartupProbeRun(
+            run,
+            "indeterminate",
+            "The hub acknowledged the stop request but no stop notification arrived."
+          );
+        }
+        run.executionFinishedAt = stop.timestamp;
+        return this._finishStartupProbeRun(
+          run,
+          "success",
+          "Start notification, continued execution through the observation window, stop response, and stop notification were all observed."
+        );
+      } catch (error) {
+        run.error = {
+          name: error?.name || "Error",
+          message: error?.message || String(error),
+          stack: error?.stack || "",
+        };
+        const startRequest = run.transferResponses.programFlowStart;
+        const executionWasRejected = startRequest?.ok === false;
+        const executionWasRequested = Boolean(startRequest?.requestAt);
+        const outcome =
+          executionWasRejected || !executionWasRequested
+            ? "failure"
+            : "indeterminate";
+        return this._finishStartupProbeRun(
+          run,
+          outcome,
+          executionWasRequested
+            ? "Communication failed after the program start request; the program's state is unknown."
+            : "The probe could not be transferred and started."
+        );
+      }
+    }
+
     /** Arbitrary Python source has no execution semantics in TunnelMessage. */
     sendPythonCommandRaw(text) {
       void text;
@@ -4900,6 +5419,19 @@ continuous_sensor_loop()
           }
           const notification = { timestamp: Date.now(), text };
           this._diagnostics.recentConsoleNotifications.push(notification);
+          const probeRun = this._activeStartupProbe;
+          if (probeRun && notification.timestamp >= probeRun.startedAt) {
+            probeRun.consoleOutput.push({
+              timestamp: notification.timestamp,
+              text: text.slice(0, 4096),
+            });
+            if (probeRun.consoleOutput.length > 80) {
+              probeRun.consoleOutput.splice(
+                0,
+                probeRun.consoleOutput.length - 80
+              );
+            }
+          }
           if (this._diagnostics.recentConsoleNotifications.length > 20) {
             this._diagnostics.recentConsoleNotifications.shift();
           }
@@ -4940,6 +5472,48 @@ continuous_sensor_loop()
       };
       this._diagnostics.lastProgramFlowNotification = notification;
       this._recordDiagnosticEvent("program-flow-notification", notification);
+
+      const probeRun = this._activeStartupProbe;
+      const programStartRequestAt =
+        probeRun?.transferResponses.programFlowStart?.requestAt;
+      if (
+        probeRun &&
+        programStartRequestAt &&
+        timestamp >= programStartRequestAt
+      ) {
+        probeRun.notifications.flow.push(notification);
+        if (probeRun.notifications.flow.length > 20) {
+          probeRun.notifications.flow.shift();
+        }
+        if (action === 0 && !probeRun.notifications.start) {
+          probeRun.notifications.start = notification;
+        } else if (action === 1) {
+          probeRun.notifications.stop = notification;
+          if (
+            !probeRun.notifications.start ||
+            !probeRun.stopRequestAt ||
+            timestamp < probeRun.stopRequestAt
+          ) {
+            probeRun.prematureStopNotification = notification;
+          }
+        }
+        for (const [key, waiter] of Object.entries(
+          probeRun.flowWaiters || {}
+        )) {
+          if (
+            (waiter.action === notification.action ||
+              (action === 1 &&
+                !probeRun.notifications.start &&
+                waiter.action === "start")) &&
+            timestamp >= waiter.afterTimestamp
+          ) {
+            waiter.resolve(
+              waiter.action === notification.action ? notification : null
+            );
+            delete probeRun.flowWaiters[key];
+          }
+        }
+      }
 
       const attempt = this._diagnostics.controllerInstallAttempt;
       if (
@@ -7438,6 +8012,26 @@ continuous_sensor_loop()
             blockType: BlockType.COMMAND,
             text: t("openCommunicationDiagnosticsLog"),
           },
+          ...(isStartupProbeDeveloperMode()
+            ? [
+                {
+                  opcode: "runStartupProbe",
+                  blockType: BlockType.COMMAND,
+                  text: t("startupProbeBlock"),
+                  arguments: {
+                    PROBE: {
+                      type: ArgumentType.STRING,
+                      menu: "SPIKE_STARTUP_PROBE",
+                      defaultValue: "00",
+                    },
+                    SLOT: {
+                      type: ArgumentType.NUMBER,
+                      defaultValue: 0,
+                    },
+                  },
+                },
+              ]
+            : []),
           {
             opcode: "installHubController",
             blockType: BlockType.COMMAND,
@@ -8581,6 +9175,19 @@ continuous_sensor_loop()
         ],
         menus: {
           PORT: { acceptReporters: true, items: SpikePorts },
+          ...(isStartupProbeDeveloperMode()
+            ? {
+                SPIKE_STARTUP_PROBE: {
+                  acceptReporters: false,
+                  items: Object.entries(SPIKE_STARTUP_PROBES).map(
+                    ([value, probe]) => ({
+                      value,
+                      text: t(probe.labelKey),
+                    })
+                  ),
+                },
+              }
+            : {}),
           CONNECTION_MODE: {
             acceptReporters: true,
             items: [
@@ -9981,6 +10588,63 @@ continuous_sensor_loop()
     }
     exitScript() {
       return this._peripheral.sendPythonCommand("raise SystemExit");
+    }
+
+    runStartupProbe(args) {
+      if (!isStartupProbeDeveloperMode()) {
+        return Promise.reject(
+          new Error("SPIKE startup probes are available only in developer mode")
+        );
+      }
+      const probeId = Cast.toString(args.PROBE);
+      const slot = Cast.toNumber(args.SLOT);
+      const probe = SPIKE_STARTUP_PROBES[probeId];
+      if (!probe || !Number.isInteger(slot) || slot < 0 || slot > 19) {
+        const message = t("startupProbeInvalid");
+        const error = new Error(message);
+        alert(t("startupProbeInvalid"));
+        return Promise.reject(error);
+      }
+      if (!this._peripheral.isConnected()) {
+        const message = t("notConnected");
+        const error = new Error(message);
+        alert(t("notConnected"));
+        return Promise.reject(error);
+      }
+      if (this._peripheral.protocol !== "spike3") {
+        const message = t("controllerUnsupported");
+        const error = new Error(message);
+        alert(t("controllerUnsupported"));
+        return Promise.reject(error);
+      }
+
+      return askYesNo(
+        t(
+          "startupProbeConfirmOverwrite",
+          slot,
+          probeId,
+          t(probe.labelKey),
+          probe.fileName
+        )
+      ).then((confirmed) => {
+        if (!confirmed) return undefined;
+        return this._peripheral.active
+          .runStartupProbe(probeId, slot)
+          .then((result) => {
+            alert(
+              t(
+                "startupProbeFinished",
+                probeId,
+                t(`diag.startupProbeOutcome.${result.outcome}`)
+              )
+            );
+            return result;
+          })
+          .catch((error) => {
+            alert(t("startupProbeExecutionFailed", error.message));
+            throw error;
+          });
+      });
     }
 
     // ========================================================================
