@@ -63,6 +63,19 @@
     );
   };
 
+  // This diagnostic-only block is deliberately absent from ordinary builds.
+  // A developer must opt in by opening the editor with
+  // ?spikePrimeDiagnostics=1 before loading the extension.
+  const isStartupProbeDeveloperMode = () => {
+    try {
+      return /(?:^|[?&])spikePrimeDiagnostics=1(?:&|$)/.test(
+        window.location.search
+      );
+    } catch (error) {
+      return false;
+    }
+  };
+
   // ============================================================================
   // TRANSLATIONS
   // ============================================================================
@@ -80,6 +93,118 @@
       getConnectionMode: "connection mode",
       getCommunicationDiagnostics: "communication diagnostics (JSON)",
       getCommunicationDiagnosticsSummary: "communication diagnostics (text)",
+      openCommunicationDiagnosticsLog: "open communication diagnostics log",
+      diagnosticsDialogTitle: "SPIKE Prime communication diagnostics",
+      diagnosticsCopyJson: "Copy full JSON",
+      diagnosticsSaveJson: "Save JSON file",
+      diagnosticsJsonCopied: "Full JSON copied to the clipboard.",
+      diagnosticsManualCopy:
+        "Clipboard access is unavailable. The full log is selected; press Ctrl+C (or ⌘+C) to copy.",
+      diagnosticsJsonSaved: "JSON file download started.",
+      diagnosticsJsonSaveFailed: "Could not save the JSON file.",
+      diagnosticsDialogUnavailable:
+        "The diagnostics dialog is unavailable in this environment.",
+      startupProbeBlock: "run SPIKE startup probe [PROBE] in slot [SLOT]",
+      startupProbe00Label: "Probe 00 — runloop only",
+      startupProbe01Label: "Probe 01 — public API imports",
+      startupProbe02Label: "Probe 02 — module_tunnel callback",
+      startupProbeConfirmOverwrite:
+        "This will clear and replace hub slot {0} with {1} ({2}), file {3}. Brickwright cannot inspect or restore the program currently in that slot. Check in the SPIKE app that this slot is safe to overwrite. The probe sends no motor, LED, or sound commands. Brickwright waits up to 7 seconds for a start notification; if received, it observes the probe for 3 seconds and requests it to stop. If start is not reported, the result is indeterminate and Brickwright attempts a stop request to this slot. Continue?",
+      startupProbeInvalid: "Unknown startup probe or invalid slot.",
+      startupProbeFinished:
+        "Probe {0}: {1}. Open Communication diagnostics (JSON) for transfer responses, notifications, elapsed time, and console output.",
+      "diag.startupProbeOutcome.success": "success",
+      "diag.startupProbeOutcome.failure": "failure",
+      "diag.startupProbeOutcome.indeterminate": "indeterminate",
+      "diag.startupProbeOutcome.running": "running",
+      startupProbeExecutionFailed: "Startup probe failed: {0}",
+      installHubController:
+        "install / start Brickwright controller in slot [SLOT]",
+      checkHubController: "check Brickwright controller response",
+      controllerConfirmOverwrite:
+        "This will clear and replace the program in hub slot {0}. Back it up first. Continue?",
+      controllerReady:
+        "Brickwright SPIKE controller is running and acknowledged.",
+      controllerFailed: "Could not start the Brickwright SPIKE controller: {0}",
+      controllerInvalidSlot: "Program slot must be between 0 and 19.",
+      operationFailed: "SPIKE operation failed: {0}",
+      controllerNotReady:
+        "Install and start the Brickwright SPIKE controller first.",
+      controllerTimeout:
+        "The hub controller did not acknowledge the command in time.",
+      controllerStartNotificationTimeout:
+        "The hub accepted ProgramFlowRequest but did not report that the program started.",
+      controllerStoppedBeforeReady:
+        "The Brickwright controller stopped before it completed its startup handshake.",
+      hubDisconnectedBeforeControllerStart:
+        "The hub disconnected before the controller start was verified ({0}).",
+      hubDisconnectedAfterProgramStart:
+        "The hub disconnected after the start notification and before the controller replied ({0}).",
+      hubDisconnectedDuringControllerCommand:
+        "The hub disconnected during a controller command ({0}).",
+      controllerCommandFailed: "The hub could not execute the command",
+      controllerUnsupported:
+        "This SPIKE operation is not supported by the controller",
+      controllerUnsupportedStopAction:
+        "This motor stop action has not been verified on SPIKE 3.x",
+      pythonExecutionUnsupported:
+        "Raw Python is not executed by TunnelMessage. Use a supported SPIKE block or upload a Python program explicitly.",
+      "diag.controller": "Hub controller",
+      "diag.controllerVersion": "Controller version",
+      "diag.controllerStatus.not-installed": "not installed",
+      "diag.controllerStatus.installing": "installing",
+      "diag.controllerStatus.starting": "starting",
+      "diag.controllerStatus.ready": "ready and responding",
+      "diag.controllerStatus.timeout": "response timed out",
+      "diag.controllerStatus.error": "error",
+      "diag.controllerStatus.disconnected": "disconnected",
+      "diag.controllerStatus.not-verified": "not verified",
+      "diag.controllerStatus.checking": "checking",
+      "diag.controllerStatus.startup-error": "program stopped during startup",
+      "diag.controllerStatus.stopped": "program stopped",
+      "diag.controllerOutcome.in-progress": "in progress",
+      "diag.controllerOutcome.interrupted": "interrupted",
+      "diag.controllerOutcome.startup-error": "startup error",
+      "diag.controllerOutcome.not-verified": "not verified",
+      "diag.controllerOutcome.ready": "verified ready",
+      "diag.controllerOutcome.failed": "failed",
+      "diag.writeStatus.pending": "pending",
+      "diag.writeStatus.write-completed": "write completed",
+      "diag.writeStatus.failed": "failed",
+      "diag.controllerStage.waiting-info-response":
+        "waiting for hub information",
+      "diag.controllerStage.info-response-received": "hub information received",
+      "diag.controllerStage.slot-clear-response-received":
+        "slot clear response received",
+      "diag.controllerStage.file-upload-accepted": "file upload accepted",
+      "diag.controllerStage.transfer-chunk-acknowledged":
+        "program data chunk acknowledged",
+      "diag.controllerStage.program-upload-complete":
+        "program transfer complete",
+      "diag.controllerStage.program-flow-request-sent": "start request sent",
+      "diag.controllerStage.program-flow-response-accepted":
+        "start request accepted",
+      "diag.controllerStage.program-start-notified":
+        "program start notification received",
+      "diag.controllerStage.controller-hello-acknowledged":
+        "controller version response received",
+      "diag.controllerStage.start-notification-timeout":
+        "start notification timed out",
+      "diag.controllerStage.program-stopped-before-handshake":
+        "program stopped before controller response",
+      "diag.lastControllerStage": "Controller installation stage",
+      "diag.lastSuccessfulControllerStage": "Last successful stage",
+      "diag.lastDisconnectOrigin": "Last disconnect origin",
+      "diag.lastWrite": "Last BLE write",
+      "diag.lastConsoleOutput": "Recent hub console output",
+      "diag.recentEvents": "Recent communication events",
+      "diag.lastWriteError": "Last BLE write error and stack",
+      "diag.disconnectOrigin.gattserverdisconnected": "GATT disconnect event",
+      "diag.disconnectOrigin.ble-write-exception": "BLE write exception",
+      "diag.disconnectOrigin.write-precondition-failure":
+        "BLE write precondition",
+      "diag.disconnectOrigin.user-requested": "user requested",
+      "diag.disconnectOrigin.transport-reset": "transport reset",
       "diag.connection": "Bluetooth connection",
       "diag.connected": "connected",
       "diag.disconnected": "not connected",
@@ -306,6 +431,113 @@
       getConnectionMode: "接続モード",
       getCommunicationDiagnostics: "通信診断（JSON）",
       getCommunicationDiagnosticsSummary: "通信診断（表示用）",
+      openCommunicationDiagnosticsLog: "通信診断ログを開く",
+      diagnosticsDialogTitle: "SPIKE Prime 通信診断ログ",
+      diagnosticsCopyJson: "JSON全文をコピー",
+      diagnosticsSaveJson: "JSONファイルを保存",
+      diagnosticsJsonCopied: "JSON全文をクリップボードにコピーしました。",
+      diagnosticsManualCopy:
+        "クリップボードを使えません。ログ全文を選択しました。Ctrl+C（Macでは⌘+C）でコピーしてください。",
+      diagnosticsJsonSaved: "JSONファイルのダウンロードを開始しました。",
+      diagnosticsJsonSaveFailed: "JSONファイルを保存できませんでした。",
+      diagnosticsDialogUnavailable:
+        "この環境では通信診断ダイアログを表示できません。",
+      startupProbeBlock: "SPIKE起動プローブ[PROBE]をスロット[SLOT]で実行",
+      startupProbe00Label: "プローブ00 — runloopのみ",
+      startupProbe01Label: "プローブ01 — 公開APIのimport",
+      startupProbe02Label: "プローブ02 — module_tunnelの登録",
+      startupProbeConfirmOverwrite:
+        "ハブのスロット{0}を消去し、{1}（{2}、ファイル名 {3}）で置き換えます。Brickwrightから現在のスロット内容を確認・復元することはできません。SPIKEアプリで上書きしてよいスロットか確認してください。このプローブはモーター・LED・音を操作しません。起動通知を最大7秒待ち、通知が届いた場合は3秒間観測して停止要求を送ります。起動通知が届かない場合は判定不能と記録し、同じスロットへ停止要求を試みます。続けますか？",
+      startupProbeInvalid: "プローブまたはスロット番号が正しくありません。",
+      startupProbeFinished:
+        "プローブ{0}の判定: {1}。転送応答・通知・経過時間・コンソール出力は「通信診断（JSON）」で確認できます。",
+      "diag.startupProbeOutcome.success": "成功",
+      "diag.startupProbeOutcome.failure": "失敗",
+      "diag.startupProbeOutcome.indeterminate": "判定不能",
+      "diag.startupProbeOutcome.running": "実行中",
+      startupProbeExecutionFailed: "起動プローブに失敗しました: {0}",
+      installHubController:
+        "スロット [SLOT] にBrickwright制御プログラムを転送して起動",
+      checkHubController: "Brickwright制御プログラムの応答を確認",
+      controllerConfirmOverwrite:
+        "ハブのスロット{0}にあるプログラムを消去して置き換えます。先にバックアップしてください。続けますか？",
+      controllerReady:
+        "Brickwright SPIKE制御プログラムが起動し、応答しました。",
+      controllerFailed:
+        "Brickwright SPIKE制御プログラムを起動できませんでした: {0}",
+      controllerInvalidSlot: "プログラムスロットは0〜19で指定してください。",
+      operationFailed: "SPIKEの操作に失敗しました: {0}",
+      controllerNotReady:
+        "先にBrickwright SPIKE制御プログラムを転送して起動してください。",
+      controllerTimeout: "制御プログラムから時間内に応答がありませんでした。",
+      controllerStartNotificationTimeout:
+        "ProgramFlowRequestは受理されましたが、プログラム起動通知が届きませんでした。",
+      controllerStoppedBeforeReady:
+        "Brickwright制御プログラムは、起動確認を完了する前に停止しました。",
+      hubDisconnectedBeforeControllerStart:
+        "制御プログラムの起動確認前にハブとの接続が切れました（{0}）。",
+      hubDisconnectedAfterProgramStart:
+        "起動通知の後、制御プログラムの応答前にハブとの接続が切れました（{0}）。",
+      hubDisconnectedDuringControllerCommand:
+        "制御プログラムへの命令中にハブとの接続が切れました（{0}）。",
+      controllerCommandFailed: "ハブが命令を実行できませんでした",
+      controllerUnsupported: "このSPIKE命令は制御プログラムで未対応です",
+      controllerUnsupportedStopAction:
+        "SPIKE 3.xでは、このモーター停止方法は未検証です。",
+      pythonExecutionUnsupported:
+        "TunnelMessageはPythonを実行しません。対応するSPIKEブロックを使うか、Pythonプログラムを明示的に転送してください。",
+      "diag.controller": "ハブ制御プログラム",
+      "diag.controllerVersion": "制御プログラムのバージョン",
+      "diag.controllerStatus.not-installed": "未転送",
+      "diag.controllerStatus.installing": "転送中",
+      "diag.controllerStatus.starting": "起動中",
+      "diag.controllerStatus.ready": "応答あり・動作中",
+      "diag.controllerStatus.timeout": "応答タイムアウト",
+      "diag.controllerStatus.error": "エラー",
+      "diag.controllerStatus.disconnected": "切断済み",
+      "diag.controllerStatus.not-verified": "未確認",
+      "diag.controllerStatus.checking": "応答確認中",
+      "diag.controllerStatus.startup-error": "起動中にプログラムが停止",
+      "diag.controllerStatus.stopped": "プログラム停止",
+      "diag.controllerOutcome.in-progress": "処理中",
+      "diag.controllerOutcome.interrupted": "中断",
+      "diag.controllerOutcome.startup-error": "起動エラー",
+      "diag.controllerOutcome.not-verified": "未確認",
+      "diag.controllerOutcome.ready": "応答確認済み",
+      "diag.controllerOutcome.failed": "失敗",
+      "diag.writeStatus.pending": "送信中",
+      "diag.writeStatus.write-completed": "書き込み完了",
+      "diag.writeStatus.failed": "失敗",
+      "diag.controllerStage.waiting-info-response": "ハブ情報の応答待ち",
+      "diag.controllerStage.info-response-received": "ハブ情報を受信",
+      "diag.controllerStage.slot-clear-response-received":
+        "スロット消去の応答を受信",
+      "diag.controllerStage.file-upload-accepted": "ファイル転送を受理",
+      "diag.controllerStage.transfer-chunk-acknowledged":
+        "プログラムデータのチャンクに応答",
+      "diag.controllerStage.program-upload-complete": "プログラム転送完了",
+      "diag.controllerStage.program-flow-request-sent": "起動要求を送信",
+      "diag.controllerStage.program-flow-response-accepted": "起動要求を受理",
+      "diag.controllerStage.program-start-notified": "プログラム起動通知を受信",
+      "diag.controllerStage.controller-hello-acknowledged":
+        "制御プログラムの応答を受信",
+      "diag.controllerStage.start-notification-timeout":
+        "起動通知がタイムアウト",
+      "diag.controllerStage.program-stopped-before-handshake":
+        "応答前にプログラムが停止",
+      "diag.lastControllerStage": "制御プログラムの起動段階",
+      "diag.lastSuccessfulControllerStage": "最後に成功した段階",
+      "diag.lastDisconnectOrigin": "最後の切断元",
+      "diag.lastWrite": "最後のBLE書き込み",
+      "diag.lastConsoleOutput": "ハブの直近のコンソール出力",
+      "diag.recentEvents": "直近の通信イベント",
+      "diag.lastWriteError": "最後のBLE書き込みエラーとスタック",
+      "diag.disconnectOrigin.gattserverdisconnected": "GATT切断イベント",
+      "diag.disconnectOrigin.ble-write-exception": "BLE書き込み例外",
+      "diag.disconnectOrigin.write-precondition-failure":
+        "BLE書き込み前提条件エラー",
+      "diag.disconnectOrigin.user-requested": "ユーザー操作",
+      "diag.disconnectOrigin.transport-reset": "通信経路のリセット",
       "diag.connection": "Bluetooth 接続",
       "diag.connected": "接続中",
       "diag.disconnected": "未接続",
@@ -1492,6 +1724,9 @@
     DEVICE_NOTIFICATION_RESPONSE: 0x29,
     TUNNEL: 0x32,
     DEVICE_NOTIFICATION: 0x3c,
+    START_FILE_UPLOAD_RESPONSE: 0x0d,
+    TRANSFER_CHUNK_RESPONSE: 0x11,
+    CLEAR_SLOT_RESPONSE: 0x47,
 
     // Device record types inside a DEVICE_NOTIFICATION payload
     DEV_BATTERY: 0x00,
@@ -1503,6 +1738,360 @@
     DEV_DISTANCE: 0x0d,
     DEV_MATRIX_3X3: 0x0e,
     NOTIFICATION_RESPONSE_TIMEOUT_MS: 2000,
+    CONTROLLER_START_NOTIFICATION_TIMEOUT_MS: 7000,
+  };
+
+  // The wire protocol only carries TunnelMessage payloads; it does not define
+  // their meaning. This allow-listed controller is uploaded as a hub program
+  // and is the interpreter for Brickwright's private JSON command protocol.
+  // Its module_tunnel API is based on an independent third-party implementation
+  // and is checked at runtime by a versioned hello/acknowledgement. LEGO's
+  // published protocol does not guarantee this Python API on every Hub OS.
+  const SPIKE3_CONTROLLER_SOURCE = String.raw`print("BWCTRL:boot:entered")
+try:
+    import hub
+    import motor
+    import runloop
+    import time
+    try:
+        import json
+    except ImportError:
+        import ujson as json
+    from hub import port, light_matrix, sound
+except Exception as error:
+    print("BWCTRL:boot:import-error:" + type(error).__name__ + ":" + str(error))
+    raise
+
+print("BWCTRL:boot:imports-ok")
+
+CONTROLLER_PROTOCOL = "brickwright-spike-controller"
+CONTROLLER_VERSION = 1
+MAX_QUEUE = 32
+MAX_VELOCITY = 720
+HEARTBEAT_TIMEOUT_MS = 3000
+try:
+    PORTS = {"A": port.A, "B": port.B, "C": port.C, "D": port.D, "E": port.E, "F": port.F}
+except Exception as error:
+    print("BWCTRL:boot:hub-api-error:" + type(error).__name__ + ":" + str(error))
+    raise
+try:
+    _tunnel = hub.config["module_tunnel"]
+    _tunnel_error = None
+except Exception as error:
+    _tunnel = None
+    _tunnel_error = error
+_queue = []
+_active = False
+_last_heartbeat = None
+
+
+def _ticks_diff(new, old):
+    return time.ticks_diff(new, old)
+
+
+def _send(value):
+    _tunnel.send((json.dumps(value) + "\n").encode("utf-8"))
+
+
+def _error(request_id, code, message):
+    _send({"i": request_id, "ok": False, "error": code,
+           "detail": str(message)[:40]})
+
+
+def _success(request_id, result=None):
+    _send({"i": request_id, "ok": True, "result": result or 1})
+
+
+def _integer(value, name, minimum, maximum):
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(name + " must be an integer")
+    if value < minimum or value > maximum:
+        raise ValueError(name + " is outside its allowed range")
+    return value
+
+
+def _stop_all_motors():
+    for port_name in ("A", "B", "C", "D", "E", "F"):
+        try:
+            motor.stop(PORTS[port_name])
+        except Exception:
+            # Empty ports are expected; a later connection can still be safe.
+            pass
+
+
+def _receive(data):
+    global _active, _last_heartbeat
+    try:
+        if not isinstance(data, str):
+            data = data.decode("utf-8")
+        command = json.loads(data.strip())
+        if not isinstance(command, dict):
+            raise ValueError("command must be an object")
+        name = command.get("c")
+        if name in ("h", "p"):
+            _active = True
+            _last_heartbeat = time.ticks_ms()
+        if name not in (
+            "h", "p", "x",
+            "r", "s", "u", "d",
+            "t", "a",
+            "l", "m", "c",
+            "b", "q",
+        ):
+            raise ValueError("unsupported command")
+        if len(_queue) >= MAX_QUEUE:
+            _error(command.get("i"), "queue_full", "command queue is full")
+            return
+        _queue.append(command)
+    except Exception as error:
+        _error(None, "invalid_command", str(error))
+
+
+async def _dispatch(command):
+    global _active, _last_heartbeat
+    request_id = command.get("i")
+    name = command.get("c")
+    try:
+        if name == "h":
+            _active = True
+            _last_heartbeat = time.ticks_ms()
+            _success(request_id, "bw-spike-1")
+        elif name == "p":
+            _last_heartbeat = time.ticks_ms()
+            _active = True
+            _send({"c": "o", "version": CONTROLLER_VERSION})
+        elif name == "x":
+            _stop_all_motors()
+            sound.stop()
+            _success(request_id)
+        elif name == "r":
+            port_name = command.get("p")
+            if port_name not in PORTS:
+                raise ValueError("unknown motor port")
+            velocity = _integer(command.get("v"), "velocity", -MAX_VELOCITY, MAX_VELOCITY)
+            if velocity == 0:
+                motor.stop(PORTS[port_name])
+            else:
+                motor.run(PORTS[port_name], velocity)
+            _success(request_id, {"state": "accepted"})
+        elif name == "s":
+            port_name = command.get("p")
+            if port_name not in PORTS:
+                raise ValueError("unknown motor port")
+            motor.stop(PORTS[port_name])
+            _success(request_id, {"state": "stopped"})
+        elif name == "u":
+            port_name = command.get("p")
+            if port_name not in PORTS:
+                raise ValueError("unknown motor port")
+            duty_cycle = _integer(command.get("u"), "duty_cycle", -10000, 10000)
+            motor.set_duty_cycle(PORTS[port_name], duty_cycle)
+            _success(request_id, {"state": "started"})
+        elif name == "d":
+            port_name = command.get("p")
+            if port_name not in PORTS:
+                raise ValueError("unknown motor port")
+            degrees = _integer(command.get("d"), "degrees", -36000, 36000)
+            velocity = _integer(command.get("v"), "velocity", -MAX_VELOCITY, MAX_VELOCITY)
+            if velocity == 0:
+                raise ValueError("velocity must not be zero")
+            # SPIKE's native operation starts when called; its returned awaitable
+            # can be awaited by a standalone program to wait for completion.
+            # Keeping this command non-blocking lets a later stop command run.
+            motor.run_for_degrees(PORTS[port_name], degrees, velocity)
+            _success(request_id, {"state": "started"})
+        elif name == "t":
+            port_name = command.get("p")
+            if port_name not in PORTS:
+                raise ValueError("unknown motor port")
+            duration = _integer(command.get("t"), "duration_ms", 1, 60000)
+            velocity = _integer(command.get("v"), "velocity", -MAX_VELOCITY, MAX_VELOCITY)
+            if velocity == 0:
+                raise ValueError("velocity must not be zero")
+            motor.run_for_time(PORTS[port_name], duration, velocity)
+            _success(request_id, {"state": "started"})
+        elif name == "a":
+            port_name = command.get("p")
+            if port_name not in PORTS:
+                raise ValueError("unknown motor port")
+            position = _integer(command.get("g"), "position", -36000, 36000)
+            velocity = _integer(command.get("v"), "velocity", 1, MAX_VELOCITY)
+            motor.run_to_absolute_position(PORTS[port_name], position, velocity)
+            _success(request_id, {"state": "started"})
+        elif name == "l":
+            x = _integer(command.get("x"), "x", 0, 4)
+            y = _integer(command.get("y"), "y", 0, 4)
+            brightness = _integer(command.get("b"), "brightness", 0, 100)
+            light_matrix.set_pixel(x, y, brightness)
+            _success(request_id, {"state": "updated"})
+        elif name == "c":
+            light_matrix.clear()
+            _success(request_id, {"state": "cleared"})
+        elif name == "m":
+            pixels = command.get("z")
+            if not isinstance(pixels, str) or len(pixels) != 25 or not pixels.isdigit():
+                raise ValueError("pixel pattern must contain 25 digits")
+            for index in range(25):
+                brightness = int(pixels[index]) * 100 // 9
+                light_matrix.set_pixel(index % 5, index // 5, brightness)
+            _success(request_id, {"state": "updated"})
+        elif name == "b":
+            frequency = _integer(command.get("f"), "frequency", 100, 2000)
+            duration = _integer(command.get("t"), "duration_ms", 20, 2000)
+            await sound.beep(frequency, duration, 100)
+            _success(request_id, {"state": "played"})
+        elif name == "q":
+            sound.stop()
+            _success(request_id, {"state": "stopped"})
+        else:
+            raise ValueError("unsupported command")
+    except Exception as error:
+        _error(request_id, "execution_failed", str(error))
+
+
+async def _process_next():
+    if _queue:
+        await _dispatch(_queue.pop(0))
+
+
+async def _check_watchdog(now=None):
+    global _active, _last_heartbeat
+    if not _active or _last_heartbeat is None:
+        return False
+    current = time.ticks_ms() if now is None else now
+    if _ticks_diff(current, _last_heartbeat) <= HEARTBEAT_TIMEOUT_MS:
+        return False
+    _stop_all_motors()
+    sound.stop()
+    _active = False
+    _last_heartbeat = None
+    return True
+
+
+def _initialize():
+    if _tunnel is None:
+        raise RuntimeError("hub.config['module_tunnel'] unavailable: " + str(_tunnel_error))
+    _tunnel.callback(_receive)
+
+
+async def _main():
+    print("BWCTRL:boot:runloop-entered")
+    try:
+        _initialize()
+    except Exception as error:
+        print("BWCTRL:boot:init-error:" + type(error).__name__ + ":" + str(error))
+        # Keep a failed startup observable through ConsoleNotification (0x21)
+        # instead of exiting before the host can collect the initialization error.
+        while True:
+            await runloop.sleep_ms(1000)
+    print("BWCTRL:boot:tunnel-callback-registered")
+    while True:
+        await _check_watchdog()
+        await _process_next()
+        await runloop.sleep_ms(10)
+
+
+try:
+    # A transferred Hub program is already the program entry point. Invoke the
+    # run loop unconditionally so startup does not depend on the runtime's
+    # __name__ binding (LEGO's own uploaded example follows this pattern).
+    runloop.run(_main())
+except Exception as error:
+    print("BWCTRL:fatal:" + type(error).__name__ + ":" + str(error))
+    raise
+else:
+    # _main is intended to stay alive. A normal return from runloop is a fault.
+    print("BWCTRL:fatal:runloop-returned")
+    raise RuntimeError("runloop.run returned before the controller stopped")
+`;
+
+  // These are intentionally the same three no-hardware probes kept in
+  // development/fixtures. A transport test asserts byte-for-byte source
+  // equivalence so the UI cannot silently drift from the reviewed fixtures.
+  const SPIKE_STARTUP_PROBES = {
+    "00": {
+      labelKey: "startupProbe00Label",
+      fileName: "brickwright-probe-00.py",
+      source: String.raw`"""No-hardware SPIKE startup probe: runloop only.
+
+Do not transfer or start this program without the user's explicit approval.
+It does not import hub APIs, access module_tunnel, print, or control hardware.
+"""
+
+import runloop
+
+
+async def main():
+    while True:
+        await runloop.sleep_ms(1000)
+
+
+runloop.run(main())
+`,
+    },
+    "01": {
+      labelKey: "startupProbe01Label",
+      fileName: "brickwright-probe-01.py",
+      source: String.raw`"""No-hardware SPIKE startup probe: public API imports plus runloop.
+
+Do not transfer or start this program without the user's explicit approval.
+It does not access module_tunnel, print, or control hardware.
+"""
+
+import hub
+import motor
+import runloop
+import time
+
+try:
+    import json
+except ImportError:
+    import ujson as json
+
+from hub import light_matrix, port, sound
+
+PORTS = {"A": port.A, "B": port.B, "C": port.C, "D": port.D, "E": port.E, "F": port.F}
+
+
+async def main():
+    while True:
+        await runloop.sleep_ms(1000)
+
+
+runloop.run(main())
+`,
+    },
+    "02": {
+      labelKey: "startupProbe02Label",
+      fileName: "brickwright-probe-02.py",
+      source: String.raw`"""No-hardware SPIKE startup probe: module_tunnel lookup and callback.
+
+Do not transfer or start this program without the user's explicit approval.
+It registers, but never invokes, a receive callback and never sends tunnel data.
+It does not print or control hardware.
+"""
+
+import hub
+import runloop
+
+tunnel = hub.config["module_tunnel"]
+
+
+def receive(_data):
+    pass
+
+
+tunnel.callback(receive)
+
+
+async def main():
+    while True:
+        await runloop.sleep_ms(1000)
+
+
+runloop.run(main())
+`,
+    },
   };
 
   const COBS = {
@@ -1803,6 +2392,8 @@
       this._characteristicChangedListener = null;
       this._writeChain = Promise.resolve();
       this._maxPacketSize = 20;
+      this._activeWriteContext = null;
+      this._lastWriteContext = null;
     }
 
     get kind() {
@@ -1821,10 +2412,18 @@
         filters: [{ services: [SPIKE3.SERVICE_LC] }],
         optionalServices: [SPIKE3.SERVICE_LC],
       });
-      this._deviceDisconnectListener = () => {
+      this._deviceDisconnectListener = (event) => {
         this._connected = false;
         this._removeListeners();
-        if (this._resetCallback) this._resetCallback();
+        if (this._resetCallback) {
+          this._resetCallback({
+            origin: "gattserverdisconnected",
+            requested: false,
+            eventType: event?.type || "gattserverdisconnected",
+            messageContext:
+              this._activeWriteContext || this._lastWriteContext || null,
+          });
+        }
         this._runtime.emit(this._runtime.constructor.PERIPHERAL_DISCONNECTED);
       };
       this._device.addEventListener(
@@ -1862,8 +2461,18 @@
       if (this._connectCallback) this._connectCallback();
     }
 
-    disconnect() {
+    disconnect({
+      origin = "user-requested",
+      error = null,
+      messageContext = null,
+    } = {}) {
+      const wasConnected = this._connected;
       this._connected = false;
+      // Remove the listener before calling GATT.disconnect(). That call can
+      // synchronously trigger gattserverdisconnected in test doubles and may
+      // otherwise make our own write failure or user request look like a
+      // remote disconnect.
+      this._removeListeners();
       try {
         if (this._device && this._device.gatt && this._device.gatt.connected) {
           this._device.gatt.disconnect();
@@ -1872,7 +2481,14 @@
         // A disconnect that fails because the device already went away is the
         // outcome we wanted.
       }
-      this._removeListeners();
+      if (wasConnected && this._resetCallback) {
+        this._resetCallback({
+          origin,
+          requested: origin === "user-requested",
+          error,
+          messageContext,
+        });
+      }
       this._runtime.emit(this._runtime.constructor.PERIPHERAL_DISCONNECTED);
     }
 
@@ -1919,29 +2535,70 @@
      * Writes are serialised and split to the negotiated packet size: a GATT
      * write longer than the MTU is rejected outright rather than fragmented.
      */
-    write(serviceId, characteristicId, message, encoding = null) {
+    write(
+      serviceId,
+      characteristicId,
+      message,
+      encoding = null,
+      messageContext = null
+    ) {
       const bytes =
         encoding === "base64"
           ? Base64Util.base64ToUint8Array(message)
           : Uint8Array.from(message);
+      let writeAttempted = false;
       this._writeChain = this._writeChain
         .catch(() => {})
         .then(async () => {
-          if (!this._rx) return;
+          if (!this._rx || !this._connected) {
+            const error = new Error(
+              "SPIKE BLE RX characteristic is unavailable"
+            );
+            error.code = "ERR_HUB_NOT_CONNECTED";
+            throw error;
+          }
+          // The official BLE transport permits one encoded frame to be sent
+          // as sequential writes no larger than max_packet_size.
+          const packetCount = Math.ceil(bytes.length / this._maxPacketSize);
           for (let i = 0; i < bytes.length; i += this._maxPacketSize) {
             const chunk = bytes.slice(i, i + this._maxPacketSize);
+            const context = {
+              ...messageContext,
+              packetIndex: Math.floor(i / this._maxPacketSize),
+              packetCount,
+              packetLength: chunk.length,
+            };
+            this._activeWriteContext = context;
+            this._lastWriteContext = context;
+            writeAttempted = true;
             if (this._rx.writeValueWithoutResponse) {
               await this._rx.writeValueWithoutResponse(chunk);
             } else {
               await this._rx.writeValue(chunk);
             }
+            this._lastWriteContext = {
+              ...context,
+              status: "write-completed",
+              completedAt: Date.now(),
+            };
+            this._activeWriteContext = null;
           }
         })
         .catch((error) => {
-          // A failed write means the link is gone; the disconnect handler
-          // reports it. Keep the queue usable for a later reconnect and keep
-          // the failure visible to the diagnostics reporter and caller.
-          if (this._errorCallback) this._errorCallback(error);
+          // A failed chunk can leave the hub with a partial COBS frame. Stop
+          // using this connection so later commands cannot be appended to it.
+          const context = this._activeWriteContext || {
+            ...messageContext,
+            packetIndex: null,
+            packetCount: Math.ceil(bytes.length / this._maxPacketSize),
+            packetLength: null,
+          };
+          const origin = writeAttempted
+            ? "ble-write-exception"
+            : "write-precondition-failure";
+          this._activeWriteContext = null;
+          if (this._errorCallback) this._errorCallback(error, context);
+          this.disconnect({ origin, error, messageContext: context });
           throw error;
         });
       return this._writeChain;
@@ -2780,6 +3437,7 @@ continuous_sensor_loop()
       this._link = null;
       this._frame = [];
       this._maxPacketSize = 20;
+      this._maxMessageSize = 100;
       this._maxChunkSize = 100;
       this._firmware = null;
       this._rpcVersion = null;
@@ -2787,6 +3445,14 @@ continuous_sensor_loop()
       this._streamingRequested = false;
       this._streamingFallback = null;
       this._pendingNotificationRequest = null;
+      this._pendingProtocolResponses = new Map();
+      this._pendingControllerCommands = new Map();
+      this._controllerStartWaiters = new Set();
+      this._controllerCommandId = 0;
+      this._controllerCommandQueue = Promise.resolve();
+      this._controllerReady = false;
+      this._controllerVersion = null;
+      this._controllerHeartbeatTimer = null;
 
       this._rateLimiter = new RateLimiter(BTSendRateMax);
       this._portValues = {};
@@ -2840,7 +3506,26 @@ continuous_sensor_loop()
       };
     }
 
-    _resetCommunicationDiagnostics() {
+    _resetCommunicationDiagnostics({ preserveHistory = false } = {}) {
+      const previous = preserveHistory ? this._diagnostics : null;
+      const lastKnownControllerVersion =
+        previous?.lastKnownControllerVersion ||
+        previous?.controllerVersion ||
+        null;
+      const previousInstallStage =
+        previous?.controllerInstallAttempt?.lastSuccessfulStage;
+      const controllerMayBeInstalled = Boolean(
+        lastKnownControllerVersion ||
+          [
+            "file-upload-accepted",
+            "transfer-chunk-acknowledged",
+            "program-upload-complete",
+            "program-flow-request-sent",
+            "program-flow-response-accepted",
+            "program-start-notified",
+            "controller-hello-acknowledged",
+          ].includes(previousInstallStage)
+      );
       this._diagnostics = {
         infoResponseReceivedAt: null,
         notificationRequest: {
@@ -2859,7 +3544,31 @@ continuous_sensor_loop()
         malformedMessageCount: 0,
         malformedNotificationCount: 0,
         unsupportedRecordCount: 0,
-        lastCommunicationError: "",
+        lastCommunicationError: previous?.lastCommunicationError || "",
+        controllerStatus: controllerMayBeInstalled
+          ? "not-verified"
+          : "not-installed",
+        controllerVersion: null,
+        lastKnownControllerVersion,
+        lastControllerResponseAt: null,
+        controllerInstallAttempt: previous?.controllerInstallAttempt || null,
+        startupProbeRuns: previous?.startupProbeRuns
+          ? JSON.parse(JSON.stringify(previous.startupProbeRuns))
+          : [],
+        lastSuccessfulControllerStage:
+          previous?.lastSuccessfulControllerStage || null,
+        lastProgramFlowNotification:
+          previous?.lastProgramFlowNotification || null,
+        lastDisconnect: previous?.lastDisconnect || null,
+        disconnectCount: previous?.disconnectCount || 0,
+        lastWrite: previous?.lastWrite || null,
+        lastTransportError: previous?.lastTransportError || null,
+        lastFirmwareVersion: previous?.lastFirmwareVersion || null,
+        recentEvents: previous?.recentEvents ? [...previous.recentEvents] : [],
+        recentConsoleNotifications: previous?.recentConsoleNotifications
+          ? [...previous.recentConsoleNotifications]
+          : [],
+        recentConsoleOutput: previous?.recentConsoleOutput || "",
       };
       this._matrix5x5 = null;
       this._notificationResponseTimeout = null;
@@ -2877,15 +3586,87 @@ continuous_sensor_loop()
         error instanceof Error
           ? error.message
           : String(error || "unknown error");
+      this._recordDiagnosticEvent("communication-error", {
+        message: this._diagnostics.lastCommunicationError,
+      });
     }
 
-    _recordTransportError(error) {
+    _recordDiagnosticEvent(type, details = {}) {
+      const events = this._diagnostics.recentEvents;
+      events.push({ timestamp: Date.now(), type, ...details });
+      if (events.length > 50) events.splice(0, events.length - 50);
+    }
+
+    _recordTransportError(error, messageContext = null) {
+      const errorDetails = {
+        timestamp: Date.now(),
+        name: error?.name || "Error",
+        message: error?.message || String(error || "unknown error"),
+        stack: error?.stack || "",
+        ...(messageContext || {}),
+      };
+      const previousTransportError = this._diagnostics.lastTransportError;
+      if (
+        messageContext ||
+        !previousTransportError ||
+        previousTransportError.message !== errorDetails.message
+      ) {
+        this._diagnostics.lastTransportError = errorDetails;
+      }
+      if (messageContext) {
+        this._diagnostics.lastWrite = {
+          ...(this._diagnostics.lastWrite || {}),
+          ...messageContext,
+          status: "failed",
+          errorName: errorDetails.name,
+          errorMessage: errorDetails.message,
+          errorStack: errorDetails.stack,
+          completedAt: Date.now(),
+        };
+      }
       this._recordCommunicationError(error);
+      this._recordDiagnosticEvent("transport-error", errorDetails);
       const request = this._diagnostics.notificationRequest;
       if (request.status === "pending") {
         request.status = "write-error";
         this._settleNotificationRequest(error);
       }
+      for (const [type, pending] of this._pendingProtocolResponses) {
+        this._pendingProtocolResponses.delete(type);
+        clearTimeout(pending.timeout);
+        pending.reject(error);
+      }
+      for (const [id, pending] of this._pendingControllerCommands) {
+        this._pendingControllerCommands.delete(id);
+        clearTimeout(pending.timeout);
+        pending.reject(error);
+      }
+    }
+
+    _recordControllerInstallStage(stage, successful = false, details = {}) {
+      const attempt = this._diagnostics.controllerInstallAttempt;
+      if (!attempt) return;
+      const timestamp = Date.now();
+      attempt.stage = stage;
+      attempt.updatedAt = timestamp;
+      attempt.stageHistory.push({ stage, timestamp, successful, ...details });
+      if (attempt.stageHistory.length > 40) {
+        attempt.stageHistory.splice(0, attempt.stageHistory.length - 40);
+      }
+      if (successful) {
+        attempt.lastSuccessfulStage = stage;
+        this._diagnostics.lastSuccessfulControllerStage = {
+          stage,
+          timestamp,
+          slot: attempt.slot,
+        };
+      }
+      this._recordDiagnosticEvent("controller-install-stage", {
+        stage,
+        successful,
+        slot: attempt.slot,
+        ...details,
+      });
     }
 
     _settleNotificationRequest(error, responseCode = null) {
@@ -2930,6 +3711,33 @@ continuous_sensor_loop()
         malformedNotificationCount:
           this._diagnostics.malformedNotificationCount,
         unsupportedRecordCount: this._diagnostics.unsupportedRecordCount,
+        controllerStatus: this._diagnostics.controllerStatus,
+        controllerVersion: this._diagnostics.controllerVersion,
+        lastKnownControllerVersion:
+          this._diagnostics.lastKnownControllerVersion,
+        lastControllerResponseAt: this._diagnostics.lastControllerResponseAt,
+        controllerInstallAttempt: this._diagnostics.controllerInstallAttempt
+          ? JSON.parse(
+              JSON.stringify(this._diagnostics.controllerInstallAttempt)
+            )
+          : null,
+        lastSuccessfulControllerStage:
+          this._diagnostics.lastSuccessfulControllerStage,
+        lastProgramFlowNotification:
+          this._diagnostics.lastProgramFlowNotification,
+        lastDisconnect: this._diagnostics.lastDisconnect,
+        disconnectCount: this._diagnostics.disconnectCount,
+        lastWrite: this._diagnostics.lastWrite,
+        lastTransportError: this._diagnostics.lastTransportError,
+        recentConsoleNotifications: [
+          ...this._diagnostics.recentConsoleNotifications,
+        ],
+        recentConsoleOutput: this._diagnostics.recentConsoleOutput,
+        recentEvents: [...this._diagnostics.recentEvents],
+        startupProbeRuns: JSON.parse(
+          JSON.stringify(this._diagnostics.startupProbeRuns || [])
+        ),
+        lastFirmwareVersion: this._diagnostics.lastFirmwareVersion,
         lastCommunicationError: this._diagnostics.lastCommunicationError,
       };
     }
@@ -3013,11 +3821,106 @@ continuous_sensor_loop()
     }
 
     disconnect() {
-      if (this._link) this._link.disconnect();
-      this.reset();
+      if (this._link instanceof WebBLELink) {
+        this._link.disconnect({ origin: "user-requested" });
+      } else {
+        if (this._link) this._link.disconnect();
+        this.reset({ origin: "user-requested", requested: true });
+      }
     }
 
-    reset() {
+    reset(details = {}) {
+      const disconnect =
+        details && typeof details === "object"
+          ? details
+          : { origin: String(details || "transport-reset") };
+      const origin = disconnect.origin || "transport-reset";
+      const timestamp = Date.now();
+      const messageContext = disconnect.messageContext || null;
+      this._diagnostics.disconnectCount++;
+      this._diagnostics.lastDisconnect = {
+        timestamp,
+        origin,
+        requested: Boolean(disconnect.requested),
+        eventType: disconnect.eventType || null,
+        messageContext,
+        errorName: disconnect.error?.name || null,
+        errorMessage: disconnect.error?.message || null,
+        errorStack: disconnect.error?.stack || null,
+      };
+      this._recordDiagnosticEvent(
+        "disconnect",
+        this._diagnostics.lastDisconnect
+      );
+      if (this._firmware) {
+        this._diagnostics.lastFirmwareVersion = this._firmware;
+      }
+      if (disconnect.error) {
+        this._recordCommunicationError(disconnect.error);
+      } else if (origin === "gattserverdisconnected") {
+        this._recordCommunicationError(
+          "Web Bluetooth reported gattserverdisconnected"
+        );
+      }
+      const attempt = this._diagnostics.controllerInstallAttempt;
+      if (attempt?.outcome === "in-progress") {
+        attempt.outcome = "interrupted";
+        attempt.finishedAt = timestamp;
+        attempt.disconnectOrigin = origin;
+        attempt.error = {
+          message:
+            disconnect.error?.message ||
+            `SPIKE hub disconnected during controller installation (${origin})`,
+          name: disconnect.error?.name || "HubDisconnectedError",
+          stack: disconnect.error?.stack || "",
+        };
+      }
+      const probeRun = this._activeStartupProbe;
+      if (probeRun && probeRun.outcome === "running") {
+        probeRun.disconnect = {
+          timestamp,
+          origin,
+          requested: Boolean(disconnect.requested),
+          errorName: disconnect.error?.name || null,
+          errorMessage: disconnect.error?.message || null,
+        };
+        this._recordDiagnosticEvent("startup-probe-disconnect", {
+          probeId: probeRun.probeId,
+          slot: probeRun.slot,
+          origin,
+        });
+        for (const waiter of Object.values(probeRun.flowWaiters || {})) {
+          clearTimeout(waiter.timeout);
+          waiter.resolve(null);
+        }
+        probeRun.flowWaiters = {};
+      }
+      for (const waiter of this._controllerStartWaiters) {
+        clearTimeout(waiter.timeout);
+        waiter.reject(
+          Object.assign(
+            new Error(
+              t(
+                "hubDisconnectedBeforeControllerStart",
+                t(`diag.disconnectOrigin.${origin}`)
+              )
+            ),
+            {
+              code: "ERR_HUB_DISCONNECTED_BEFORE_CONTROLLER_START",
+              disconnectOrigin: origin,
+            }
+          )
+        );
+      }
+      this._controllerStartWaiters.clear();
+      for (const waiter of this._infoResponseWaiters || []) {
+        waiter.reject?.(
+          new Error(
+            `SPIKE hub disconnected while waiting for InfoResponse (${origin})`
+          )
+        );
+      }
+      this._infoResponseWaiters = [];
       this._clearNotificationResponseTimeout();
       if (this._pendingNotificationRequest) {
         this._pendingNotificationRequest.request.status = "disconnected";
@@ -3030,7 +3933,50 @@ continuous_sensor_loop()
         this._streamingFallback = null;
       }
       this._streamingRequested = false;
-      this._diagnostics.notificationRequest.status = "disconnected";
+      this._controllerReady = false;
+      this._controllerVersion = null;
+      this._diagnostics.controllerStatus = "disconnected";
+      if (this._diagnostics.controllerVersion) {
+        this._diagnostics.lastKnownControllerVersion =
+          this._diagnostics.controllerVersion;
+      }
+      if (this._controllerHeartbeatTimer !== null) {
+        clearInterval(this._controllerHeartbeatTimer);
+        this._controllerHeartbeatTimer = null;
+      }
+      for (const pending of this._pendingProtocolResponses.values()) {
+        clearTimeout(pending.timeout);
+        pending.reject(
+          Object.assign(
+            new Error(
+              t(
+                "hubDisconnectedDuringControllerCommand",
+                t(`diag.disconnectOrigin.${origin}`)
+              )
+            ),
+            { code: "ERR_HUB_DISCONNECTED", disconnectOrigin: origin }
+          )
+        );
+      }
+      this._pendingProtocolResponses.clear();
+      for (const pending of this._pendingControllerCommands.values()) {
+        clearTimeout(pending.timeout);
+        pending.reject(
+          Object.assign(
+            new Error(
+              t(
+                "hubDisconnectedDuringControllerCommand",
+                t(`diag.disconnectOrigin.${origin}`)
+              )
+            ),
+            { code: "ERR_HUB_DISCONNECTED", disconnectOrigin: origin }
+          )
+        );
+      }
+      this._pendingControllerCommands.clear();
+      if (this._diagnostics.notificationRequest.status !== "write-error") {
+        this._diagnostics.notificationRequest.status = "disconnected";
+      }
       this._frame = [];
       this._portValues = {};
       this._resetSensors();
@@ -3043,67 +3989,133 @@ continuous_sensor_loop()
     }
 
     stopAll() {
-      if (!this.isConnected()) return;
-      this.stopAllMotors();
-      this.stopSound();
+      if (!this.isConnected()) {
+        return Promise.reject(this._notConnectedError());
+      }
+      return this._sendControllerCommand("controller.stop_all");
     }
 
     stopSound() {
-      return this.sendPythonCommand("import hub; hub.sound.stop()");
+      return this._sendControllerCommand("sound.stop");
     }
 
     stopAllMotors() {
-      return this.sendPythonCommand(
-        'import hub; [hub.port[p].motor.stop() for p in "ABCDEF" if hasattr(hub.port[p], "motor")]'
-      );
+      return this._sendControllerCommand("controller.stop_all");
     }
 
     // ------------------------------------------------------------------ send
 
     /**
-     * The 2.x hub's JSON-RPC verbs, answered natively where 3.x has an
-     * equivalent and rejected where it does not.
-     *
-     * An unsupported verb has a typed rejection so callers can decide whether
-     * a legacy fallback is appropriate. Transport errors use their own error
-     * and must reach the block caller. The 2.x firmware was inconsistent about
-     * its JSON-RPC verbs, so those callers retain their legacy fallback.
-     *
-     * The generic Python TunnelMessage format does not prove that a particular
-     * Python API is safe or supported by a given Hub OS. The display-text block
-     * therefore reports its unsupported state instead of sending that
-     * unverified fallback.
+     * Translate only known Scratch operations to the uploaded controller's
+     * explicit command whitelist. A successful BLE write alone is not treated
+     * as a successful hub operation; every command waits for a controller ack.
      */
     sendCommand(method, params) {
       const p = params || {};
-      const portId = SpikePorts.indexOf(String(p.port || "").toUpperCase());
+      const port = String(p.port || "").toUpperCase();
+      if (port && !SpikePorts.includes(port)) {
+        return Promise.reject(
+          this._unsupportedError(`invalid motor port ${port}`)
+        );
+      }
+      const velocity = (value) =>
+        Math.max(-720, Math.min(720, Math.round(this._speed(value) * 7.2)));
 
       switch (method) {
         case "scratch.motor_start":
         case "scratch.motor_set_speed":
-          if (portId < 0) break;
           return this._sendTunnelJSON({
-            m: "motor",
-            p: { port: portId, speed: this._speed(p.speed) },
+            cmd: "motor.run",
+            port,
+            velocity: velocity(p.speed),
           });
-
         case "scratch.motor_stop":
-          if (portId < 0) break;
+          if (p.stop && String(p.stop).toLowerCase() !== "brake") {
+            const error = new Error(t("controllerUnsupportedStopAction"));
+            error.code = "ERR_UNSUPPORTED_HUB_COMMAND";
+            this._recordCommunicationError(error);
+            return Promise.reject(error);
+          }
+          return this._sendTunnelJSON({ cmd: "motor.stop", port });
+        case "scratch.motor_power":
           return this._sendTunnelJSON({
-            m: "motor",
-            p: {
-              port: portId,
-              speed: 0,
-              end_state: SpikeMotorStopMode[p.stop] ?? p.stop ?? 1,
-            },
+            cmd: "motor.power",
+            port,
+            power: Math.max(
+              -10000,
+              Math.min(10000, Math.round(Number(p.power)))
+            ),
           });
-
+        case "scratch.motor_run_for_degrees":
+          return this._sendTunnelJSON({
+            cmd: "motor.run_degrees",
+            port,
+            degrees: Math.max(
+              -36000,
+              Math.min(36000, Math.trunc(Number(p.degrees) || 0))
+            ),
+            velocity: velocity(p.speed),
+          });
+        case "scratch.motor_run_timed":
+          return this._sendTunnelJSON({
+            cmd: "motor.run_time",
+            port,
+            duration_ms: Math.max(
+              1,
+              Math.min(60000, Math.trunc(Number(p.time) || 1))
+            ),
+            velocity: velocity(p.speed),
+          });
+        case "scratch.motor_run_to_position":
+          return this._sendTunnelJSON({
+            cmd: "motor.run_to_position",
+            port,
+            position: Math.max(
+              -36000,
+              Math.min(36000, Math.trunc(Number(p.position) || 0))
+            ),
+            velocity: Math.max(1, Math.abs(velocity(p.speed))),
+          });
+        case "scratch.display_set_pixel":
+          return this._sendTunnelJSON({
+            cmd: "matrix.pixel",
+            x: Math.trunc(Number(p.x)),
+            y: Math.trunc(Number(p.y)),
+            brightness: Math.max(
+              0,
+              Math.min(100, Math.round(Number(p.brightness) * (100 / 9)))
+            ),
+          });
+        case "scratch.display_clear":
+          return this._sendTunnelJSON({ cmd: "matrix.clear" });
+        case "scratch.display_pattern": {
+          const pixels = String(p.pixels || "")
+            .replace(/\D/g, "")
+            .padEnd(25, "0")
+            .slice(0, 25)
+            .split("")
+            .map((pixel) => (pixel === "0" ? 0 : 100));
+          return this._sendTunnelJSON({ cmd: "matrix.pattern", pixels });
+        }
+        case "scratch.display_text": {
+          const error = new Error(t("displayTextUnsupported"));
+          error.code = "ERR_UNSUPPORTED_HUB_COMMAND";
+          this._recordCommunicationError(error);
+          return Promise.reject(error);
+        }
+        case "scratch.sound_beep":
+          return this._sendTunnelJSON({
+            cmd: "sound.beep",
+            frequency: Math.trunc(Number(p.frequency)),
+            duration_ms: Math.trunc(Number(p.duration)),
+          });
         default:
-          break;
+          return Promise.reject(
+            this._unsupportedError(
+              `SPIKE 3.x controller does not support ${method}`
+            )
+          );
       }
-      const error = new Error(`spike3 has no native ${method}`);
-      error.code = "ERR_UNSUPPORTED_HUB_COMMAND";
-      return Promise.reject(error);
     }
 
     _speed(value) {
@@ -3115,30 +4127,1029 @@ continuous_sensor_loop()
     }
 
     _sendTunnelJSON(command) {
-      return this.sendPythonCommandRaw(JSON.stringify(command));
+      return this._enqueueControllerCommand(command.cmd, command);
     }
 
-    /** Tunnel a payload verbatim — no trailing newline, no REPL framing. */
-    sendPythonCommandRaw(text) {
-      if (!this.isConnected()) return Promise.resolve();
-      const bytes = new TextEncoder().encode(text);
+    _notConnectedError() {
+      const error = new Error(t("notConnected"));
+      error.code = "ERR_HUB_NOT_CONNECTED";
+      return error;
+    }
+
+    _unsupportedError(message) {
+      const error = new Error(`${t("controllerUnsupported")}: ${message}`);
+      error.code = "ERR_UNSUPPORTED_HUB_COMMAND";
+      this._recordCommunicationError(error);
+      return error;
+    }
+
+    _sendTunnelPayload(payload) {
+      if (!this.isConnected()) return Promise.reject(this._notConnectedError());
+      const bytes = new TextEncoder().encode(payload);
+      if (bytes.length > 0xffff) {
+        return Promise.reject(
+          this._unsupportedError("TunnelMessage is too large")
+        );
+      }
       const message = new Uint8Array(3 + bytes.length);
       message[0] = SPIKE3.TUNNEL;
       message[1] = bytes.length & 0xff;
       message[2] = (bytes.length >> 8) & 0xff;
       message.set(bytes, 3);
+      if (
+        this._link?.kind === "gatt" &&
+        message.length > this._maxMessageSize
+      ) {
+        return Promise.reject(
+          this._unsupportedError(
+            `controller message exceeds the negotiated BLE message size (${this._maxMessageSize})`
+          )
+        );
+      }
       return this._send(message, true);
+    }
+
+    _enqueueControllerCommand(commandName, fields, allowNotReady = false) {
+      const run = () =>
+        this._sendControllerCommand(commandName, fields, allowNotReady);
+      const pending = this._controllerCommandQueue.then(run, run);
+      this._controllerCommandQueue = pending.catch(() => {});
+      return pending;
+    }
+
+    _sendControllerCommand(commandName, fields = {}, allowNotReady = false) {
+      if (!this.isConnected()) return Promise.reject(this._notConnectedError());
+      if (!allowNotReady && !this._controllerReady) {
+        const error = new Error(t("controllerNotReady"));
+        error.code = "ERR_CONTROLLER_NOT_READY";
+        this._recordCommunicationError(error);
+        return Promise.reject(error);
+      }
+      const requestId = ++this._controllerCommandId;
+      const command = this._encodeControllerCommand(
+        commandName,
+        fields,
+        requestId
+      );
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          if (!this._pendingControllerCommands.has(requestId)) return;
+          this._pendingControllerCommands.delete(requestId);
+          const error = new Error(t("controllerTimeout"));
+          error.code = "ERR_CONTROLLER_TIMEOUT";
+          this._controllerReady = false;
+          this._diagnostics.controllerStatus = "timeout";
+          this._recordCommunicationError(error);
+          reject(error);
+        }, 4000);
+        this._pendingControllerCommands.set(requestId, {
+          resolve,
+          reject,
+          timeout,
+          commandName,
+        });
+        this._sendTunnelPayload(JSON.stringify(command)).catch((error) => {
+          const pending = this._pendingControllerCommands.get(requestId);
+          if (!pending) return;
+          this._pendingControllerCommands.delete(requestId);
+          clearTimeout(pending.timeout);
+          this._recordTransportError(error);
+          reject(error);
+        });
+      });
+    }
+
+    _encodeControllerCommand(commandName, fields, requestId) {
+      const commandCodes = {
+        "controller.hello": "h",
+        "controller.ping": "p",
+        "controller.stop_all": "x",
+        "motor.run": "r",
+        "motor.stop": "s",
+        "motor.power": "u",
+        "motor.run_degrees": "d",
+        "motor.run_time": "t",
+        "motor.run_to_position": "a",
+        "matrix.pixel": "l",
+        "matrix.pattern": "m",
+        "matrix.clear": "c",
+        "sound.beep": "b",
+        "sound.stop": "q",
+      };
+      const fieldCodes = {
+        port: "p",
+        velocity: "v",
+        degrees: "d",
+        duration_ms: "t",
+        position: "g",
+        power: "u",
+        x: "x",
+        y: "y",
+        brightness: "b",
+        pixels: "z",
+        ["text"]: "t",
+        frequency: "f",
+      };
+      const code = commandCodes[commandName];
+      if (!code)
+        throw this._unsupportedError(
+          `unsupported controller command ${commandName}`
+        );
+      const encoded = { i: requestId, c: code };
+      for (const [key, value] of Object.entries(fields)) {
+        if (key === "cmd") continue;
+        const fieldCode = fieldCodes[key];
+        if (!fieldCode)
+          throw this._unsupportedError(`unsupported controller field ${key}`);
+        encoded[fieldCode] =
+          key === "pixels" && Array.isArray(value)
+            ? value.map((pixel) => (Number(pixel) > 0 ? "9" : "0")).join("")
+            : value;
+      }
+      return encoded;
+    }
+
+    _handleTunnelMessage(data) {
+      if (data.length < 3) {
+        this._recordCommunicationError("truncated TunnelMessage header");
+        return;
+      }
+      const payloadSize = data[1] | (data[2] << 8);
+      if (payloadSize !== data.length - 3) {
+        this._recordCommunicationError(
+          `TunnelMessage payload size mismatch: expected ${payloadSize}, received ${data.length - 3}`
+        );
+        return;
+      }
+      let response;
+      try {
+        response = JSON.parse(new TextDecoder().decode(data.slice(3)).trim());
+      } catch (error) {
+        this._recordCommunicationError(
+          `invalid controller response JSON: ${error.message}`
+        );
+        return;
+      }
+      if (!response || typeof response !== "object") {
+        this._recordCommunicationError("controller response must be an object");
+        return;
+      }
+      if (response.c === "o" || response.event === "pong") {
+        this._lastControllerPongAt = Date.now();
+        this._diagnostics.lastControllerResponseAt = this._lastControllerPongAt;
+        return;
+      }
+      const requestId = response.i ?? response.request_id;
+      const pending = this._pendingControllerCommands.get(requestId);
+      if (!pending) {
+        if (response.ok === false) {
+          this._recordCommunicationError(
+            `${response.error?.code || response.error || "controller_error"}: ${response.error?.message || response.detail || "unknown controller error"}`
+          );
+        }
+        return;
+      }
+      this._pendingControllerCommands.delete(requestId);
+      clearTimeout(pending.timeout);
+      if (response.ok !== true) {
+        const detail =
+          response.error?.message ||
+          response.detail ||
+          "controller rejected the command";
+        const error = new Error(`${t("controllerCommandFailed")}: ${detail}`);
+        error.code =
+          response.error?.code || response.error || "ERR_CONTROLLER_COMMAND";
+        this._recordCommunicationError(`${error.message} (${detail})`);
+        pending.reject(error);
+        return;
+      }
+      const result =
+        response.result === "bw-spike-1" &&
+        pending.commandName === "controller.hello"
+          ? { protocol: "brickwright-spike-controller", version: 1 }
+          : response.result || {};
+      if (
+        pending.commandName === "controller.hello" &&
+        result.protocol === "brickwright-spike-controller" &&
+        result.version === 1
+      ) {
+        this._controllerReady = true;
+        this._controllerVersion = `${result.protocol}/${result.version}`;
+        this._diagnostics.controllerStatus = "ready";
+        this._diagnostics.controllerVersion = this._controllerVersion;
+        this._diagnostics.lastKnownControllerVersion = this._controllerVersion;
+        this._recordDiagnosticEvent("controller-hello-acknowledged", {
+          version: this._controllerVersion,
+          requestId,
+        });
+        this._startControllerHeartbeat();
+        const attempt = this._diagnostics.controllerInstallAttempt;
+        if (attempt?.outcome === "in-progress") {
+          this._recordControllerInstallStage(
+            "controller-hello-acknowledged",
+            true
+          );
+          attempt.outcome = "ready";
+          attempt.finishedAt = Date.now();
+        }
+      }
+      this._diagnostics.lastControllerResponseAt = Date.now();
+      pending.resolve(result);
+    }
+
+    _startControllerHeartbeat() {
+      if (this._controllerHeartbeatTimer !== null) {
+        clearInterval(this._controllerHeartbeatTimer);
+      }
+      this._controllerHeartbeatTimer = setInterval(() => {
+        if (!this.isConnected() || !this._controllerReady) return;
+        this._sendTunnelPayload(JSON.stringify({ c: "p" })).catch((error) =>
+          this._recordTransportError(error)
+        );
+      }, 1000);
+    }
+
+    _requestHubResponse(message, responseType, timeoutMs = 5000) {
+      if (!this.isConnected()) return Promise.reject(this._notConnectedError());
+      if (this._pendingProtocolResponses.has(responseType)) {
+        return Promise.reject(
+          this._unsupportedError("another request for this response is pending")
+        );
+      }
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          const pending = this._pendingProtocolResponses.get(responseType);
+          if (!pending) return;
+          this._pendingProtocolResponses.delete(responseType);
+          const error = new Error(
+            `Hub protocol response 0x${responseType.toString(16)} timed out`
+          );
+          error.code = "ERR_HUB_PROTOCOL_TIMEOUT";
+          this._recordCommunicationError(error);
+          reject(error);
+        }, timeoutMs);
+        this._pendingProtocolResponses.set(responseType, {
+          resolve,
+          reject,
+          timeout,
+        });
+        this._send(message, true).catch((error) => {
+          const pending = this._pendingProtocolResponses.get(responseType);
+          if (!pending) return;
+          this._pendingProtocolResponses.delete(responseType);
+          clearTimeout(pending.timeout);
+          reject(error);
+        });
+      });
+    }
+
+    _handleProtocolResponse(data) {
+      const pending = this._pendingProtocolResponses.get(data[0]);
+      if (!pending) return false;
+      this._pendingProtocolResponses.delete(data[0]);
+      clearTimeout(pending.timeout);
+      if (data.length !== 2) {
+        const error = new Error(
+          `invalid protocol response length for 0x${data[0].toString(16)}: expected 2, received ${data.length}`
+        );
+        this._recordCommunicationError(error);
+        pending.reject(error);
+      } else {
+        if (
+          data[0] === SPIKE3.PROGRAM_FLOW_RESPONSE &&
+          data[1] === 0 &&
+          this._diagnostics.controllerInstallAttempt?.outcome === "in-progress"
+        ) {
+          this._diagnostics.controllerStatus = "starting";
+          this._recordControllerInstallStage(
+            "program-flow-response-accepted",
+            true
+          );
+        }
+        pending.resolve({ ok: data[1] === 0, status: data[1] });
+      }
+      return true;
+    }
+
+    _crc32(data, seed = 0) {
+      const paddedLength = Math.ceil(data.length / 4) * 4;
+      let crc = (seed ^ 0xffffffff) >>> 0;
+      for (let i = 0; i < paddedLength; i++) {
+        const byte = i < data.length ? data[i] : 0;
+        crc ^= byte;
+        for (let bit = 0; bit < 8; bit++) {
+          crc = crc & 1 ? (crc >>> 1) ^ 0xedb88320 : crc >>> 1;
+        }
+      }
+      return (crc ^ 0xffffffff) >>> 0;
+    }
+
+    _buildClearSlotRequest(slot) {
+      return Uint8Array.from([SPIKE3.CLEAR_SLOT_REQUEST, slot]);
+    }
+
+    _buildStartFileUploadRequest(fileName, slot, crc) {
+      const encodedName = new TextEncoder().encode(fileName);
+      if (encodedName.length > 31) {
+        throw new RangeError("UTF-8 encoded program filename exceeds 31 bytes");
+      }
+      const message = new Uint8Array(1 + encodedName.length + 1 + 1 + 4);
+      message[0] = SPIKE3.START_FILE_UPLOAD_REQUEST;
+      message.set(encodedName, 1);
+      // The zero-initialized byte after the name is its NUL terminator.
+      const slotOffset = 1 + encodedName.length + 1;
+      message[slotOffset] = slot;
+      new DataView(message.buffer).setUint32(slotOffset + 1, crc, true);
+      return message;
+    }
+
+    _buildTransferChunkRequest(runningCrc, chunk) {
+      if (chunk.length > 0xffff) {
+        throw new RangeError("TransferChunk payload exceeds uint16 size");
+      }
+      const message = new Uint8Array(7 + chunk.length);
+      message[0] = SPIKE3.TRANSFER_CHUNK_REQUEST;
+      const view = new DataView(message.buffer);
+      view.setUint32(1, runningCrc, true);
+      view.setUint16(5, chunk.length, true);
+      message.set(chunk, 7);
+      return message;
+    }
+
+    _buildProgramFlowRequest(stop, slot) {
+      return Uint8Array.from([SPIKE3.PROGRAM_FLOW_REQUEST, stop ? 1 : 0, slot]);
+    }
+
+    async _waitForInfoResponse(timeoutMs = 3000) {
+      if (this._diagnostics.infoResponseReceivedAt !== null) return;
+      await new Promise((resolve, reject) => {
+        let waiter;
+        const timeout = setTimeout(() => {
+          this._infoResponseWaiters = (this._infoResponseWaiters || []).filter(
+            (candidate) => candidate !== waiter
+          );
+          reject(new Error("Hub InfoResponse timed out"));
+        }, timeoutMs);
+        this._infoResponseWaiters = this._infoResponseWaiters || [];
+        waiter = {
+          resolve: () => {
+            clearTimeout(timeout);
+            resolve();
+          },
+          reject: (error) => {
+            clearTimeout(timeout);
+            reject(error);
+          },
+        };
+        this._infoResponseWaiters.push(waiter);
+      });
+    }
+
+    _waitForControllerStart(attempt, timeoutMs) {
+      const complete = () => {
+        if (attempt.programFlowStoppedAt) {
+          const consoleOutput = this._diagnostics.recentConsoleOutput;
+          const error = Object.assign(
+            new Error(
+              `${t("controllerStoppedBeforeReady")}${consoleOutput ? `: ${consoleOutput}` : ""}`
+            ),
+            { code: "ERR_CONTROLLER_STOPPED_BEFORE_READY" }
+          );
+          attempt.outcome = "startup-error";
+          attempt.finishedAt = Date.now();
+          this._diagnostics.controllerStatus = "startup-error";
+          attempt.stage = "program-stopped-before-handshake";
+          attempt.updatedAt = Date.now();
+          this._recordDiagnosticEvent("controller-start-failed", {
+            slot: attempt.slot,
+            reason: "program-stopped-before-handshake",
+            consoleOutput,
+          });
+          return Promise.reject(error);
+        }
+        if (attempt.programFlowStartedAt) {
+          this._recordControllerInstallStage("program-start-notified", true);
+          return Promise.resolve({
+            timestamp: attempt.programFlowStartedAt,
+            action: "start",
+          });
+        }
+        if (!this.isConnected()) {
+          const origin = this._diagnostics.lastDisconnect?.origin || "unknown";
+          return Promise.reject(
+            Object.assign(
+              new Error(
+                t(
+                  "hubDisconnectedBeforeControllerStart",
+                  t(`diag.disconnectOrigin.${origin}`)
+                )
+              ),
+              {
+                code: "ERR_HUB_DISCONNECTED_BEFORE_CONTROLLER_START",
+                disconnectOrigin: origin,
+              }
+            )
+          );
+        }
+        return null;
+      };
+      const completed = complete();
+      if (completed) return completed;
+
+      return new Promise((resolve, reject) => {
+        const waiter = {
+          attempt,
+          timeout: null,
+          resolve: (notification) => {
+            this._controllerStartWaiters.delete(waiter);
+            clearTimeout(waiter.timeout);
+            this._recordControllerInstallStage("program-start-notified", true);
+            resolve(notification);
+          },
+          reject: (error) => {
+            this._controllerStartWaiters.delete(waiter);
+            clearTimeout(waiter.timeout);
+            reject(error);
+          },
+        };
+        waiter.timeout = setTimeout(() => {
+          if (!this._controllerStartWaiters.delete(waiter)) return;
+          const error = Object.assign(
+            new Error(t("controllerStartNotificationTimeout")),
+            { code: "ERR_CONTROLLER_START_NOTIFICATION_TIMEOUT" }
+          );
+          attempt.outcome = "not-verified";
+          attempt.finishedAt = Date.now();
+          attempt.stage = "start-notification-timeout";
+          attempt.updatedAt = Date.now();
+          this._diagnostics.controllerStatus = "not-verified";
+          this._recordCommunicationError(error);
+          reject(error);
+        }, timeoutMs);
+        this._controllerStartWaiters.add(waiter);
+      });
+    }
+
+    probeController() {
+      if (!this.isConnected()) return Promise.reject(this._notConnectedError());
+      this._diagnostics.controllerStatus = "checking";
+      return this._enqueueControllerCommand("controller.hello", {}, true)
+        .then((result) => {
+          if (
+            result.protocol !== "brickwright-spike-controller" ||
+            result.version !== 1
+          ) {
+            throw new Error("Hub controller returned an incompatible version");
+          }
+          return result;
+        })
+        .catch((error) => {
+          this._controllerReady = false;
+          this._diagnostics.controllerStatus = this.isConnected()
+            ? this._diagnostics.controllerInstallAttempt?.outcome ===
+              "startup-error"
+              ? "startup-error"
+              : error?.code === "ERR_CONTROLLER_TIMEOUT"
+                ? "timeout"
+                : "error"
+            : "disconnected";
+          this._recordCommunicationError(error);
+          throw error;
+        });
+    }
+
+    async installController(slot) {
+      if (!this.isConnected()) throw this._notConnectedError();
+      if (!Number.isInteger(slot) || slot < 0 || slot > 19) {
+        throw this._unsupportedError(
+          "program slot must be an integer from 0 to 19"
+        );
+      }
+      if (this._link?.kind !== "gatt") {
+        throw this._unsupportedError(
+          "controller installation requires BLE GATT"
+        );
+      }
+      this._diagnostics.controllerStatus = "installing";
+      this._controllerReady = false;
+      const attempt = {
+        slot,
+        startedAt: Date.now(),
+        updatedAt: Date.now(),
+        stage: "waiting-info-response",
+        outcome: "in-progress",
+        lastSuccessfulStage: null,
+        stageHistory: [],
+        transferredBytes: 0,
+        startNotificationTimeoutMs:
+          SPIKE3.CONTROLLER_START_NOTIFICATION_TIMEOUT_MS,
+      };
+      this._diagnostics.controllerInstallAttempt = attempt;
+      this._recordControllerInstallStage("waiting-info-response");
+      try {
+        await this._waitForInfoResponse();
+        this._recordControllerInstallStage("info-response-received", true);
+        const program = new TextEncoder().encode(SPIKE3_CONTROLLER_SOURCE);
+        const clear = await this._requestHubResponse(
+          this._buildClearSlotRequest(slot),
+          SPIKE3.CLEAR_SLOT_RESPONSE
+        );
+        // The official example permits a non-acknowledged clear because the
+        // slot may already be empty. The user has confirmed this exact slot.
+        void clear;
+        this._recordControllerInstallStage(
+          "slot-clear-response-received",
+          true,
+          {
+            acknowledged: clear.ok,
+          }
+        );
+        const upload = this._buildStartFileUploadRequest(
+          "brickwright.py",
+          slot,
+          this._crc32(program)
+        );
+        const startUpload = await this._requestHubResponse(
+          upload,
+          SPIKE3.START_FILE_UPLOAD_RESPONSE
+        );
+        if (!startUpload.ok)
+          throw new Error("Hub rejected StartFileUploadRequest");
+        this._recordControllerInstallStage("file-upload-accepted", true);
+
+        let runningCrc = 0;
+        for (
+          let offset = 0;
+          offset < program.length;
+          offset += this._maxChunkSize
+        ) {
+          const chunk = program.slice(offset, offset + this._maxChunkSize);
+          runningCrc = this._crc32(chunk, runningCrc);
+          const request = this._buildTransferChunkRequest(runningCrc, chunk);
+          const response = await this._requestHubResponse(
+            request,
+            SPIKE3.TRANSFER_CHUNK_RESPONSE
+          );
+          if (!response.ok) {
+            throw new Error(`Hub rejected program chunk at byte ${offset}`);
+          }
+          attempt.transferredBytes += chunk.length;
+          this._recordControllerInstallStage(
+            "transfer-chunk-acknowledged",
+            true,
+            {
+              offset,
+              chunkLength: chunk.length,
+              transferredBytes: attempt.transferredBytes,
+              totalBytes: program.length,
+            }
+          );
+        }
+        this._recordControllerInstallStage("program-upload-complete", true, {
+          totalBytes: program.length,
+        });
+
+        const started = await this._requestHubResponse(
+          this._buildProgramFlowRequest(false, slot),
+          SPIKE3.PROGRAM_FLOW_RESPONSE
+        );
+        if (!started.ok) throw new Error("Hub rejected ProgramFlowRequest");
+        this._diagnostics.controllerStatus = "starting";
+        if (attempt.lastSuccessfulStage !== "program-flow-response-accepted") {
+          this._recordControllerInstallStage(
+            "program-flow-response-accepted",
+            true
+          );
+        }
+        await this._waitForControllerStart(
+          attempt,
+          SPIKE3.CONTROLLER_START_NOTIFICATION_TIMEOUT_MS
+        );
+        if (
+          attempt.outcome === "startup-error" ||
+          attempt.programFlowStoppedAt
+        ) {
+          throw Object.assign(new Error(t("controllerStoppedBeforeReady")), {
+            code: "ERR_CONTROLLER_STOPPED_BEFORE_READY",
+          });
+        }
+        if (!this.isConnected()) {
+          const origin = this._diagnostics.lastDisconnect?.origin || "unknown";
+          throw Object.assign(
+            new Error(
+              t(
+                "hubDisconnectedAfterProgramStart",
+                t(`diag.disconnectOrigin.${origin}`)
+              )
+            ),
+            {
+              code: "ERR_HUB_DISCONNECTED_AFTER_PROGRAM_START",
+              disconnectOrigin: origin,
+            }
+          );
+        }
+        return await this.probeController();
+      } catch (error) {
+        this._controllerReady = false;
+        if (attempt.outcome === "in-progress") {
+          attempt.outcome = "failed";
+          attempt.finishedAt = Date.now();
+          attempt.error = {
+            name: error?.name || "Error",
+            message: error?.message || String(error),
+            stack: error?.stack || "",
+          };
+        }
+        if (error?.code === "ERR_CONTROLLER_START_NOTIFICATION_TIMEOUT") {
+          this._diagnostics.controllerStatus = "not-verified";
+        } else if (error?.code === "ERR_CONTROLLER_STOPPED_BEFORE_READY") {
+          this._diagnostics.controllerStatus = "startup-error";
+        } else if (!this.isConnected()) {
+          this._diagnostics.controllerStatus = "disconnected";
+        } else if (attempt.outcome !== "not-verified") {
+          this._diagnostics.controllerStatus = "error";
+        }
+        this._recordCommunicationError(error);
+        throw error;
+      }
+    }
+
+    _waitForStartupProbeNotification(
+      run,
+      action,
+      timeoutMs,
+      afterTimestamp = run.startedAt
+    ) {
+      const existing = run.notifications.flow.find(
+        (item) => item.action === action && item.timestamp >= afterTimestamp
+      );
+      if (existing) return Promise.resolve(existing);
+      return new Promise((resolve) => {
+        const key = `${action}:${afterTimestamp}:${Math.random()}`;
+        const waiter = {
+          action,
+          afterTimestamp,
+          timeout: setTimeout(() => {
+            delete run.flowWaiters[key];
+            resolve(null);
+          }, timeoutMs),
+          resolve: (notification) => {
+            clearTimeout(waiter.timeout);
+            delete run.flowWaiters[key];
+            resolve(notification);
+          },
+        };
+        run.flowWaiters[key] = waiter;
+      });
+    }
+
+    _finishStartupProbeRun(run, outcome, reason) {
+      run.outcome = outcome;
+      run.reason = reason;
+      run.finishedAt = Date.now();
+      run.runtimeMs = run.finishedAt - run.startedAt;
+      run.executionDurationMs =
+        run.executionStartedAt === null
+          ? null
+          : (run.executionFinishedAt || run.finishedAt) -
+            run.executionStartedAt;
+      run.stage = "finished";
+      this._recordDiagnosticEvent("startup-probe-finished", {
+        probeId: run.probeId,
+        slot: run.slot,
+        outcome,
+        reason,
+        runtimeMs: run.runtimeMs,
+      });
+      if (this._activeStartupProbe === run) this._activeStartupProbe = null;
+      return JSON.parse(JSON.stringify(run));
+    }
+
+    async runStartupProbe(
+      probeId,
+      slot,
+      { observationMs = 3000, startTimeoutMs = 7000, stopTimeoutMs = 3000 } = {}
+    ) {
+      const probe = SPIKE_STARTUP_PROBES[String(probeId)];
+      if (!probe || !Number.isInteger(slot) || slot < 0 || slot > 19) {
+        throw this._unsupportedError("unknown startup probe or invalid slot");
+      }
+      if (!this.isConnected()) throw this._notConnectedError();
+      if (this._link?.kind !== "gatt") {
+        throw this._unsupportedError("startup probes require BLE GATT");
+      }
+      if (
+        this._activeStartupProbe ||
+        this._diagnostics.controllerInstallAttempt?.outcome === "in-progress"
+      ) {
+        throw this._unsupportedError(
+          "another SPIKE program operation is active"
+        );
+      }
+
+      const boundedDuration = (value, fallback, max) => {
+        const number = Number(value);
+        return Number.isFinite(number)
+          ? Math.max(0, Math.min(max, Math.trunc(number)))
+          : fallback;
+      };
+      observationMs = boundedDuration(observationMs, 3000, 30000);
+      startTimeoutMs = boundedDuration(startTimeoutMs, 7000, 30000);
+      stopTimeoutMs = boundedDuration(stopTimeoutMs, 3000, 30000);
+
+      const startedAt = Date.now();
+      const run = {
+        probeId: String(probeId),
+        label: t(probe.labelKey),
+        slot,
+        fileName: probe.fileName,
+        sourceBytes: new TextEncoder().encode(probe.source).length,
+        outcome: "running",
+        reason: "",
+        stage: "waiting-info-response",
+        startedAt,
+        finishedAt: null,
+        runtimeMs: null,
+        executionStartedAt: null,
+        executionFinishedAt: null,
+        executionDurationMs: null,
+        transferredBytes: 0,
+        transferResponses: {
+          infoResponse: null,
+          clearSlot: null,
+          startFileUpload: null,
+          transferChunks: [],
+          programFlowStart: null,
+          programFlowStop: null,
+        },
+        notifications: {
+          flow: [],
+          start: null,
+          stop: null,
+        },
+        consoleOutput: [],
+        flowWaiters: {},
+        disconnect: null,
+        error: null,
+      };
+      this._activeStartupProbe = run;
+      this._diagnostics.startupProbeRuns.push(run);
+      if (this._diagnostics.startupProbeRuns.length > 3) {
+        this._diagnostics.startupProbeRuns.splice(
+          0,
+          this._diagnostics.startupProbeRuns.length - 3
+        );
+      }
+      this._recordDiagnosticEvent("startup-probe-started", {
+        probeId: run.probeId,
+        slot,
+        fileName: probe.fileName,
+        sourceBytes: run.sourceBytes,
+      });
+
+      const request = async (key, message, responseType, record) => {
+        const requestAt = Date.now();
+        Object.assign(record, {
+          step: key,
+          requestAt,
+          messageType: message[0],
+          status: "pending",
+        });
+        try {
+          const response = await this._requestHubResponse(
+            message,
+            responseType
+          );
+          Object.assign(record, {
+            responseAt: Date.now(),
+            ok: response.ok,
+            responseStatus: response.status,
+            status: response.ok ? "acknowledged" : "rejected",
+          });
+          return response;
+        } catch (error) {
+          Object.assign(record, {
+            responseAt: Date.now(),
+            status: "error",
+            error: {
+              name: error?.name || "Error",
+              message: error?.message || String(error),
+              stack: error?.stack || "",
+            },
+          });
+          throw error;
+        }
+      };
+
+      try {
+        await this._waitForInfoResponse();
+        run.transferResponses.infoResponse = {
+          receivedAt: this._diagnostics.infoResponseReceivedAt,
+          firmwareVersion: this._firmware,
+          rpcVersion: this._rpcVersion,
+        };
+
+        run.stage = "clearing-slot";
+        const clearRecord = {};
+        run.transferResponses.clearSlot = clearRecord;
+        // A non-zero clear response is recorded (an empty slot may report it)
+        // and the confirmed target proceeds through the official upload flow.
+        await request(
+          "clearSlot",
+          this._buildClearSlotRequest(slot),
+          SPIKE3.CLEAR_SLOT_RESPONSE,
+          clearRecord
+        );
+
+        const program = new TextEncoder().encode(probe.source);
+        run.stage = "starting-file-upload";
+        const uploadRecord = {};
+        run.transferResponses.startFileUpload = uploadRecord;
+        const upload = await request(
+          "startFileUpload",
+          this._buildStartFileUploadRequest(
+            probe.fileName,
+            slot,
+            this._crc32(program)
+          ),
+          SPIKE3.START_FILE_UPLOAD_RESPONSE,
+          uploadRecord
+        );
+        if (!upload.ok) throw new Error("Hub rejected StartFileUploadRequest");
+
+        let runningCrc = 0;
+        for (let offset = 0, index = 0; offset < program.length; index++) {
+          const chunk = program.slice(offset, offset + this._maxChunkSize);
+          const record = { index, offset, length: chunk.length };
+          run.transferResponses.transferChunks.push(record);
+          runningCrc = this._crc32(chunk, runningCrc);
+          const response = await request(
+            `transferChunk:${index}`,
+            this._buildTransferChunkRequest(runningCrc, chunk),
+            SPIKE3.TRANSFER_CHUNK_RESPONSE,
+            record
+          );
+          if (!response.ok) {
+            throw new Error(`Hub rejected program chunk at byte ${offset}`);
+          }
+          run.transferredBytes += chunk.length;
+          offset += chunk.length;
+        }
+
+        run.stage = "requesting-program-start";
+        const startRecord = {};
+        run.transferResponses.programFlowStart = startRecord;
+        const startResponse = await request(
+          "programFlowStart",
+          this._buildProgramFlowRequest(false, slot),
+          SPIKE3.PROGRAM_FLOW_RESPONSE,
+          startRecord
+        );
+        if (!startResponse.ok)
+          throw new Error("Hub rejected ProgramFlowRequest");
+
+        run.stage = "waiting-for-start-notification";
+        const start = await this._waitForStartupProbeNotification(
+          run,
+          "start",
+          startTimeoutMs,
+          startRecord.requestAt
+        );
+        if (start) run.executionStartedAt = start.timestamp;
+        if (run.prematureStopNotification) {
+          run.executionFinishedAt = run.prematureStopNotification.timestamp;
+          return this._finishStartupProbeRun(
+            run,
+            "failure",
+            run.notifications.start
+              ? "The program stopped during the observation window before Brickwright requested the diagnostic stop."
+              : "The program stopped before a start notification was received."
+          );
+        }
+        if (!start) {
+          run.stage = "start-notification-missing";
+          if (this.isConnected()) {
+            const stopRecord = {};
+            run.transferResponses.programFlowStop = stopRecord;
+            run.stopRequestAt = Date.now();
+            try {
+              const stopResponse = await request(
+                "programFlowStop",
+                this._buildProgramFlowRequest(true, slot),
+                SPIKE3.PROGRAM_FLOW_RESPONSE,
+                stopRecord
+              );
+              if (stopResponse.ok) {
+                await this._waitForStartupProbeNotification(
+                  run,
+                  "stop",
+                  stopTimeoutMs,
+                  run.stopRequestAt
+                );
+              }
+            } catch (cleanupError) {
+              run.cleanupError = {
+                name: cleanupError?.name || "Error",
+                message: cleanupError?.message || String(cleanupError),
+              };
+            }
+          }
+          return this._finishStartupProbeRun(
+            run,
+            "indeterminate",
+            "The hub accepted the start request but no start notification arrived; execution could not be verified."
+          );
+        }
+
+        run.stage = "observing-running-program";
+        const spontaneousStop = await this._waitForStartupProbeNotification(
+          run,
+          "stop",
+          observationMs,
+          start.timestamp
+        );
+        if (spontaneousStop) {
+          run.executionFinishedAt = spontaneousStop.timestamp;
+          return this._finishStartupProbeRun(
+            run,
+            "failure",
+            "The program stopped before Brickwright requested the diagnostic stop."
+          );
+        }
+
+        run.stage = "requesting-diagnostic-stop";
+        const stopRecord = {};
+        run.transferResponses.programFlowStop = stopRecord;
+        run.stopRequestAt = Date.now();
+        const stopResponse = await request(
+          "programFlowStop",
+          this._buildProgramFlowRequest(true, slot),
+          SPIKE3.PROGRAM_FLOW_RESPONSE,
+          stopRecord
+        );
+        if (!stopResponse.ok) {
+          return this._finishStartupProbeRun(
+            run,
+            "indeterminate",
+            "The probe stayed active for the observation window, but the hub rejected the stop request."
+          );
+        }
+        run.stage = "waiting-for-stop-notification";
+        const stop = await this._waitForStartupProbeNotification(
+          run,
+          "stop",
+          stopTimeoutMs,
+          run.stopRequestAt
+        );
+        if (!stop) {
+          return this._finishStartupProbeRun(
+            run,
+            "indeterminate",
+            "The hub acknowledged the stop request but no stop notification arrived."
+          );
+        }
+        run.executionFinishedAt = stop.timestamp;
+        return this._finishStartupProbeRun(
+          run,
+          "success",
+          "Start notification, continued execution through the observation window, stop response, and stop notification were all observed."
+        );
+      } catch (error) {
+        run.error = {
+          name: error?.name || "Error",
+          message: error?.message || String(error),
+          stack: error?.stack || "",
+        };
+        const startRequest = run.transferResponses.programFlowStart;
+        const executionWasRejected = startRequest?.ok === false;
+        const executionWasRequested = Boolean(startRequest?.requestAt);
+        const outcome =
+          executionWasRejected || !executionWasRequested
+            ? "failure"
+            : "indeterminate";
+        return this._finishStartupProbeRun(
+          run,
+          outcome,
+          executionWasRequested
+            ? "Communication failed after the program start request; the program's state is unknown."
+            : "The probe could not be transferred and started."
+        );
+      }
+    }
+
+    /** Arbitrary Python source has no execution semantics in TunnelMessage. */
+    sendPythonCommandRaw(text) {
+      void text;
+      return Promise.reject(
+        this._unsupportedError(t("pythonExecutionUnsupported"))
+      );
     }
 
     sendPythonCommand(pythonCode) {
-      if (!this.isConnected()) return Promise.resolve();
-      const bytes = new TextEncoder().encode(`${pythonCode}\r\n`);
-      const message = new Uint8Array(3 + bytes.length);
-      message[0] = SPIKE3.TUNNEL;
-      message[1] = bytes.length & 0xff;
-      message[2] = (bytes.length >> 8) & 0xff;
-      message.set(bytes, 3);
-      return this._send(message, true);
+      void pythonCode;
+      return Promise.reject(
+        this._unsupportedError(t("pythonExecutionUnsupported"))
+      );
     }
 
     sendRaw(text) {
@@ -3152,7 +5163,7 @@ continuous_sensor_loop()
     }
 
     _send(message, useLimiter = false) {
-      if (!this.isConnected()) return Promise.resolve();
+      if (!this.isConnected()) return Promise.reject(this._notConnectedError());
       if (useLimiter) {
         return whenSlot(
           this._rateLimiter,
@@ -3161,14 +5172,59 @@ continuous_sensor_loop()
         );
       }
       const packed = COBS.pack(message);
-      return Promise.resolve(
-        this._link.write(
-          SPIKE3.SERVICE,
-          SPIKE3.RX_CHAR,
-          Base64Util.uint8ArrayToBase64(packed),
-          "base64"
-        )
-      );
+      const messageNames = {
+        [SPIKE3.INFO_REQUEST]: "InfoRequest",
+        [SPIKE3.CLEAR_SLOT_REQUEST]: "ClearSlotRequest",
+        [SPIKE3.START_FILE_UPLOAD_REQUEST]: "StartFileUploadRequest",
+        [SPIKE3.TRANSFER_CHUNK_REQUEST]: "TransferChunkRequest",
+        [SPIKE3.PROGRAM_FLOW_REQUEST]: "ProgramFlowRequest",
+        [SPIKE3.DEVICE_NOTIFICATION_REQUEST]: "DeviceNotificationRequest",
+        [SPIKE3.TUNNEL]: "TunnelMessage",
+      };
+      const attemptedAt = Date.now();
+      const messageContext = {
+        attemptedAt,
+        messageType: message[0],
+        messageName: messageNames[message[0]] || `0x${message[0].toString(16)}`,
+        payloadLength: message.length,
+        frameLength: packed.length,
+        status: "pending",
+      };
+      this._diagnostics.lastWrite = messageContext;
+      const attempt = this._diagnostics.controllerInstallAttempt;
+      if (
+        message[0] === SPIKE3.PROGRAM_FLOW_REQUEST &&
+        attempt?.outcome === "in-progress"
+      ) {
+        attempt.programFlowRequestSentAt = attemptedAt;
+        attempt.programFlowStartedAt = null;
+        attempt.programFlowStoppedAt = null;
+        this._recordControllerInstallStage("program-flow-request-sent", false);
+      }
+      const write =
+        this._link instanceof WebBLELink
+          ? this._link.write(
+              SPIKE3.SERVICE,
+              SPIKE3.RX_CHAR,
+              Base64Util.uint8ArrayToBase64(packed),
+              "base64",
+              messageContext
+            )
+          : this._link.write(
+              SPIKE3.SERVICE,
+              SPIKE3.RX_CHAR,
+              Base64Util.uint8ArrayToBase64(packed),
+              "base64"
+            );
+      return Promise.resolve(write).then(() => {
+        if (this._diagnostics.lastWrite === messageContext) {
+          this._diagnostics.lastWrite = {
+            ...messageContext,
+            status: "write-completed",
+            completedAt: Date.now(),
+          };
+        }
+      });
     }
 
     // --------------------------------------------------------------- receive
@@ -3181,7 +5237,7 @@ continuous_sensor_loop()
       this._frame = [];
       this._firmware = null;
       this._rpcVersion = null;
-      this._resetCommunicationDiagnostics();
+      this._resetCommunicationDiagnostics({ preserveHistory: true });
       this._streamingRequested = false;
       const notifications = this._link.startNotifications(
         SPIKE3.SERVICE,
@@ -3330,6 +5386,7 @@ continuous_sensor_loop()
     }
 
     _handleMessage(data) {
+      if (this._handleProtocolResponse(data)) return;
       switch (data[0]) {
         case SPIKE3.INFO_RESPONSE:
           this._handleInfoResponse(data);
@@ -3340,16 +5397,178 @@ continuous_sensor_loop()
         case SPIKE3.DEVICE_NOTIFICATION_RESPONSE:
           this._handleDeviceNotificationResponse(data);
           break;
+        case SPIKE3.PROGRAM_FLOW_NOTIFICATION:
+          this._handleProgramFlowNotification(data);
+          break;
+        case SPIKE3.START_FILE_UPLOAD_RESPONSE:
+        case SPIKE3.TRANSFER_CHUNK_RESPONSE:
+        case SPIKE3.CLEAR_SLOT_RESPONSE:
+        case SPIKE3.PROGRAM_FLOW_RESPONSE:
+          this._handleProtocolResponse(data);
+          break;
+        case SPIKE3.TUNNEL:
+          this._handleTunnelMessage(data);
+          break;
         case SPIKE3.CONSOLE_NOTIFICATION: {
-          const text = new TextDecoder().decode(data.slice(1));
+          const text = new TextDecoder()
+            .decode(data.slice(1))
+            .replace(/\0+$/, "");
           this._replOutput += text;
           if (this._replOutput.length > 4096) {
             this._replOutput = this._replOutput.slice(-4096);
           }
+          const notification = { timestamp: Date.now(), text };
+          this._diagnostics.recentConsoleNotifications.push(notification);
+          const probeRun = this._activeStartupProbe;
+          if (probeRun && notification.timestamp >= probeRun.startedAt) {
+            probeRun.consoleOutput.push({
+              timestamp: notification.timestamp,
+              text: text.slice(0, 4096),
+            });
+            if (probeRun.consoleOutput.length > 80) {
+              probeRun.consoleOutput.splice(
+                0,
+                probeRun.consoleOutput.length - 80
+              );
+            }
+          }
+          if (this._diagnostics.recentConsoleNotifications.length > 20) {
+            this._diagnostics.recentConsoleNotifications.shift();
+          }
+          this._diagnostics.recentConsoleOutput =
+            this._diagnostics.recentConsoleNotifications
+              .map((item) => item.text)
+              .join("")
+              .slice(-4096);
+          this._recordDiagnosticEvent("console-notification", { text });
           break;
         }
         default:
           break;
+      }
+    }
+
+    _handleProgramFlowNotification(data) {
+      if (data.length !== 2) {
+        this._diagnostics.malformedMessageCount++;
+        this._recordCommunicationError(
+          `invalid ProgramFlowNotification length: expected 2, received ${data.length}`
+        );
+        return;
+      }
+      const action = data[1];
+      if (action !== 0 && action !== 1) {
+        this._diagnostics.malformedMessageCount++;
+        this._recordCommunicationError(
+          `unknown ProgramFlowNotification action: ${action}`
+        );
+        return;
+      }
+      const timestamp = Date.now();
+      const notification = {
+        timestamp,
+        action: action === 0 ? "start" : "stop",
+        actionValue: action,
+      };
+      this._diagnostics.lastProgramFlowNotification = notification;
+      this._recordDiagnosticEvent("program-flow-notification", notification);
+
+      const probeRun = this._activeStartupProbe;
+      const programStartRequestAt =
+        probeRun?.transferResponses.programFlowStart?.requestAt;
+      if (
+        probeRun &&
+        programStartRequestAt &&
+        timestamp >= programStartRequestAt
+      ) {
+        probeRun.notifications.flow.push(notification);
+        if (probeRun.notifications.flow.length > 20) {
+          probeRun.notifications.flow.shift();
+        }
+        if (action === 0 && !probeRun.notifications.start) {
+          probeRun.notifications.start = notification;
+        } else if (action === 1) {
+          probeRun.notifications.stop = notification;
+          if (
+            !probeRun.notifications.start ||
+            !probeRun.stopRequestAt ||
+            timestamp < probeRun.stopRequestAt
+          ) {
+            probeRun.prematureStopNotification = notification;
+          }
+        }
+        for (const [key, waiter] of Object.entries(
+          probeRun.flowWaiters || {}
+        )) {
+          if (
+            (waiter.action === notification.action ||
+              (action === 1 &&
+                !probeRun.notifications.start &&
+                waiter.action === "start")) &&
+            timestamp >= waiter.afterTimestamp
+          ) {
+            waiter.resolve(
+              waiter.action === notification.action ? notification : null
+            );
+            delete probeRun.flowWaiters[key];
+          }
+        }
+      }
+
+      const attempt = this._diagnostics.controllerInstallAttempt;
+      if (
+        attempt?.outcome === "in-progress" &&
+        attempt.programFlowRequestSentAt !== undefined &&
+        timestamp >= attempt.programFlowRequestSentAt
+      ) {
+        if (action === 0) {
+          attempt.programFlowStartedAt = timestamp;
+          const waiter = [...this._controllerStartWaiters].find(
+            (candidate) => candidate.attempt === attempt
+          );
+          if (waiter) waiter.resolve(notification);
+        } else {
+          attempt.programFlowStoppedAt = timestamp;
+          if (!this._controllerReady) {
+            const consoleOutput = this._diagnostics.recentConsoleOutput;
+            const error = Object.assign(
+              new Error(
+                `${t("controllerStoppedBeforeReady")}${consoleOutput ? `: ${consoleOutput}` : ""}`
+              ),
+              { code: "ERR_CONTROLLER_STOPPED_BEFORE_READY" }
+            );
+            attempt.outcome = "startup-error";
+            attempt.finishedAt = timestamp;
+            attempt.stage = "program-stopped-before-handshake";
+            attempt.updatedAt = timestamp;
+            this._diagnostics.controllerStatus = "startup-error";
+            this._recordDiagnosticEvent("controller-start-failed", {
+              slot: attempt.slot,
+              reason: "program-stopped-before-handshake",
+              consoleOutput,
+            });
+            const waiter = [...this._controllerStartWaiters].find(
+              (candidate) => candidate.attempt === attempt
+            );
+            if (waiter) waiter.reject(error);
+            for (const [requestId, pending] of this
+              ._pendingControllerCommands) {
+              if (pending.commandName !== "controller.hello") continue;
+              this._pendingControllerCommands.delete(requestId);
+              clearTimeout(pending.timeout);
+              pending.reject(error);
+            }
+          }
+        }
+        return;
+      }
+      if (action === 1 && this._controllerReady) {
+        this._controllerReady = false;
+        this._diagnostics.controllerStatus = "stopped";
+        if (this._controllerHeartbeatTimer !== null) {
+          clearInterval(this._controllerHeartbeatTimer);
+          this._controllerHeartbeatTimer = null;
+        }
       }
     }
 
@@ -3394,7 +5613,7 @@ continuous_sensor_loop()
      * one running the same protocol, so it is kept.
      */
     _handleInfoResponse(data) {
-      if (data.length < 15) {
+      if (data.length < 17) {
         this._diagnostics.malformedMessageCount++;
         this._recordCommunicationError("truncated InfoResponse");
         return;
@@ -3402,12 +5621,16 @@ continuous_sensor_loop()
       const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
       this._rpcVersion = `${data[1]}.${data[2]}.${view.getUint16(3, true)}`;
       this._firmware = `${data[5]}.${data[6]}.${view.getUint16(7, true)}`;
+      this._diagnostics.lastFirmwareVersion = this._firmware;
       this._diagnostics.infoResponseReceivedAt = Date.now();
       this._maxPacketSize = view.getUint16(9, true) || 20;
+      this._maxMessageSize = view.getUint16(11, true) || 100;
       this._maxChunkSize = view.getUint16(13, true) || 100;
       if (this._link && this._link.setMaxPacketSize) {
         this._link.setMaxPacketSize(this._maxPacketSize);
       }
+      for (const waiter of this._infoResponseWaiters || []) waiter.resolve();
+      this._infoResponseWaiters = [];
       this._requestStreamingOnce();
     }
 
@@ -5785,6 +8008,47 @@ continuous_sensor_loop()
             text: t("getCommunicationDiagnosticsSummary"),
           },
           {
+            opcode: "openCommunicationDiagnosticsLog",
+            blockType: BlockType.COMMAND,
+            text: t("openCommunicationDiagnosticsLog"),
+          },
+          ...(isStartupProbeDeveloperMode()
+            ? [
+                {
+                  opcode: "runStartupProbe",
+                  blockType: BlockType.COMMAND,
+                  text: t("startupProbeBlock"),
+                  arguments: {
+                    PROBE: {
+                      type: ArgumentType.STRING,
+                      menu: "SPIKE_STARTUP_PROBE",
+                      defaultValue: "00",
+                    },
+                    SLOT: {
+                      type: ArgumentType.NUMBER,
+                      defaultValue: 0,
+                    },
+                  },
+                },
+              ]
+            : []),
+          {
+            opcode: "installHubController",
+            blockType: BlockType.COMMAND,
+            text: t("installHubController"),
+            arguments: {
+              SLOT: {
+                type: ArgumentType.NUMBER,
+                defaultValue: 19,
+              },
+            },
+          },
+          {
+            opcode: "checkHubController",
+            blockType: BlockType.COMMAND,
+            text: t("checkHubController"),
+          },
+          {
             opcode: "setConnectionMode",
             blockType: BlockType.COMMAND,
             text: t("setConnectionMode"),
@@ -6911,6 +9175,19 @@ continuous_sensor_loop()
         ],
         menus: {
           PORT: { acceptReporters: true, items: SpikePorts },
+          ...(isStartupProbeDeveloperMode()
+            ? {
+                SPIKE_STARTUP_PROBE: {
+                  acceptReporters: false,
+                  items: Object.entries(SPIKE_STARTUP_PROBES).map(
+                    ([value, probe]) => ({
+                      value,
+                      text: t(probe.labelKey),
+                    })
+                  ),
+                },
+              }
+            : {}),
           CONNECTION_MODE: {
             acceptReporters: true,
             items: [
@@ -7537,6 +9814,27 @@ continuous_sensor_loop()
         "color: #44aaff;"
       );
 
+      if (this._peripheral.protocol === "spike3") {
+        const speeds = ports.map(
+          (port) => this._peripheral.motorSettings[port].speed * direction
+        );
+        const slowest = speeds.reduce(
+          (current, speed) => Math.min(current, Math.abs(speed)),
+          Infinity
+        );
+        return Promise.all(
+          ports.map((port, index) =>
+            this._peripheral.sendCommand("scratch.motor_run_for_degrees", {
+              port,
+              speed: speeds[index],
+              degrees: Math.floor(degrees),
+            })
+          )
+        ).then(() =>
+          this._waitForMovement(ports, Math.floor(degrees), slowest)
+        );
+      }
+
       let slowest = 0;
       ports.forEach((port) => {
         const setting = this._peripheral.motorSettings[port];
@@ -7564,6 +9862,13 @@ continuous_sensor_loop()
       if (!port) return;
       const position = Cast.toNumber(args.POSITION);
       const speed = this._peripheral.motorSettings[port].speed;
+      if (this._peripheral.protocol === "spike3") {
+        return this._peripheral.sendCommand("scratch.motor_run_to_position", {
+          port,
+          position,
+          speed,
+        });
+      }
       return this._peripheral.sendPythonCommand(
         `hub.port.${port}.motor.run_to_position(${position}, speed=${speed})`
       );
@@ -7721,6 +10026,12 @@ continuous_sensor_loop()
 
     // Display implementations
     displayText(args) {
+      if (this._peripheral.protocol === "spike3") {
+        const error = new Error(t("displayTextUnsupported"));
+        error.code = "ERR_UNSUPPORTED_HUB_COMMAND";
+        this._peripheral.active._recordCommunicationError(error);
+        return Promise.reject(error);
+      }
       const text = Cast.toString(args.TEXT);
       const standardCommand = this._peripheral.sendCommand(
         "scratch.display_text",
@@ -7730,21 +10041,9 @@ continuous_sensor_loop()
         this._peripheral.sendPythonCommand(
           `import hub; hub.display.show(${pyStringLiteral(text)})`
         );
-      return standardCommand.catch((error) => {
-        // The SPIKE 3.x TunnelMessage format is documented, but this fallback
-        // Python API has not been verified on the reported Hub OS 1.6.62.
-        // Do not send it automatically when the native display command is not
-        // available; keep the REPL fallback for the legacy protocol only.
-        if (this._peripheral.protocol === "spike3") {
-          const userError = new Error(t("displayTextUnsupported"));
-          userError.code = error.code;
-          this._peripheral.active._recordCommunicationError(
-            `${userError.message} (${error.message})`
-          );
-          throw userError;
-        }
-        return altCommand();
-      });
+      return standardCommand.catch((error) =>
+        this._sendPythonFallback(error, altCommand)
+      );
     }
 
     displayImage(args) {
@@ -7762,6 +10061,11 @@ continuous_sensor_loop()
         })
         .join("");
 
+      if (this._peripheral.protocol === "spike3") {
+        return this._peripheral.sendCommand("scratch.display_pattern", {
+          pixels: symbol,
+        });
+      }
       return this._peripheral.sendPythonCommand(
         `import hub; hub.display.show(hub.Image("${formatted}"))`
       );
@@ -8286,6 +10590,63 @@ continuous_sensor_loop()
       return this._peripheral.sendPythonCommand("raise SystemExit");
     }
 
+    runStartupProbe(args) {
+      if (!isStartupProbeDeveloperMode()) {
+        return Promise.reject(
+          new Error("SPIKE startup probes are available only in developer mode")
+        );
+      }
+      const probeId = Cast.toString(args.PROBE);
+      const slot = Cast.toNumber(args.SLOT);
+      const probe = SPIKE_STARTUP_PROBES[probeId];
+      if (!probe || !Number.isInteger(slot) || slot < 0 || slot > 19) {
+        const message = t("startupProbeInvalid");
+        const error = new Error(message);
+        alert(t("startupProbeInvalid"));
+        return Promise.reject(error);
+      }
+      if (!this._peripheral.isConnected()) {
+        const message = t("notConnected");
+        const error = new Error(message);
+        alert(t("notConnected"));
+        return Promise.reject(error);
+      }
+      if (this._peripheral.protocol !== "spike3") {
+        const message = t("controllerUnsupported");
+        const error = new Error(message);
+        alert(t("controllerUnsupported"));
+        return Promise.reject(error);
+      }
+
+      return askYesNo(
+        t(
+          "startupProbeConfirmOverwrite",
+          slot,
+          probeId,
+          t(probe.labelKey),
+          probe.fileName
+        )
+      ).then((confirmed) => {
+        if (!confirmed) return undefined;
+        return this._peripheral.active
+          .runStartupProbe(probeId, slot)
+          .then((result) => {
+            alert(
+              t(
+                "startupProbeFinished",
+                probeId,
+                t(`diag.startupProbeOutcome.${result.outcome}`)
+              )
+            );
+            return result;
+          })
+          .catch((error) => {
+            alert(t("startupProbeExecutionFailed", error.message));
+            throw error;
+          });
+      });
+    }
+
     // ========================================================================
     // CONNECTION
     //
@@ -8294,6 +10655,65 @@ continuous_sensor_loop()
     // inside a script, and dropping that would be losing a feature even
     // though the palette looks fuller without it.
     // ========================================================================
+
+    installHubController(args) {
+      if (!this._peripheral.isConnected()) {
+        alert(t("notConnected"));
+        return Promise.reject(new Error(t("notConnected")));
+      }
+      if (this._peripheral.protocol !== "spike3") {
+        const error = new Error(t("controllerUnsupported"));
+        error.code = "ERR_UNSUPPORTED_HUB_COMMAND";
+        alert(t("operationFailed", error.message));
+        return Promise.reject(error);
+      }
+      const slot = Math.trunc(Cast.toNumber(args.SLOT));
+      if (slot < 0 || slot > 19) {
+        const error = new Error(t("controllerInvalidSlot"));
+        alert(t("operationFailed", error.message));
+        return Promise.reject(error);
+      }
+
+      // Program slots cannot be inspected through the published BLE protocol.
+      // This confirmation is required every time before ClearSlotRequest is sent.
+      return askYesNo(t("controllerConfirmOverwrite", slot)).then((yes) => {
+        if (!yes) return;
+        return this._peripheral.active
+          .installController(slot)
+          .then((result) => {
+            alert(t("controllerReady"));
+            return result;
+          })
+          .catch((error) => {
+            alert(t("controllerFailed", error.message));
+            throw error;
+          });
+      });
+    }
+
+    checkHubController() {
+      if (!this._peripheral.isConnected()) {
+        const error = new Error(t("notConnected"));
+        alert(t("operationFailed", error.message));
+        return Promise.reject(error);
+      }
+      if (this._peripheral.protocol !== "spike3") {
+        const error = new Error(t("controllerUnsupported"));
+        error.code = "ERR_UNSUPPORTED_HUB_COMMAND";
+        alert(t("operationFailed", error.message));
+        return Promise.reject(error);
+      }
+      return this._peripheral.active
+        .probeController()
+        .then((result) => {
+          alert(t("controllerReady"));
+          return result;
+        })
+        .catch((error) => {
+          alert(t("controllerFailed", error.message));
+          throw error;
+        });
+    }
 
     connectHub() {
       return this._peripheral.scan();
@@ -8338,6 +10758,217 @@ continuous_sensor_loop()
       return JSON.stringify(this._peripheral.getCommunicationDiagnostics());
     }
 
+    openCommunicationDiagnosticsLog() {
+      if (typeof document === "undefined" || !document.body) {
+        throw new Error(t("diagnosticsDialogUnavailable"));
+      }
+      if (this._diagnosticsDialog) {
+        this._diagnosticsDialog.focus();
+        return;
+      }
+
+      const diagnosticsJson = this.getCommunicationDiagnostics();
+      const formattedJson = JSON.stringify(
+        JSON.parse(diagnosticsJson),
+        null,
+        2
+      );
+      const overlay = document.createElement("div");
+      overlay.setAttribute("role", "dialog");
+      overlay.setAttribute("aria-modal", "true");
+      overlay.setAttribute("aria-label", t("diagnosticsDialogTitle"));
+      overlay.tabIndex = -1;
+      Object.assign(overlay.style, {
+        alignItems: "center",
+        background: "rgba(0, 0, 0, 0.65)",
+        boxSizing: "border-box",
+        display: "flex",
+        inset: "0",
+        justifyContent: "center",
+        padding: "20px",
+        position: "fixed",
+        zIndex: "100000",
+      });
+
+      const panel = document.createElement("section");
+      Object.assign(panel.style, {
+        background: "#ffffff",
+        border: "1px solid #9ca3af",
+        borderRadius: "8px",
+        boxSizing: "border-box",
+        color: "#111827",
+        display: "flex",
+        flexDirection: "column",
+        gap: "12px",
+        height: "min(900px, 90vh)",
+        maxWidth: "1000px",
+        padding: "16px",
+        width: "100%",
+      });
+
+      const header = document.createElement("div");
+      Object.assign(header.style, {
+        alignItems: "center",
+        display: "flex",
+        flex: "0 0 auto",
+        gap: "12px",
+        justifyContent: "space-between",
+      });
+
+      const title = document.createElement("h2");
+      title.textContent = t("diagnosticsDialogTitle");
+      Object.assign(title.style, {
+        fontSize: "20px",
+        margin: "0",
+      });
+
+      const makeButton = (label) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = label;
+        Object.assign(button.style, {
+          background: "#f3f4f6",
+          border: "1px solid #9ca3af",
+          borderRadius: "4px",
+          color: "#111827",
+          cursor: "pointer",
+          font: "inherit",
+          padding: "8px 12px",
+        });
+        return button;
+      };
+
+      const closeButton = makeButton(t("close"));
+      closeButton.setAttribute("aria-label", t("close"));
+
+      const textarea = document.createElement("textarea");
+      textarea.readOnly = true;
+      textarea.spellcheck = false;
+      textarea.value = formattedJson;
+      textarea.setAttribute("aria-label", t("diagnosticsDialogTitle"));
+      Object.assign(textarea.style, {
+        backgroundColor: "#f9fafb",
+        border: "1px solid #d1d5db",
+        borderRadius: "4px",
+        boxSizing: "border-box",
+        color: "#111827",
+        colorScheme: "light",
+        flex: "1 1 auto",
+        fontFamily: "Consolas, Monaco, monospace",
+        fontSize: "13px",
+        lineHeight: "1.5",
+        minHeight: "0",
+        overflow: "auto",
+        resize: "vertical",
+        scrollbarColor: "#9ca3af #f9fafb",
+        scrollbarWidth: "thin",
+        whiteSpace: "pre",
+        width: "100%",
+      });
+
+      const actions = document.createElement("div");
+      Object.assign(actions.style, {
+        display: "flex",
+        flex: "0 0 auto",
+        flexWrap: "wrap",
+        gap: "8px",
+      });
+      const copyButton = makeButton(t("diagnosticsCopyJson"));
+      const saveButton = makeButton(t("diagnosticsSaveJson"));
+      const status = document.createElement("div");
+      status.setAttribute("role", "status");
+      status.setAttribute("aria-live", "polite");
+      Object.assign(status.style, {
+        flex: "0 0 auto",
+        minHeight: "1.4em",
+      });
+
+      const closeDialog = () => {
+        if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        if (this._diagnosticsDialog === overlay) {
+          this._diagnosticsDialog = null;
+        }
+      };
+
+      closeButton.addEventListener("click", closeDialog);
+      overlay.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closeDialog();
+        }
+      });
+      overlay.addEventListener("click", (event) => {
+        if (event.target === overlay) closeDialog();
+      });
+      copyButton.addEventListener("click", async () => {
+        const fullJson = textarea.value;
+        try {
+          if (
+            typeof navigator !== "undefined" &&
+            navigator.clipboard &&
+            typeof navigator.clipboard.writeText === "function"
+          ) {
+            await navigator.clipboard.writeText(fullJson);
+            status.textContent = t("diagnosticsJsonCopied");
+            return;
+          }
+        } catch (error) {
+          // The selected textarea remains available for manual copying below.
+        }
+
+        textarea.focus();
+        textarea.select();
+        if (typeof textarea.setSelectionRange === "function") {
+          textarea.setSelectionRange(0, fullJson.length);
+        }
+        let copied = false;
+        try {
+          copied =
+            typeof document.execCommand === "function" &&
+            document.execCommand("copy");
+        } catch (error) {
+          copied = false;
+        }
+        status.textContent = copied
+          ? t("diagnosticsJsonCopied")
+          : t("diagnosticsManualCopy");
+      });
+      saveButton.addEventListener("click", () => {
+        let objectUrl = null;
+        try {
+          const blob = new Blob([textarea.value], {
+            type: "application/json;charset=utf-8",
+          });
+          objectUrl = URL.createObjectURL(blob);
+          const download = document.createElement("a");
+          download.href = objectUrl;
+          download.download = "spikeprime-communication-diagnostics.json";
+          download.style.display = "none";
+          document.body.appendChild(download);
+          download.click();
+          document.body.removeChild(download);
+          setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+          status.textContent = t("diagnosticsJsonSaved");
+        } catch (error) {
+          if (objectUrl) URL.revokeObjectURL(objectUrl);
+          status.textContent = t("diagnosticsJsonSaveFailed");
+        }
+      });
+
+      header.appendChild(title);
+      header.appendChild(closeButton);
+      actions.appendChild(copyButton);
+      actions.appendChild(saveButton);
+      panel.appendChild(header);
+      panel.appendChild(textarea);
+      panel.appendChild(actions);
+      panel.appendChild(status);
+      overlay.appendChild(panel);
+      document.body.appendChild(overlay);
+      this._diagnosticsDialog = overlay;
+      closeButton.focus();
+    }
+
     getCommunicationDiagnosticsSummary() {
       const diagnostics = this._peripheral.getCommunicationDiagnostics();
       const unavailable = t("diag.unavailable");
@@ -8363,30 +10994,61 @@ continuous_sensor_loop()
         timestamp === null || timestamp === undefined
           ? unavailable
           : new Date(timestamp).toLocaleString();
+      const localizeStage = (stage) =>
+        stage ? t(`diag.controllerStage.${stage}`) : unavailable;
+      const attempt = diagnostics.controllerInstallAttempt;
+      const lastWrite = diagnostics.lastWrite;
+      const lastDisconnect = diagnostics.lastDisconnect;
+      const recentEvents = (diagnostics.recentEvents || [])
+        .slice(-8)
+        .map((event) => {
+          const details =
+            event.message ||
+            event.stage ||
+            event.reason ||
+            event.action ||
+            event.origin ||
+            event.messageName ||
+            "";
+          return `${formatTimestamp(event.timestamp)} ${event.type}${details ? `: ${details}` : ""}`;
+        })
+        .join("\n");
+      const transportError = diagnostics.lastTransportError;
+      const transportErrorSummary = transportError
+        ? `${transportError.name}: ${transportError.message}${transportError.stack ? `\n${transportError.stack}` : ""}`
+        : "";
       return [
         `${t("diag.connection")}: ${diagnostics.connected ? t("diag.connected") : t("diag.disconnected")}`,
-        `${t("diag.firmware")}: ${diagnostics.firmwareVersion || unavailable}`,
+        `${t("diag.firmware")}: ${diagnostics.firmwareVersion || diagnostics.lastFirmwareVersion || unavailable}`,
         `${t("diag.notification")}: ${notificationLabel}`,
+        `${t("diag.controller")}: ${diagnostics.protocol === "spike3" ? t(`diag.controllerStatus.${diagnostics.controllerStatus || "not-installed"}`) : notApplicable}`,
+        `${t("diag.controllerVersion")}: ${diagnostics.controllerVersion || diagnostics.lastKnownControllerVersion || unavailable}`,
+        `${t("diag.lastControllerStage")}: ${localizeStage(attempt?.stage)}${attempt?.outcome ? ` (${t(`diag.controllerOutcome.${attempt.outcome}`)})` : ""}`,
+        `${t("diag.lastSuccessfulControllerStage")}: ${localizeStage(diagnostics.lastSuccessfulControllerStage?.stage)}`,
+        `${t("diag.lastDisconnectOrigin")}: ${lastDisconnect ? `${t(`diag.disconnectOrigin.${lastDisconnect.origin}`)} (${lastDisconnect.origin}) — ${formatTimestamp(lastDisconnect.timestamp)}` : unavailable}`,
+        `${t("diag.lastWrite")}: ${lastWrite ? `${lastWrite.messageName} (0x${lastWrite.messageType.toString(16)}), ${t(`diag.writeStatus.${lastWrite.status}`)}` : unavailable}`,
         `${t("diag.imuCount")}: ${diagnostics.imuNotificationCount ?? notApplicable}`,
         `${t("diag.lastImu")}: ${formatTimestamp(diagnostics.lastImuReceivedAt)}`,
         `${t("diag.angles")}: ${angleSummary}`,
         `${t("diag.motorPorts")}: ${motorSummary || t("diag.noMotorPorts")}`,
         `${t("diag.cobsErrors")}: ${diagnostics.cobsDecodeFailureCount ?? notApplicable}`,
         `${t("diag.unsupportedRecords")}: ${diagnostics.unsupportedRecordCount ?? notApplicable}`,
+        `${t("diag.lastConsoleOutput")}: ${diagnostics.recentConsoleOutput || unavailable}`,
         `${t("diag.lastError")}: ${diagnostics.lastCommunicationError ? summarizeCommunicationError(diagnostics.lastCommunicationError) : t("diag.none")}`,
         ...(diagnostics.lastCommunicationError
           ? [
               `${t("diag.technicalDetail")}: ${diagnostics.lastCommunicationError}`,
             ]
           : []),
+        ...(transportErrorSummary
+          ? [`${t("diag.lastWriteError")}: ${transportErrorSummary}`]
+          : []),
+        `${t("diag.recentEvents")}:\n${recentEvents || t("diag.none")}`,
       ].join("\n");
     }
 
     _sendPythonFallback(error, fallbackCommand) {
-      if (
-        this._peripheral.protocol === "spike3" &&
-        error?.code !== "ERR_UNSUPPORTED_HUB_COMMAND"
-      ) {
+      if (this._peripheral.protocol === "spike3") {
         throw error;
       }
       return fallbackCommand();
@@ -8441,24 +11103,21 @@ continuous_sensor_loop()
       return Promise.all(promises).then(() => {});
     }
 
-    /**
-     * Start at a power (duty cycle), unregulated: the "More Motors" block.
-     * There is no JSON-RPC or tunnel verb for it that is documented, so both
-     * firmwares get their documented MicroPython call: SPIKE 3's
-     * motor.set_duty_cycle (-10000..10000) and the 2.x hub module's
-     * motor.pwm (-100..100). Power 0 lets the motor coast, as a duty of 0 does.
-     */
+    /** Start at a bounded unregulated duty cycle through the controller. */
     motorStartPower(args) {
       const ports = this._validatePorts(Cast.toString(args.PORT));
-      // SPIKE 3 resolves a hundredth of a percent; the 2.x pwm a whole one.
       const power = MathUtil.clamp(Cast.toNumber(args.POWER), -100, 100);
-      const spike3 = this._peripheral.protocol === "spike3";
+      const dutyCycle = Math.round(power * 100);
       const promises = ports.map((port) =>
-        this._peripheral.sendPythonCommand(
-          spike3
-            ? `import motor; from hub import port; motor.set_duty_cycle(port.${port}, ${Math.round(power * 100)})`
-            : `import hub; hub.port.${port}.motor.pwm(${Math.round(power)})`
-        )
+        this._peripheral
+          .sendCommand("scratch.motor_power", { port, power: dutyCycle })
+          .catch((error) =>
+            this._sendPythonFallback(error, () =>
+              this._peripheral.sendPythonCommand(
+                `import hub; hub.port.${port}.motor.pwm(${Math.round(power)})`
+              )
+            )
+          )
       );
       return Promise.all(promises).then(() => {});
     }
