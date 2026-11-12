@@ -116,6 +116,12 @@ test("singular units are sent plural", async () => {
 test("cm and in are sent as rotations", async () => {
   const ext = loadExtension();
   const sent = captureSends(ext);
+  await ext.setMovementMotors({
+    PORT_A: "A",
+    PORT_B: "B",
+    WHEEL_CIRCUMFERENCE_CM: 17.6,
+  });
+  sent.length = 0;
   const done = ext.moveForward({
     DIRECTION: "backward",
     VALUE: 17.6,
@@ -288,13 +294,59 @@ test("the selected movement pair survives switching to the SPIKE 3 route", async
   await ext.setMovementMotors({ PORT_A: "E", PORT_B: "F" });
   assert.deepEqual([...router.movementMotors], ["E", "F"]);
   assert.deepEqual([...router._movementMotors], ["E", "F"]);
-  // The selected pair is retained when switching protocols. Paired
-  // MotorPair commands still use the legacy Python API and are rejected on
-  // SPIKE 3 rather than being sent as unverified Python through TunnelMessage.
+  // The selected pair is retained when switching protocols, and movement
+  // blocks use the controller command path rather than legacy Python.
   router._activeProtocol = "spike3";
+  router._spike3._sensors.motorPositions.E = { motorType: 0x31 };
+  router._spike3._sensors.motorPositions.F = { motorType: 0x31 };
+  const commands = [];
+  router.sendCommand = (method, params) => {
+    commands.push({ method, params });
+    return Promise.resolve();
+  };
+  await ext.setMovementMotors({ PORT_A: "E", PORT_B: "F" });
+  await ext.steer({ STEERING: 25 });
+  await ext.startTank({ LEFT_SPEED: 30, RIGHT_SPEED: -30 });
+  await ext.stopMovement();
   assert.deepEqual([...router.movementMotors], ["E", "F"]);
   assert.deepEqual([...router._movementMotors], ["E", "F"]);
-  assert.equal(sent.length, 1, "only the earlier legacy setup was sent");
+  assert.deepEqual(
+    commands.map(({ method }) => method),
+    [
+      "scratch.motor_pair_configure",
+      "scratch.motor_pair_move",
+      "scratch.motor_pair_move_tank",
+      "scratch.motor_pair_stop",
+    ]
+  );
+  assert.equal(sent.length, 1, "only the initial legacy pair setup was sent");
+});
+
+test("SPIKE 3 distance movement requires wheel circumference and converts it", async () => {
+  const ext = loadExtension();
+  const router = ext._peripheral;
+  router._activeProtocol = "spike3";
+  router._spike3._sensors.motorPositions.A = { motorType: 0x31 };
+  router._spike3._sensors.motorPositions.B = { motorType: 0x31 };
+  const commands = [];
+  router.sendCommand = (method, params) => {
+    commands.push({ method, params });
+    return Promise.resolve();
+  };
+  await assert.rejects(
+    ext.moveForward({ DIRECTION: "forward", VALUE: 10, UNIT: "cm" }),
+    /wheel circumference/
+  );
+  await ext.setMovementMotors({
+    PORT_A: "A",
+    PORT_B: "B",
+    WHEEL_CIRCUMFERENCE_CM: 20,
+  });
+  await ext.moveForward({ DIRECTION: "forward", VALUE: 10, UNIT: "cm" });
+  assert.equal(commands.at(-1).method, "scratch.motor_pair_move_degrees");
+  assert.equal(commands.at(-1).params.degrees, 180);
+  assert.equal(commands.at(-1).params.steering, 0);
+  assert.equal(commands.at(-1).params.speed, 75);
 });
 
 // The generated hub Python must be valid: run it through CPython with stub
@@ -405,10 +457,21 @@ test("gyro rate [yaw] reads the IMU record's z rate (and pitch y, roll x)", () =
   ext._peripheral._spike3._handleDeviceNotification(
     Uint8Array.from([0x3c, imu.length, 0, ...imu])
   );
-  assert.equal(ext.getGyroRate({ AXIS: "yaw" }), 90);
-  assert.equal(ext.getGyroRate({ AXIS: "pitch" }), -22);
-  assert.equal(ext.getGyroRate({ AXIS: "roll" }), 11);
-  assert.equal(ext.getFilteredGyroRate({ AXIS: "yaw" }), 90);
+  assert.equal(ext.getGyroRate({ AXIS: "yaw" }), 9);
+  assert.equal(ext.getGyroRate({ AXIS: "pitch" }), -2.2);
+  assert.equal(ext.getGyroRate({ AXIS: "roll" }), 1.1);
+  assert.equal(
+    ext.getFilteredGyroRate({ AXIS: "yaw" }),
+    "",
+    "filtered data is not invented from raw BLE data"
+  );
+  ext._peripheral._spike3._handleControllerSensorSnapshot({
+    gyro_filtered: [3, -4, 27],
+    acceleration_filtered: [0, 0, 1000],
+  });
+  assert.equal(ext.getFilteredGyroRate({ AXIS: "yaw" }), 2.7);
+  assert.equal(ext.getFilteredGyroRate({ AXIS: "pitch" }), -0.4);
+  assert.equal(ext.getFilteredAcceleration({ AXIS: "z" }), 1000);
 });
 
 test("raw colour channels read the colour record's red, green and blue", () => {
@@ -426,7 +489,7 @@ test("raw colour channels read the colour record's red, green and blue", () => {
   assert.equal(ext.getColorRGB({ PORT: "C", CHANNEL: "red" }), 900);
   assert.equal(ext.getColorRGB({ PORT: "C", CHANNEL: "green" }), 150);
   assert.equal(ext.getColorRGB({ PORT: "C", CHANNEL: "blue" }), 140);
-  assert.equal(ext.getColorRGB({ PORT: "D", CHANNEL: "red" }), 0);
+  assert.equal(ext.getColorRGB({ PORT: "D", CHANNEL: "red" }), "");
 });
 
 // --- "start motor at % power": a duty cycle, not a speed ---------------------

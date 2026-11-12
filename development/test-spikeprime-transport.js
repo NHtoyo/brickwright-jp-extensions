@@ -541,6 +541,7 @@ function attachFakeControllerHub(
   state,
   {
     failChunkIndex = -1,
+    motorPorts = [0, 1, 2, 3, 4, 5],
     malformedResponseType = null,
     startNotificationDelayMs = 0,
     suppressStartNotification = false,
@@ -771,6 +772,7 @@ function attachFakeControllerHub(
           b: "brightness",
           z: "pixels",
           f: "frequency",
+          n: "stop_mode",
         };
         const action = { cmd: names[request.c] };
         controller.receivedCommands.push(action.cmd);
@@ -829,6 +831,9 @@ function attachFakeControllerHub(
         break;
     }
   };
+  for (const port of motorPorts) {
+    emit(notification(motorRecord({ port })));
+  }
   return controller;
 }
 
@@ -1020,9 +1025,9 @@ test("IMU values decode signed angles and distinguish received zero from no data
     packMessage(notification(imuRecord({ yaw: -123, pitch: 45, roll: -6 })))
   );
   assert.deepEqual(JSON.parse(JSON.stringify(hub.angle)), {
-    pitch: 45,
-    roll: -6,
-    yaw: -123,
+    pitch: 4.5,
+    roll: -0.6,
+    yaw: -12.3,
   });
 });
 
@@ -1043,7 +1048,7 @@ test("motor position and 5x5 matrix records are parsed from one notification", a
   assert.equal(state.ext.getPosition({ PORT: "A" }), 323);
   assert.equal(state.ext.getRelativePosition({ PORT: "A" }), -123456);
   assert.equal(state.ext.getAbsolutePosition({ PORT: "A" }), -37);
-  assert.equal(state.ext.getSpeed({ PORT: "A" }), -112);
+  assert.equal(state.ext.getSpeed({ PORT: "A" }), -126);
   const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
   assert.equal(diagnostics.motorNotificationCount, 1);
   assert.equal(diagnostics.matrix5x5NotificationCount, 1);
@@ -1079,9 +1084,9 @@ test("localized diagnostic summary distinguishes missing IMU data and lists moto
   );
   state.device.tx.emit(packMessage(notification(motorRecord())));
   const received = state.ext.getCommunicationDiagnosticsSummary();
-  assert.match(received, /Pitch 12°/);
-  assert.match(received, /Roll -3°/);
-  assert.match(received, /Yaw -9°/);
+  assert.match(received, /Pitch 1\.2°/);
+  assert.match(received, /Roll -0\.3°/);
+  assert.match(received, /Yaw -0\.9°/);
   assert.match(received, /A: 相対位置 -123456°, 絶対位置 -37°/);
   assert.match(received, /速度値 -12/);
 });
@@ -1134,12 +1139,15 @@ test("split COBS frames and multiple frames in one BLE notification are reassemb
     notification(imuRecord({ yaw: 78, pitch: 90, roll: 12 }))
   );
   const third = packMessage([0x21, 0x4f, 0x4b]);
+  // BLE protocol fields carry tenths of a degree in this extension's public
+  // block values. The protocol document does not state units, so the source
+  // parser conversion is pinned here as a regression expectation only.
   state.device.tx.emit(bytes(second, third));
   const hub = state.ext._peripheral._spike3;
   assert.deepEqual(JSON.parse(JSON.stringify(hub.angle)), {
-    pitch: 90,
-    roll: 12,
-    yaw: 78,
+    pitch: 9,
+    roll: 1.2,
+    yaw: 7.8,
   });
   assert.equal(
     JSON.parse(state.ext.getCommunicationDiagnostics()).imuNotificationCount,
@@ -1231,7 +1239,8 @@ test("GATT disconnect clears the partial frame but preserves its diagnostic hist
         event.type === "disconnect" && event.origin === "gattserverdisconnected"
     )
   );
-  assert.equal(state.ext._peripheral._spike3.angle.pitch, 20);
+  // BLE reports decidegrees; the extension's sensor API exposes degrees.
+  assert.equal(state.ext._peripheral._spike3.angle.pitch, 2);
 });
 
 test("a requested local disconnect is recorded separately from a GATT disconnect event", async () => {
@@ -1990,6 +1999,11 @@ test("chained blocks wait for hello readiness and continue immediately without p
 test("PROJECT_STOP_ALL preempts queued commands, stops hardware and Python, then permits restart", async () => {
   const state = setup();
   await connect(state);
+  state.device.tx.emit(
+    packMessage(
+      notification(bytes(motorRecord({ port: 0 }), motorRecord({ port: 1 })))
+    )
+  );
   const fakeHub = attachFakeControllerHub(state);
   state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
   await state.ext.installHubController({ SLOT: 6 });
@@ -2354,15 +2368,10 @@ test("host output blocks are interpreted by the fake controller and return execu
   await state.ext.playBeep({ FREQUENCY: 440, DURATION: 150 });
   await state.ext.stopSound();
 
-  const writesBeforeUnsupportedStop = state.device.writes.length;
-  await assert.rejects(
-    state.ext._peripheral.active.sendCommand("scratch.motor_stop", {
-      port: "A",
-      stop: "hold",
-    }),
-    /motor stop action has not been verified/
-  );
-  assert.equal(state.device.writes.length, writesBeforeUnsupportedStop);
+  await state.ext._peripheral.active.sendCommand("scratch.motor_stop", {
+    port: "A",
+    stop_mode: "hold",
+  });
 
   assert.deepEqual(
     fakeHub.actions.map((action) => action.cmd),
@@ -2376,13 +2385,15 @@ test("host output blocks are interpreted by the fake controller and return execu
       "matrix.clear",
       "sound.beep",
       "sound.stop",
+      "motor.stop",
     ]
   );
-  assert.equal(fakeHub.actions[0].velocity, 540);
+  assert.equal(fakeHub.actions[0].velocity, 788);
   assert.deepEqual(
     [fakeHub.actions[4].brightness, fakeHub.actions[5].brightness],
     [0, 100]
   );
+  assert.equal(fakeHub.actions.at(-1).stop_mode, "hold");
   assert.equal(
     JSON.parse(state.ext.getCommunicationDiagnostics()).controllerStatus,
     "ready"

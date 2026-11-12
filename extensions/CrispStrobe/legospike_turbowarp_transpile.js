@@ -127,6 +127,10 @@
         "Brickwright SPIKE controller is running and acknowledged.",
       controllerFailed: "Could not start the Brickwright SPIKE controller: {0}",
       controllerInvalidSlot: "Program slot must be between 0 and 19.",
+      controllerInvalidMotorPair: "Choose two different motor ports.",
+      controllerInvalidMoveUnit: "Choose a supported movement unit.",
+      controllerInvalidDisplayOrientation:
+        "Choose a supported display orientation.",
       operationFailed: "SPIKE operation failed: {0}",
       controllerNotReady:
         "Install and start the Brickwright SPIKE controller first.",
@@ -301,18 +305,29 @@
       getTranspiledCode: "transpiled code",
       // File Management Section
       fileManagementLabel: "📁 Hub File Management",
-      uploadScriptToHub: "upload script to hub as [NAME]",
+      uploadScriptToHub: "upload script [NAME] to slot [SLOT]",
       runScriptOnHub: "run script [NAME] on hub",
-      renameScriptOnHub: "rename hub script [OLD] to [NEW]",
+      renameScriptOnHub: "rename Brickwright program [OLD] to [NEW]",
       deleteScriptOnHub: "delete script [NAME] from hub",
-      listScriptsOnHub: "list all scripts on hub",
+      listScriptsOnHub: "list Brickwright-managed programs",
       stopRunningScript: "stop currently running script",
+      programNotUploaded:
+        "Brickwright has no program named {0} in its local slot list.",
+      programNameAlreadyExists:
+        "A Brickwright program named {0} already exists.",
+      noRunningProgramSlot:
+        "Brickwright has no confirmed running program slot to stop.",
+      invalidLogFilename:
+        "Use a file name of 1–40 letters, numbers, dots, underscores, or dashes.",
+      fileChunkTooLarge:
+        "A text character exceeds the supported file-transfer chunk size.",
       // File Management - Default Values
       scriptName: "my_program.py",
       oldScriptName: "old.py",
       newScriptName: "new.py",
       // Movement
-      setMovementMotors: "set movement motors [PORT_A] and [PORT_B]",
+      setMovementMotors:
+        "set movement motors [PORT_A] and [PORT_B], wheel circumference [WHEEL_CIRCUMFERENCE_CM] cm",
       moveForward: "move [DIRECTION] for [VALUE] [UNIT]",
       steer: "start steering [STEERING]",
       startTank: "start tank drive left [LEFT_SPEED] right [RIGHT_SPEED]",
@@ -335,6 +350,15 @@
       displayText: "write [TEXT]",
       displayTextUnsupported:
         "Text display is unavailable on SPIKE 3.x. No unverified Python command was sent.",
+      controllerInvalidStopMode:
+        "Choose coast, brake, or hold for the stop mode.",
+      controllerWheelSizeRequired:
+        "Enter the actual wheel circumference in centimeters before moving by cm or inches.",
+      controllerHubSoundUnavailable:
+        "Hub sound-file playback is not available through the supported SPIKE 3 API.",
+      controllerInvalidImage: "Choose a built-in image number from 1 to 67.",
+      controllerInvalidMatrixPixel:
+        "Choose a valid A–F port and pixel coordinates from 1 to 3.",
       displayImage: "turn on [MATRIX]",
       displayPattern: "display pattern [PATTERN]",
       displayClear: "turn off pixels",
@@ -475,6 +499,10 @@
       controllerFailed:
         "Brickwright SPIKE制御プログラムを起動できませんでした: {0}",
       controllerInvalidSlot: "プログラムスロットは0〜19で指定してください。",
+      controllerInvalidMotorPair: "異なる2つのモーターポートを選んでください。",
+      controllerInvalidMoveUnit: "対応している移動単位を選んでください。",
+      controllerInvalidDisplayOrientation:
+        "対応している表示の向きを選んでください。",
       operationFailed: "SPIKEの操作に失敗しました: {0}",
       controllerNotReady:
         "先にBrickwright SPIKE制御プログラムを転送して起動してください。",
@@ -646,16 +674,35 @@
       uploadToHub: "Bluetoothでコードをハブに送信する",
       getTranspiledCode: "変換後のコード",
       fileManagementLabel: "📁 ハブ内のファイル",
-      uploadScriptToHub: "スクリプトを [NAME] としてハブに保存する",
+      uploadScriptToHub: "スクリプト [NAME] をスロット [SLOT] に転送する",
       runScriptOnHub: "ハブ上のスクリプト [NAME] を実行する",
-      renameScriptOnHub: "ハブ上のスクリプト [OLD] の名前を [NEW] に変更する",
-      deleteScriptOnHub: "ハブ上のスクリプト [NAME] を削除する",
-      listScriptsOnHub: "ハブ上のスクリプト一覧を表示する",
+      renameScriptOnHub: "Brickwrightのプログラム名 [OLD] を [NEW] に変更する",
+      deleteScriptOnHub: "Brickwrightのプログラム [NAME] をハブから削除する",
+      listScriptsOnHub: "Brickwrightが管理するプログラムの一覧",
       stopRunningScript: "実行中のスクリプトを停止する",
+      programNotUploaded:
+        "Brickwrightの一覧に「{0}」がありません。先にプログラムを転送してください。",
+      programNameAlreadyExists:
+        "「{0}」という名前のプログラムはすでにあります。",
+      noRunningProgramSlot:
+        "停止対象として確認できた実行中スロットがありません。",
+      invalidLogFilename:
+        "ファイル名には英数字、ピリオド、アンダースコア、ハイフンを使ってください（1〜40文字）。",
+      fileChunkTooLarge: "1文字がファイル転送の上限を超えています。",
       scriptName: "my_program.py",
       oldScriptName: "old.py",
       newScriptName: "new.py",
-      setMovementMotors: "移動用モーターを [PORT_A] と [PORT_B] に設定する",
+      setMovementMotors:
+        "移動用モーターを [PORT_A] と [PORT_B]、車輪の周長を [WHEEL_CIRCUMFERENCE_CM] cm に設定する",
+      controllerInvalidStopMode:
+        "停止方法は「空転」「ブレーキ」「保持」から選んでください。",
+      controllerWheelSizeRequired:
+        "cmまたはインチで移動する前に、実際の車輪の周長をcmで入力してください。",
+      controllerHubSoundUnavailable:
+        "SPIKE 3でハブの音声ファイルを再生するAPIは確認できていません。",
+      controllerInvalidImage: "画像番号は1〜67から選んでください。",
+      controllerInvalidMatrixPixel:
+        "ポートA〜Fと、1〜3のピクセル座標を指定してください。",
       moveForward: "[DIRECTION] に [VALUE] [UNIT] 進む",
       steer: "ステアリング [STEERING] で動かす",
       startTank: "左 [LEFT_SPEED]%、右 [RIGHT_SPEED]% の速さで動かす",
@@ -800,10 +847,20 @@
       fileManagementLabel: "📁 Hub-Dateiverwaltung",
       uploadScriptToHub: "Skript als [NAME] zum Hub hochladen",
       runScriptOnHub: "Skript [NAME] auf Hub ausführen",
-      renameScriptOnHub: "Hub-Skript [OLD] in [NEW] umbenennen",
+      renameScriptOnHub: "Brickwright-Programm [OLD] in [NEW] umbenennen",
       deleteScriptOnHub: "Skript [NAME] vom Hub löschen",
-      listScriptsOnHub: "alle Skripte auf Hub auflisten",
+      listScriptsOnHub: "Brickwright-Programme auflisten",
       stopRunningScript: "laufendes Skript stoppen",
+      programNotUploaded:
+        "In der lokalen Brickwright-Liste gibt es kein Programm namens {0}.",
+      programNameAlreadyExists:
+        "Ein Brickwright-Programm namens {0} ist bereits vorhanden.",
+      noRunningProgramSlot:
+        "Es wurde kein bestätigter Programmslot zum Stoppen gefunden.",
+      invalidLogFilename:
+        "Der Dateiname darf 1–40 Buchstaben, Zahlen, Punkte, Unterstriche und Bindestriche enthalten.",
+      fileChunkTooLarge:
+        "Ein Zeichen überschreitet die unterstützte Dateitransfergröße.",
 
       // Movement
       setMovementMotors: "setze Bewegungsmotoren [PORT_A] und [PORT_B]",
@@ -1782,10 +1839,58 @@ except Exception as error:
 
 print("BWCTRL:boot:imports-ok")
 
+try:
+    import motor_pair
+except Exception:
+    motor_pair = None
+try:
+    from hub import motion_sensor
+except Exception:
+    motion_sensor = None
+try:
+    from hub import button
+except Exception:
+    button = None
+try:
+    from hub import light
+except Exception:
+    light = None
+try:
+    import color
+except Exception:
+    color = None
+try:
+    import orientation
+except Exception:
+    orientation = None
+try:
+    import color_matrix
+except Exception:
+    color_matrix = None
+try:
+    import color_sensor
+except Exception:
+    color_sensor = None
+try:
+    import distance_sensor
+except Exception:
+    distance_sensor = None
+try:
+    import force_sensor
+except Exception:
+    force_sensor = None
+try:
+    import os
+except ImportError:
+    try:
+        import uos as os
+    except Exception:
+        os = None
+
 CONTROLLER_PROTOCOL = "brickwright-spike-controller"
 CONTROLLER_VERSION = 1
 MAX_QUEUE = 32
-MAX_VELOCITY = 720
+MAX_VELOCITY = 1110
 HEARTBEAT_TIMEOUT_MS = 3000
 try:
     PORTS = {"A": port.A, "B": port.B, "C": port.C, "D": port.D, "E": port.E, "F": port.F}
@@ -1799,6 +1904,12 @@ except Exception as error:
     _tunnel = None
     _tunnel_error = error
 _queue = []
+_job_queue = []
+_job_generation = 0
+_active_motor_ports = set()
+_pair_configured = False
+_pair_active = False
+_reflection_ports = set()
 _active = False
 _emergency_stopped = False
 _last_heartbeat = None
@@ -1815,11 +1926,12 @@ def _send(value):
 
 def _error(request_id, code, message):
     _send({"i": request_id, "ok": False, "error": code,
-           "detail": str(message)[:40]})
+           "detail": str(message)[:200]})
 
 
 def _success(request_id, result=None):
-    _send({"i": request_id, "ok": True, "result": result or 1})
+    _send({"i": request_id, "ok": True,
+           "result": 1 if result is None else result})
 
 
 def _integer(value, name, minimum, maximum):
@@ -1831,16 +1943,59 @@ def _integer(value, name, minimum, maximum):
 
 
 def _stop_all_motors():
-    for port_name in ("A", "B", "C", "D", "E", "F"):
+    global _pair_active
+    failures = []
+    for port_name in tuple(_active_motor_ports):
         try:
-            motor.stop(PORTS[port_name])
-        except Exception:
-            # Empty ports are expected; a later connection can still be safe.
-            pass
+            motor.stop(PORTS[port_name], stop=motor.BRAKE)
+        except Exception as error:
+            failures.append(port_name + ":" + type(error).__name__ + ":" + str(error))
+        _active_motor_ports.discard(port_name)
+    if _pair_active and _pair_configured:
+        try:
+            motor_pair.stop(motor_pair.PAIR_1, stop=motor.BRAKE)
+        except Exception as error:
+            failures.append("pair:" + type(error).__name__ + ":" + str(error))
+        _pair_active = False
+    return failures
+
+
+def _mode(value):
+    modes = {"coast": motor.COAST, "brake": motor.BRAKE, "hold": motor.HOLD}
+    if value not in modes:
+        raise ValueError("stop mode must be coast, brake, or hold")
+    return modes[value]
+
+
+def _api_color(value):
+    names = ("BLACK", "MAGENTA", "PURPLE", "BLUE", "AZURE", "TURQUOISE",
+             "GREEN", "YELLOW", "ORANGE", "RED", "WHITE")
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0 or value >= len(names):
+        raise ValueError("color must be an SPIKE color index from 0 to 10")
+    return getattr(color, names[value])
+
+
+def _queue_job(request_id, awaitable, kind, data):
+    if len(_job_queue) >= MAX_QUEUE:
+        raise ValueError("hardware job queue is full")
+    _job_queue.append({"id": request_id, "awaitable": awaitable,
+                       "kind": kind, "data": data,
+                       "generation": _job_generation})
+
+
+def _safe_log_path(name):
+    if not isinstance(name, str) or not name or len(name) > 40:
+        raise ValueError("log name must be 1 to 40 characters")
+    if any(character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-" for character in name):
+        raise ValueError("log name may contain only letters, numbers, dot, underscore, and dash")
+    if name in (".", ".."):
+        raise ValueError("invalid log name")
+    return "brickwright-log-" + name
 
 
 def _receive(data):
     global _active, _emergency_stopped, _last_heartbeat, _text_job
+    global _job_generation, _pair_active
     try:
         if not isinstance(data, str):
             data = bytes(data).decode("utf-8")
@@ -1851,22 +2006,38 @@ def _receive(data):
         if name not in (
             "h", "p", "x",
             "r", "s", "u", "d",
-            "t", "a",
+            "t", "a", "j", "k", "P", "M", "G", "T", "K", "L", "Y", "Z",
             "l", "m", "c", "w",
-            "b", "q",
+            "b", "q", "I", "O", "H", "3", "4", "5", "6", "V", "W", "F", "R", "N",
         ):
             raise ValueError("unsupported command")
         if name == "x":
             # Emergency stop bypasses the normal dispatcher queue so it can
             # interrupt an awaited sound or any commands waiting behind it.
+            for queued in _queue:
+                _error(queued.get("i"), "cancelled", "command cancelled by emergency stop")
             _queue.clear()
+            _job_generation += 1
+            for queued_job in _job_queue:
+                _error(queued_job["id"], "cancelled", "job cancelled by emergency stop")
+                close = getattr(queued_job["awaitable"], "close", None)
+                if close:
+                    close()
+            _job_queue.clear()
+            if _text_job is not None:
+                _error(_text_job[0], "cancelled", "text display cancelled by emergency stop")
+                _text_job = None
             _emergency_stopped = True
             _active = False
             _last_heartbeat = None
             _text_job = None
-            _stop_all_motors()
+            failures = _stop_all_motors()
             sound.stop()
-            _success(command.get("i"), {"state": "stopped"})
+            _pair_active = False
+            if failures:
+                _error(command.get("i"), "stop_incomplete", "; ".join(failures))
+            else:
+                _success(command.get("i"), {"state": "stopped"})
             return
         if _emergency_stopped:
             _error(command.get("i"), "controller_stopped", "controller is stopped")
@@ -1884,6 +2055,7 @@ def _receive(data):
 
 async def _dispatch(command):
     global _active, _last_heartbeat, _text_job
+    global _pair_configured, _pair_active, _active_motor_ports
     request_id = command.get("i")
     name = command.get("c")
     try:
@@ -1895,25 +2067,25 @@ async def _dispatch(command):
             _last_heartbeat = time.ticks_ms()
             _active = True
             _send({"c": "o", "version": CONTROLLER_VERSION})
-        elif name == "x":
-            _stop_all_motors()
-            sound.stop()
-            _success(request_id)
         elif name == "r":
             port_name = command.get("p")
             if port_name not in PORTS:
                 raise ValueError("unknown motor port")
             velocity = _integer(command.get("v"), "velocity", -MAX_VELOCITY, MAX_VELOCITY)
             if velocity == 0:
-                motor.stop(PORTS[port_name])
+                motor.stop(PORTS[port_name], stop=_mode(command.get("n", "brake")))
+                _active_motor_ports.discard(port_name)
+                _success(request_id, {"state": "stopped"})
             else:
                 motor.run(PORTS[port_name], velocity)
-            _success(request_id, {"state": "accepted"})
+                _active_motor_ports.add(port_name)
+                _success(request_id, {"state": "started"})
         elif name == "s":
             port_name = command.get("p")
             if port_name not in PORTS:
                 raise ValueError("unknown motor port")
-            motor.stop(PORTS[port_name])
+            motor.stop(PORTS[port_name], stop=_mode(command.get("n", "brake")))
+            _active_motor_ports.discard(port_name)
             _success(request_id, {"state": "stopped"})
         elif name == "u":
             port_name = command.get("p")
@@ -1921,7 +2093,11 @@ async def _dispatch(command):
                 raise ValueError("unknown motor port")
             duty_cycle = _integer(command.get("u"), "duty_cycle", -10000, 10000)
             motor.set_duty_cycle(PORTS[port_name], duty_cycle)
-            _success(request_id, {"state": "started"})
+            if duty_cycle:
+                _active_motor_ports.add(port_name)
+            else:
+                _active_motor_ports.discard(port_name)
+            _success(request_id, {"state": "started" if duty_cycle else "stopped"})
         elif name == "d":
             port_name = command.get("p")
             if port_name not in PORTS:
@@ -1930,11 +2106,10 @@ async def _dispatch(command):
             velocity = _integer(command.get("v"), "velocity", -MAX_VELOCITY, MAX_VELOCITY)
             if velocity == 0:
                 raise ValueError("velocity must not be zero")
-            # SPIKE's native operation starts when called; its returned awaitable
-            # can be awaited by a standalone program to wait for completion.
-            # Keeping this command non-blocking lets a later stop command run.
-            motor.run_for_degrees(PORTS[port_name], degrees, velocity)
-            _success(request_id, {"state": "started"})
+            stop_mode = _mode(command.get("n", "brake"))
+            operation = motor.run_for_degrees(PORTS[port_name], degrees, velocity, stop=stop_mode)
+            _active_motor_ports.add(port_name)
+            _queue_job(request_id, operation, "motor", {"port": port_name})
         elif name == "t":
             port_name = command.get("p")
             if port_name not in PORTS:
@@ -1943,16 +2118,108 @@ async def _dispatch(command):
             velocity = _integer(command.get("v"), "velocity", -MAX_VELOCITY, MAX_VELOCITY)
             if velocity == 0:
                 raise ValueError("velocity must not be zero")
-            motor.run_for_time(PORTS[port_name], duration, velocity)
-            _success(request_id, {"state": "started"})
+            stop_mode = _mode(command.get("n", "brake"))
+            operation = motor.run_for_time(PORTS[port_name], duration, velocity, stop=stop_mode)
+            _active_motor_ports.add(port_name)
+            _queue_job(request_id, operation, "motor", {"port": port_name})
         elif name == "a":
             port_name = command.get("p")
             if port_name not in PORTS:
                 raise ValueError("unknown motor port")
             position = _integer(command.get("g"), "position", -36000, 36000)
             velocity = _integer(command.get("v"), "velocity", 1, MAX_VELOCITY)
-            motor.run_to_absolute_position(PORTS[port_name], position, velocity)
+            stop_mode = _mode(command.get("n", "brake"))
+            operation = motor.run_to_absolute_position(PORTS[port_name], position, velocity, stop=stop_mode)
+            _active_motor_ports.add(port_name)
+            _queue_job(request_id, operation, "motor", {"port": port_name})
+        elif name == "j":
+            port_name = command.get("p")
+            if port_name not in PORTS:
+                raise ValueError("unknown motor port")
+            position = _integer(command.get("g", 0), "position", -36000, 36000)
+            motor.reset_relative_position(PORTS[port_name], position)
+            _success(request_id, {"state": "updated"})
+        elif name == "k":
+            port_name = command.get("p")
+            if port_name not in PORTS:
+                raise ValueError("unknown motor port")
+            _mode(command.get("n"))
+            _success(request_id, {"state": "configured"})
+        elif name == "N":
+            if motion_sensor is None:
+                raise ValueError("motion_sensor API is unavailable")
+            angle = _integer(command.get("a", 0), "angle", -3600, 3600)
+            motion_sensor.reset_yaw(angle)
+            _success(request_id, {"state": "updated", "yaw": angle})
+        elif name == "P":
+            left = command.get("q")
+            right = command.get("r")
+            if left not in PORTS or right not in PORTS or left == right:
+                raise ValueError("motor pair requires two different valid ports")
+            motor_pair.pair(motor_pair.PAIR_1, PORTS[left], PORTS[right])
+            _pair_configured = True
+            _success(request_id, {"state": "configured", "left": left, "right": right})
+        elif name == "M":
+            if not _pair_configured:
+                raise ValueError("motor pair is not configured")
+            steering = _integer(command.get("e"), "steering", -100, 100)
+            velocity = _integer(command.get("v"), "velocity", -MAX_VELOCITY, MAX_VELOCITY)
+            motor_pair.move(motor_pair.PAIR_1, steering, velocity=velocity)
+            _pair_active = True
             _success(request_id, {"state": "started"})
+        elif name == "G":
+            if not _pair_configured:
+                raise ValueError("motor pair is not configured")
+            degrees = _integer(command.get("d"), "degrees", -36000, 36000)
+            steering = _integer(command.get("e"), "steering", -100, 100)
+            velocity = _integer(command.get("v"), "velocity", 1, MAX_VELOCITY)
+            stop_mode = _mode(command.get("n", "brake"))
+            _pair_active = True
+            _queue_job(request_id, motor_pair.move_for_degrees(
+                motor_pair.PAIR_1, degrees, steering, velocity=velocity, stop=stop_mode),
+                "pair", {})
+        elif name == "T":
+            if not _pair_configured:
+                raise ValueError("motor pair is not configured")
+            duration = _integer(command.get("t"), "duration_ms", 1, 60000)
+            steering = _integer(command.get("e"), "steering", -100, 100)
+            velocity = _integer(command.get("v"), "velocity", 1, MAX_VELOCITY)
+            stop_mode = _mode(command.get("n", "brake"))
+            _pair_active = True
+            _queue_job(request_id, motor_pair.move_for_time(
+                motor_pair.PAIR_1, duration, steering, velocity=velocity, stop=stop_mode),
+                "pair", {})
+        elif name == "K":
+            if not _pair_configured:
+                raise ValueError("motor pair is not configured")
+            left_velocity = _integer(command.get("j"), "left velocity", -MAX_VELOCITY, MAX_VELOCITY)
+            right_velocity = _integer(command.get("k"), "right velocity", -MAX_VELOCITY, MAX_VELOCITY)
+            motor_pair.move_tank(motor_pair.PAIR_1, left_velocity, right_velocity)
+            _pair_active = True
+            _success(request_id, {"state": "started"})
+        elif name == "L":
+            if not _pair_configured:
+                raise ValueError("motor pair is not configured")
+            degrees = _integer(command.get("d"), "degrees", -36000, 36000)
+            left_velocity = _integer(command.get("j"), "left velocity", -MAX_VELOCITY, MAX_VELOCITY)
+            right_velocity = _integer(command.get("k"), "right velocity", -MAX_VELOCITY, MAX_VELOCITY)
+            _pair_active = True
+            _queue_job(request_id, motor_pair.move_tank_for_degrees(
+                motor_pair.PAIR_1, degrees, left_velocity, right_velocity), "pair", {})
+        elif name == "Y":
+            if not _pair_configured:
+                raise ValueError("motor pair is not configured")
+            duration = _integer(command.get("t"), "duration_ms", 1, 60000)
+            left_velocity = _integer(command.get("j"), "left velocity", -MAX_VELOCITY, MAX_VELOCITY)
+            right_velocity = _integer(command.get("k"), "right velocity", -MAX_VELOCITY, MAX_VELOCITY)
+            _pair_active = True
+            _queue_job(request_id, motor_pair.move_tank_for_time(
+                motor_pair.PAIR_1, duration, left_velocity, right_velocity), "pair", {})
+        elif name == "Z":
+            if _pair_configured:
+                motor_pair.stop(motor_pair.PAIR_1, stop=_mode(command.get("n", "brake")))
+            _pair_active = False
+            _success(request_id, {"state": "stopped"})
         elif name == "l":
             x = _integer(command.get("x"), "x", 0, 4)
             y = _integer(command.get("y"), "y", 0, 4)
@@ -1971,20 +2238,137 @@ async def _dispatch(command):
             _text_job = (request_id, text)
         elif name == "m":
             pixels = command.get("z")
-            if not isinstance(pixels, str) or len(pixels) != 25 or not pixels.isdigit():
-                raise ValueError("pixel pattern must contain 25 digits")
-            for index in range(25):
-                brightness = int(pixels[index]) * 100 // 9
+            if not isinstance(pixels, list) or len(pixels) != 25:
+                raise ValueError("pattern must contain 25 brightness values")
+            for index, raw_brightness in enumerate(pixels):
+                brightness = _integer(raw_brightness, "brightness", 0, 100)
                 light_matrix.set_pixel(index % 5, index // 5, brightness)
             _success(request_id, {"state": "updated"})
-        elif name == "b":
+        elif name == "I":
+            image_id = _integer(command.get("g"), "image_id", 1, 67)
+            light_matrix.show_image(image_id)
+            _success(request_id, {"state": "displayed", "image_id": image_id})
+        elif name == "O":
+            directions = {"up": orientation.UP, "right": orientation.RIGHT,
+                          "down": orientation.DOWN, "left": orientation.LEFT}
+            direction = command.get("o")
+            if direction not in directions:
+                raise ValueError("orientation must be up, right, down, or left")
+            light_matrix.set_orientation(directions[direction])
+            _success(request_id, {"state": "updated"})
+        elif name == "H":
+            light.color(light.POWER, _api_color(command.get("n")))
+            _success(request_id, {"state": "updated"})
+        elif name == "3":
+            port_name = command.get("p")
+            pixels = command.get("z")
+            if port_name not in PORTS or not isinstance(pixels, list) or len(pixels) != 9:
+                raise ValueError("3x3 matrix requires a valid port and nine pixels")
+            converted = []
+            for pixel in pixels:
+                if not isinstance(pixel, list) or len(pixel) != 2:
+                    raise ValueError("each 3x3 pixel must be [color, intensity]")
+                converted.append((_api_color(pixel[0]), _integer(pixel[1], "intensity", 0, 10)))
+            color_matrix.show(PORTS[port_name], converted)
+            _success(request_id, {"state": "updated"})
+        elif name == "4":
+            port_name = command.get("p")
+            if port_name not in PORTS:
+                raise ValueError("unknown matrix port")
+            x = _integer(command.get("x"), "x", 0, 2)
+            y = _integer(command.get("y"), "y", 0, 2)
+            intensity = _integer(command.get("n"), "intensity", 0, 10)
+            current = color_matrix.get_pixel(PORTS[port_name], x, y)
+            color_matrix.set_pixel(PORTS[port_name], x, y, (current[0], intensity))
+            _success(request_id, {"state": "updated"})
+        elif name == "5":
+            port_name = command.get("p")
+            if port_name not in PORTS:
+                raise ValueError("unknown matrix port")
+            color_matrix.clear(PORTS[port_name])
+            _success(request_id, {"state": "cleared"})
+        elif name == "6":
+            port_name = command.get("p")
+            levels = command.get("z")
+            if port_name not in PORTS or not isinstance(levels, list) or len(levels) != 4:
+                raise ValueError("distance lights require a valid port and four levels")
+            for level in levels:
+                _integer(level, "light level", 0, 100)
+            distance_sensor.show(PORTS[port_name], levels)
+            _success(request_id, {"state": "updated"})
+        elif name in ("b", "W"):
             frequency = _integer(command.get("f"), "frequency", 100, 2000)
-            duration = _integer(command.get("t"), "duration_ms", 20, 2000)
-            await sound.beep(frequency, duration, 100)
-            _success(request_id, {"state": "played"})
+            duration = _integer(command.get("t"), "duration_ms", 20, 10000)
+            volume = _integer(command.get("n", 100), "volume", 0, 100)
+            if name == "W":
+                waveform_names = {"sine": "WAVEFORM_SINE", "square": "WAVEFORM_SQUARE",
+                                  "sawtooth": "WAVEFORM_SAWTOOTH", "triangle": "WAVEFORM_TRIANGLE"}
+                waveform_name = waveform_names.get(command.get("w"))
+                if not waveform_name or not hasattr(sound, waveform_name):
+                    raise ValueError("requested waveform is unavailable")
+                waveform = getattr(sound, waveform_name)
+                operation = sound.beep(frequency, duration, volume, waveform=waveform)
+            else:
+                operation = sound.beep(frequency, duration, volume)
+            _queue_job(request_id, operation, "sound", {})
+        elif name == "V":
+            volume = _integer(command.get("n"), "volume", 0, 100)
+            sound.volume(volume)
+            _success(request_id, {"state": "updated", "volume": volume})
         elif name == "q":
             sound.stop()
             _success(request_id, {"state": "stopped"})
+        elif name == "F":
+            operation = command.get("k")
+            if operation == "write":
+                path = _safe_log_path(command.get("n"))
+                text = command.get("z")
+                if not isinstance(text, str) or len(text.encode("utf-8")) > 256:
+                    raise ValueError("log write chunk must be at most 256 UTF-8 bytes")
+                with open(path, "ab") as file:
+                    file.write(text.encode("utf-8"))
+                _success(request_id, {"state": "written", "bytes": len(text.encode("utf-8"))})
+            elif operation == "read":
+                path = _safe_log_path(command.get("n"))
+                offset = _integer(command.get("g"), "offset", 0, 1048576)
+                limit = _integer(command.get("u"), "limit", 1, 256)
+                with open(path, "rb") as file:
+                    file.seek(offset)
+                    chunk = file.read(limit)
+                    while chunk:
+                        try:
+                            text = chunk.decode("utf-8")
+                            break
+                        except UnicodeError:
+                            chunk = chunk[:-1]
+                    if not chunk:
+                        text = ""
+                    next_offset = offset + len(chunk)
+                    file.seek(0, 2)
+                    eof = next_offset >= file.tell()
+                _success(request_id, {"state": "read", "text": text,
+                                      "next_offset": next_offset, "eof": eof})
+            elif operation == "delete":
+                path = _safe_log_path(command.get("n"))
+                os.remove(path)
+                _success(request_id, {"state": "deleted"})
+            elif operation == "list":
+                files = [item for item in os.listdir() if isinstance(item, str) and item.startswith("brickwright-log-")]
+                _success(request_id, {"state": "listed", "files": files})
+            else:
+                raise ValueError("unknown file operation")
+        elif name == "R":
+            ports = command.get("z")
+            if ports is not None:
+                if not isinstance(ports, list) or len(ports) > 6:
+                    raise ValueError("reflection port list must contain at most six ports")
+                if any(port_name not in PORTS for port_name in ports):
+                    raise ValueError("reflection port list contains an unknown port")
+                _reflection_ports.clear()
+                _reflection_ports.update(ports)
+                _success(request_id, {"state": "configured"})
+            else:
+                _success(request_id, _read_sensor_snapshot())
         else:
             raise ValueError("unsupported command")
     except Exception as error:
@@ -1996,12 +2380,50 @@ async def _process_next():
         await _dispatch(_queue.pop(0))
 
 
+async def _job_worker():
+    while True:
+        if not _job_queue:
+            await runloop.sleep_ms(10)
+            continue
+        await _run_job(_job_queue.pop(0))
+
+
+async def _run_job(job):
+    global _pair_active
+    if job["generation"] != _job_generation:
+        close = getattr(job["awaitable"], "close", None)
+        if close:
+            close()
+        _error(job["id"], "cancelled", "job cancelled before it started")
+        return
+    _success(job["id"], {"state": "started"})
+    try:
+        result = await job["awaitable"]
+        if job["generation"] != _job_generation:
+            _success(job["id"], {"state": "cancelled"})
+        elif result is not None and result != getattr(motor, "READY", 0):
+            if result == getattr(motor, "CANCELLED", getattr(motor, "CANCELED", 3)):
+                _success(job["id"], {"state": "cancelled"})
+            else:
+                _error(job["id"], "hardware_job_failed", "hardware job ended with status " + str(result))
+        else:
+            _success(job["id"], {"state": "completed"})
+    except Exception as error:
+        _error(job["id"], "hardware_job_failed", str(error))
+    finally:
+        if job["kind"] == "motor":
+            _active_motor_ports.discard(job["data"]["port"])
+        elif job["kind"] == "pair":
+            _pair_active = False
+
+
 async def _process_text():
     global _text_job
     if _text_job is None:
         return
     request_id, text = _text_job
     try:
+        _success(request_id, {"state": "started"})
         if text:
             await light_matrix.write(text)
         else:
@@ -2017,6 +2439,78 @@ async def _text_worker():
     while True:
         await _process_text()
         await runloop.sleep_ms(10)
+
+
+def _read_sensor_snapshot():
+    snapshot = {"gesture": None, "up_face": None}
+    try:
+        snapshot["angles"] = list(motion_sensor.tilt_angles())
+    except Exception:
+        snapshot["angles"] = None
+    try:
+        snapshot["gyro_filtered"] = list(motion_sensor.angular_velocity(False))
+    except Exception:
+        snapshot["gyro_filtered"] = None
+    try:
+        snapshot["acceleration_filtered"] = list(motion_sensor.acceleration(False))
+    except Exception:
+        snapshot["acceleration_filtered"] = None
+    try:
+        gesture = motion_sensor.gesture()
+        for name in ("TAPPED", "DOUBLE_TAPPED", "SHAKEN", "FALLING"):
+            if hasattr(motion_sensor, name) and gesture == getattr(motion_sensor, name):
+                snapshot["gesture"] = {"TAPPED": "tapped", "DOUBLE_TAPPED": "doubletapped",
+                                       "SHAKEN": "shake", "FALLING": "freefall"}[name]
+                break
+    except Exception:
+        snapshot["gesture"] = None
+    try:
+        face = motion_sensor.up_face()
+        for name in ("TOP", "FRONT", "RIGHT", "BOTTOM", "BACK", "LEFT"):
+            if hasattr(motion_sensor, name) and face == getattr(motion_sensor, name):
+                snapshot["up_face"] = name.lower()
+                break
+    except Exception:
+        snapshot["up_face"] = None
+    buttons = {}
+    for name in ("LEFT", "RIGHT"):
+        try:
+            buttons[name.lower()] = bool(button.pressed(getattr(button, name)))
+        except Exception:
+            buttons[name.lower()] = None
+    snapshot["buttons"] = buttons
+    try:
+        snapshot["hub_temperature"] = hub.temperature()
+    except Exception:
+        snapshot["hub_temperature"] = None
+    # Distance, color, RGB, and force records already arrive over BLE device
+    # notifications. Only reflection is absent from that protocol; the host
+    # configures color-sensor ports after seeing their BLE notification.
+    port_sensors = {}
+    if color_sensor is not None:
+        for port_name in tuple(_reflection_ports):
+            try:
+                value = color_sensor.reflection(PORTS[port_name])
+            except Exception:
+                continue
+            port_sensors[port_name] = {"reflection": value}
+    if port_sensors:
+        snapshot["ports"] = port_sensors
+    return snapshot
+
+
+async def _sensor_worker():
+    previous = None
+    while True:
+        if _active and not _emergency_stopped:
+            snapshot = _read_sensor_snapshot()
+            encoded = json.dumps(snapshot)
+            if encoded != previous:
+                _send({"e": "sensor", "v": snapshot})
+                previous = encoded
+        else:
+            previous = None
+        await runloop.sleep_ms(250)
 
 
 async def _check_watchdog(now=None):
@@ -2060,7 +2554,7 @@ try:
     # A transferred Hub program is already the program entry point. Invoke the
     # run loop unconditionally so startup does not depend on the runtime's
     # __name__ binding (LEGO's own uploaded example follows this pattern).
-    runloop.run(_main(), _text_worker())
+    runloop.run(_main(), _text_worker(), _job_worker(), _sensor_worker())
 except Exception as error:
     print("BWCTRL:fatal:" + type(error).__name__ + ":" + str(error))
     raise
@@ -2069,6 +2563,15 @@ else:
     print("BWCTRL:fatal:runloop-returned")
     raise RuntimeError("runloop.run returned before the controller stopped")
 `;
+
+  // LEGO's SPIKE 3 Python API documents different velocity limits by motor
+  // device type. DeviceMotor's type byte is defined by LEGO's BLE protocol:
+  // medium 0x30, large 0x31, and small 0x41.
+  const SPIKE3_MOTOR_MAX_VELOCITY = Object.freeze({
+    0x30: 1110,
+    0x31: 1050,
+    0x41: 660,
+  });
 
   // These are intentionally the same three no-hardware probes kept in
   // development/fixtures. A transport test asserts byte-for-byte source
@@ -3536,6 +4039,7 @@ continuous_sensor_loop()
       this._pendingProtocolResponses = new Map();
       this._pendingControllerCommands = new Map();
       this._controllerStartWaiters = new Set();
+      this._programFlowStartWaiters = new Set();
       this._controllerCommandId = 0;
       this._controllerCommandQueue = Promise.resolve();
       this._controllerCommandGeneration = 0;
@@ -3589,18 +4093,18 @@ continuous_sensor_loop()
 
     _resetSensors() {
       this._sensors = {
-        buttons: [0, 0, 0, 0],
-        angle: { pitch: 0, roll: 0, yaw: 0 },
-        acceleration: { x: 0, y: 0, z: 0 },
-        accelerationFiltered: { x: 0, y: 0, z: 0 },
-        gyro: { x: 0, y: 0, z: 0 },
-        gyroFiltered: { x: 0, y: 0, z: 0 },
+        buttons: [0, null, 0, 0],
+        angle: { pitch: null, roll: null, yaw: null },
+        acceleration: { x: null, y: null, z: null },
+        accelerationFiltered: { x: null, y: null, z: null },
+        gyro: { x: null, y: null, z: null },
+        gyroFiltered: { x: null, y: null, z: null },
         orientation: SpikeOrientation.front,
-        faceUp: "top",
-        battery: 100,
-        temperature: 25,
-        hubTemp: 25,
-        power: { current: 0, voltage: 0 },
+        faceUp: null,
+        battery: null,
+        temperature: null,
+        hubTemp: null,
+        power: { current: null, voltage: null },
         gestures: {
           tapped: false,
           doubletapped: false,
@@ -3609,6 +4113,10 @@ continuous_sensor_loop()
         },
         motorPositions: {},
       };
+      this._sensorEdges = new Set();
+      this._lastControllerGesture = null;
+      this._controllerSensorReceivedAt = null;
+      this._reflectionPortsConfigured = null;
     }
 
     _resetCommunicationDiagnostics({ preserveHistory = false } = {}) {
@@ -3827,6 +4335,20 @@ continuous_sensor_loop()
         imuNotificationCount: this._diagnostics.imuNotificationCount,
         imuReceived: this._diagnostics.lastImuReceivedAt !== null,
         angles: { ...this._sensors.angle },
+        acceleration: { ...this._sensors.acceleration },
+        accelerationFiltered: { ...this._sensors.accelerationFiltered },
+        gyro: { ...this._sensors.gyro },
+        gyroFiltered: { ...this._sensors.gyroFiltered },
+        faceUp: this._sensors.faceUp,
+        batteryLevel: this._sensors.battery,
+        hubTemperatureCelsius: this._sensors.hubTemp,
+        controllerSensorReceivedAt: this._controllerSensorReceivedAt,
+        portSensors: Object.fromEntries(
+          Object.entries(this._portValues).map(([port, values]) => [
+            port,
+            { ...values },
+          ])
+        ),
         motorPorts: Object.fromEntries(
           Object.entries(this._sensors.motorPositions).map(([port, values]) => [
             port,
@@ -4049,6 +4571,9 @@ continuous_sensor_loop()
         );
       }
       this._controllerStartWaiters.clear();
+      for (const waiter of this._programFlowStartWaiters) {
+        waiter.reject(this._notConnectedError());
+      }
       this._controllerCommandGeneration++;
       this._controllerStopping = false;
       this._runningControllerSlot = null;
@@ -4214,6 +4739,9 @@ continuous_sensor_loop()
         waiter.reject(cancellation);
       }
       this._controllerStartWaiters.clear();
+      for (const waiter of this._programFlowStartWaiters) {
+        waiter.reject(cancellation);
+      }
       if (attempt?.outcome === "in-progress") {
         attempt.outcome = "cancelled-by-stop";
         attempt.finishedAt = Date.now();
@@ -4442,6 +4970,46 @@ continuous_sensor_loop()
       return this._sendControllerCommand("controller.stop_all");
     }
 
+    _motorMaxVelocity(port) {
+      const reading = this._sensors.motorPositions[port];
+      return SPIKE3_MOTOR_MAX_VELOCITY[reading?.motorType] || null;
+    }
+
+    _motorVelocityForPercent(port, value) {
+      const percent = this._speed(value);
+      if (percent === 0) return 0;
+      const maximum = this._motorMaxVelocity(port);
+      if (!maximum) {
+        throw this._unsupportedError(
+          `motor type is not known for port ${port}; wait for a DeviceMotor notification`
+        );
+      }
+      return Math.round((percent * maximum) / 100);
+    }
+
+    _pairVelocityForPercent(value) {
+      const ports = this._movementMotors;
+      const limits = ports.map((port) => this._motorMaxVelocity(port));
+      if (limits.some((limit) => !limit)) {
+        throw this._unsupportedError(
+          "motor types are not known for both movement ports; wait for DeviceMotor notifications"
+        );
+      }
+      const percent = this._speed(value);
+      return Math.round((percent * Math.min(...limits)) / 100);
+    }
+
+    _stopMode(value) {
+      const modes = ["coast", "brake", "hold"];
+      const mode = Number.isInteger(value)
+        ? modes[value]
+        : String(value ?? "brake").toLowerCase();
+      if (!modes.includes(mode)) {
+        throw this._unsupportedError("invalid motor stop mode");
+      }
+      return mode;
+    }
+
     // ------------------------------------------------------------------ send
 
     /**
@@ -4450,6 +5018,27 @@ continuous_sensor_loop()
      * as a successful hub operation; every command waits for a controller ack.
      */
     sendCommand(method, params) {
+      try {
+        return this._sendCommand(method, params);
+      } catch (error) {
+        return Promise.reject(error);
+      }
+    }
+
+    _sendCommand(method, params) {
+      // Report controller state before validating command-specific metadata.
+      // Otherwise a project that runs a motor block too early gets a
+      // misleading "motor type unknown" error instead of the actual missing
+      // hello handshake.
+      if (this._controllerStopping) {
+        return Promise.reject(this._controllerCommandCancelledError());
+      }
+      if (!this._controllerReady) {
+        const error = new Error(t("controllerNotReady"));
+        error.code = "ERR_CONTROLLER_NOT_READY";
+        this._recordCommunicationError(error);
+        return Promise.reject(error);
+      }
       const p = params || {};
       const port = String(p.port || "").toUpperCase();
       if (port && !SpikePorts.includes(port)) {
@@ -4457,8 +5046,14 @@ continuous_sensor_loop()
           this._unsupportedError(`invalid motor port ${port}`)
         );
       }
-      const velocity = (value) =>
-        Math.max(-720, Math.min(720, Math.round(this._speed(value) * 7.2)));
+      const velocity = (value, targetPort = port) =>
+        this._motorVelocityForPercent(targetPort, value);
+      let stopMode;
+      try {
+        stopMode = this._stopMode(p.stop_mode ?? p.stop ?? "brake");
+      } catch (error) {
+        return Promise.reject(error);
+      }
 
       switch (method) {
         case "scratch.motor_start":
@@ -4466,16 +5061,15 @@ continuous_sensor_loop()
           return this._sendTunnelJSON({
             cmd: "motor.run",
             port,
-            velocity: velocity(p.speed),
+            velocity: velocity(p.speed, port),
+            stop_mode: stopMode,
           });
         case "scratch.motor_stop":
-          if (p.stop && String(p.stop).toLowerCase() !== "brake") {
-            const error = new Error(t("controllerUnsupportedStopAction"));
-            error.code = "ERR_UNSUPPORTED_HUB_COMMAND";
-            this._recordCommunicationError(error);
-            return Promise.reject(error);
-          }
-          return this._sendTunnelJSON({ cmd: "motor.stop", port });
+          return this._sendTunnelJSON({
+            cmd: "motor.stop",
+            port,
+            stop_mode: stopMode,
+          });
         case "scratch.motor_power":
           return this._sendTunnelJSON({
             cmd: "motor.power",
@@ -4494,6 +5088,7 @@ continuous_sensor_loop()
               Math.min(36000, Math.trunc(Number(p.degrees) || 0))
             ),
             velocity: velocity(p.speed),
+            stop_mode: stopMode,
           });
         case "scratch.motor_run_timed":
           return this._sendTunnelJSON({
@@ -4504,6 +5099,7 @@ continuous_sensor_loop()
               Math.min(60000, Math.trunc(Number(p.time) || 1))
             ),
             velocity: velocity(p.speed),
+            stop_mode: stopMode,
           });
         case "scratch.motor_run_to_position":
           return this._sendTunnelJSON({
@@ -4513,7 +5109,8 @@ continuous_sensor_loop()
               -36000,
               Math.min(36000, Math.trunc(Number(p.position) || 0))
             ),
-            velocity: Math.max(1, Math.abs(velocity(p.speed))),
+            velocity: Math.max(1, Math.abs(velocity(p.speed, port))),
+            stop_mode: stopMode,
           });
         case "scratch.display_set_pixel":
           return this._sendTunnelJSON({
@@ -4522,18 +5119,23 @@ continuous_sensor_loop()
             y: Math.trunc(Number(p.y)),
             brightness: Math.max(
               0,
-              Math.min(100, Math.round(Number(p.brightness) * (100 / 9)))
+              Math.min(100, Math.round(Number(p.brightness)))
             ),
           });
         case "scratch.display_clear":
           return this._sendTunnelJSON({ cmd: "matrix.clear" });
         case "scratch.display_pattern": {
-          const pixels = String(p.pixels || "")
-            .replace(/\D/g, "")
-            .padEnd(25, "0")
-            .slice(0, 25)
-            .split("")
-            .map((pixel) => (pixel === "0" ? 0 : 100));
+          const pixels = Array.isArray(p.pixels)
+            ? p.pixels.map((pixel) =>
+                Math.max(0, Math.min(100, Math.round(Number(pixel) || 0)))
+              )
+            : String(p.pixels || "")
+                .slice(0, 25)
+                .padEnd(25, "0")
+                .split("")
+                .map((pixel) =>
+                  Math.round(((parseInt(pixel, 16) || 0) * 100) / 15)
+                );
           return this._sendTunnelJSON({ cmd: "matrix.pattern", pixels });
         }
         case "scratch.display_text": {
@@ -4549,11 +5151,156 @@ continuous_sensor_loop()
           }
           return this._sendTunnelJSON({ cmd: "matrix.text", text: p.text });
         }
+        case "scratch.display_image":
+          return this._sendTunnelJSON({
+            cmd: "matrix.image",
+            image_id: Math.trunc(Number(p.image_id)),
+          });
+        case "scratch.display_orientation":
+          return this._sendTunnelJSON({
+            cmd: "matrix.orientation",
+            orientation: String(p.orientation).toLowerCase(),
+          });
+        case "scratch.center_button_lights":
+          return this._sendTunnelJSON({
+            cmd: "hub.light",
+            color_index: Math.trunc(Number(p.color)),
+          });
+        case "scratch.matrix3_show":
+          return this._sendTunnelJSON({
+            cmd: "matrix3.show",
+            port,
+            pixels: p.pixels,
+          });
+        case "scratch.matrix3_pixel":
+          return this._sendTunnelJSON({
+            cmd: "matrix3.pixel",
+            port,
+            x: Math.trunc(Number(p.x)),
+            y: Math.trunc(Number(p.y)),
+            intensity: Math.trunc(Number(p.intensity)),
+          });
+        case "scratch.matrix3_clear":
+          return this._sendTunnelJSON({ cmd: "matrix3.clear", port });
+        case "scratch.distance_lights":
+          return this._sendTunnelJSON({
+            cmd: "distance.lights",
+            port,
+            pixels: p.pixels,
+          });
+        case "scratch.motor_reset_position":
+          return this._sendTunnelJSON({
+            cmd: "motor.reset_position",
+            port,
+            position: Math.trunc(Number(p.position) || 0),
+          });
+        case "scratch.motor_set_stop_action":
+          return this._sendTunnelJSON({
+            cmd: "motor.set_stop_action",
+            port,
+            stop_mode: stopMode,
+          });
+        case "scratch.motion_reset_yaw":
+          return this._sendTunnelJSON({
+            cmd: "motion.reset_yaw",
+            angle: Math.max(
+              -3600,
+              Math.min(3600, Math.trunc(Number(p.angle) || 0))
+            ),
+          });
+        case "scratch.motor_pair_configure":
+          return this._sendTunnelJSON({
+            cmd: "motor_pair.configure",
+            left_port: String(p.left_port || "").toUpperCase(),
+            right_port: String(p.right_port || "").toUpperCase(),
+          });
+        case "scratch.motor_pair_move":
+          return this._sendTunnelJSON({
+            cmd: "motor_pair.move",
+            steering: Math.max(
+              -100,
+              Math.min(100, Math.round(Number(p.steering) || 0))
+            ),
+            velocity: this._pairVelocityForPercent(p.speed),
+          });
+        case "scratch.motor_pair_move_degrees":
+          return this._sendTunnelJSON({
+            cmd: "motor_pair.move_degrees",
+            degrees: Math.trunc(Number(p.degrees) || 0),
+            steering: Math.max(
+              -100,
+              Math.min(100, Math.round(Number(p.steering) || 0))
+            ),
+            velocity: Math.abs(this._pairVelocityForPercent(p.speed)),
+            stop_mode: stopMode,
+          });
+        case "scratch.motor_pair_move_time":
+          return this._sendTunnelJSON({
+            cmd: "motor_pair.move_time",
+            duration_ms: Math.trunc(Number(p.duration_ms)),
+            steering: Math.max(
+              -100,
+              Math.min(100, Math.round(Number(p.steering) || 0))
+            ),
+            velocity: Math.abs(this._pairVelocityForPercent(p.speed)),
+            stop_mode: stopMode,
+          });
+        case "scratch.motor_pair_move_tank":
+          return this._sendTunnelJSON({
+            cmd: "motor_pair.move_tank",
+            left_velocity: velocity(p.left_speed, this._movementMotors[0]),
+            right_velocity: velocity(p.right_speed, this._movementMotors[1]),
+          });
+        case "scratch.motor_pair_move_tank_degrees":
+          return this._sendTunnelJSON({
+            cmd: "motor_pair.move_tank_degrees",
+            degrees: Math.trunc(Number(p.degrees)),
+            left_velocity: velocity(p.left_speed, this._movementMotors[0]),
+            right_velocity: velocity(p.right_speed, this._movementMotors[1]),
+          });
+        case "scratch.motor_pair_move_tank_time":
+          return this._sendTunnelJSON({
+            cmd: "motor_pair.move_tank_time",
+            duration_ms: Math.trunc(Number(p.duration_ms)),
+            left_velocity: velocity(p.left_speed, this._movementMotors[0]),
+            right_velocity: velocity(p.right_speed, this._movementMotors[1]),
+          });
+        case "scratch.motor_pair_stop":
+          return this._sendTunnelJSON({
+            cmd: "motor_pair.stop",
+            stop_mode: stopMode,
+          });
         case "scratch.sound_beep":
           return this._sendTunnelJSON({
             cmd: "sound.beep",
             frequency: Math.trunc(Number(p.frequency)),
             duration_ms: Math.trunc(Number(p.duration)),
+            volume: Math.trunc(Number(p.volume ?? this._volume)),
+          });
+        case "scratch.sound_wave":
+          return this._sendTunnelJSON({
+            cmd: "sound.wave",
+            frequency: Math.trunc(Number(p.frequency)),
+            duration_ms: Math.trunc(Number(p.duration)),
+            volume: Math.trunc(Number(p.volume ?? this._volume)),
+            waveform: String(p.waveform).toLowerCase(),
+          });
+        case "scratch.sound_volume":
+          return this._sendTunnelJSON({
+            cmd: "sound.volume",
+            volume: Math.trunc(Number(p.volume)),
+          });
+        case "scratch.file_write":
+        case "scratch.file_read":
+        case "scratch.file_delete":
+        case "scratch.file_list":
+          return this._sendTunnelJSON({
+            cmd: "file.service",
+            operation: method.slice("scratch.file_".length),
+            filename: p.filename,
+            text: p.text,
+            offset: p.offset,
+            limit: p.limit,
           });
         default:
           return Promise.reject(
@@ -4679,7 +5426,21 @@ continuous_sensor_loop()
             this._recordCommunicationError(error);
             reject(error);
           },
-          options.timeoutMs ?? (commandName === "matrix.text" ? 60000 : 4000)
+          options.timeoutMs ??
+            (new Set([
+              "matrix.text",
+              "motor.run_degrees",
+              "motor.run_time",
+              "motor.run_to_position",
+              "motor_pair.move_degrees",
+              "motor_pair.move_time",
+              "motor_pair.move_tank_degrees",
+              "motor_pair.move_tank_time",
+              "sound.beep",
+              "sound.wave",
+            ]).has(commandName)
+              ? 120000
+              : 4000)
         );
         this._pendingControllerCommands.set(requestId, {
           resolve,
@@ -4720,26 +5481,66 @@ continuous_sensor_loop()
         "motor.run_degrees": "d",
         "motor.run_time": "t",
         "motor.run_to_position": "a",
+        "motor.reset_position": "j",
+        "motor.set_stop_action": "k",
+        "motion.reset_yaw": "N",
+        "motor_pair.configure": "P",
+        "motor_pair.move": "M",
+        "motor_pair.move_degrees": "G",
+        "motor_pair.move_time": "T",
+        "motor_pair.move_tank": "K",
+        "motor_pair.move_tank_degrees": "L",
+        "motor_pair.move_tank_time": "Y",
+        "motor_pair.stop": "Z",
         "matrix.pixel": "l",
         "matrix.pattern": "m",
         "matrix.text": "w",
         "matrix.clear": "c",
+        "matrix.image": "I",
+        "matrix.orientation": "O",
+        "hub.light": "H",
+        "matrix3.show": "3",
+        "matrix3.pixel": "4",
+        "matrix3.clear": "5",
+        "distance.lights": "6",
         "sound.beep": "b",
+        "sound.wave": "W",
+        "sound.volume": "V",
         "sound.stop": "q",
+        "file.service": "F",
+        "sensor.read": "R",
       };
       const fieldCodes = {
         port: "p",
         velocity: "v",
+        left_velocity: "j",
+        right_velocity: "k",
+        left_port: "q",
+        right_port: "r",
+        steering: "e",
         degrees: "d",
         duration_ms: "t",
         position: "g",
         power: "u",
+        stop_mode: "n",
         x: "x",
         y: "y",
         brightness: "b",
         pixels: "z",
         ["text"]: "t",
         frequency: "f",
+        waveform: "w",
+        volume: "n",
+        image_id: "g",
+        orientation: "o",
+        color_index: "n",
+        angle: "a",
+        intensity: "n",
+        operation: "k",
+        filename: "n",
+        offset: "g",
+        limit: "u",
+        ports: "z",
       };
       const code = commandCodes[commandName];
       if (!code)
@@ -4752,12 +5553,255 @@ continuous_sensor_loop()
         const fieldCode = fieldCodes[key];
         if (!fieldCode)
           throw this._unsupportedError(`unsupported controller field ${key}`);
-        encoded[fieldCode] =
-          key === "pixels" && Array.isArray(value)
-            ? value.map((pixel) => (Number(pixel) > 0 ? "9" : "0")).join("")
-            : value;
+        encoded[fieldCode] = value;
       }
       return encoded;
+    }
+
+    _consumeSensorEdge(key) {
+      if (!this._sensorEdges.has(key)) return false;
+      this._sensorEdges.delete(key);
+      return true;
+    }
+
+    _recordPortEdges(port, previous, next) {
+      const colors = [
+        "black",
+        "magenta",
+        "purple",
+        "blue",
+        "azure",
+        "turquoise",
+        "green",
+        "yellow",
+        "orange",
+        "red",
+        "white",
+      ];
+      if (
+        next?.type === "color" &&
+        next.color >= 0 &&
+        next.color < colors.length
+      ) {
+        const nextColor = colors[next.color];
+        const previousColor =
+          previous?.type === "color" ? colors[previous.color] : null;
+        if (nextColor !== previousColor)
+          this._sensorEdges.add(`color:${port}:${nextColor}`);
+      }
+      if (next?.type === "force") {
+        const previousPressed =
+          previous?.type === "force" && Boolean(previous.pressed);
+        const pressed = Boolean(next.pressed);
+        const hardPressed = Number(next.force) > 8;
+        const wasHardPressed =
+          previous?.type === "force" && Number(previous.force) > 8;
+        if (!previousPressed && pressed)
+          this._sensorEdges.add(`force:${port}:pressed`);
+        if (previousPressed && !pressed)
+          this._sensorEdges.add(`force:${port}:released`);
+        if (!wasHardPressed && hardPressed)
+          this._sensorEdges.add(`force:${port}:hard pressed`);
+      }
+    }
+
+    _handleControllerSensorSnapshot(snapshot) {
+      if (!snapshot || typeof snapshot !== "object") return;
+      this._controllerSensorReceivedAt = Date.now();
+      const finiteArray = (value, length) =>
+        Array.isArray(value) &&
+        value.length === length &&
+        value.every(
+          (item) => typeof item === "number" && Number.isFinite(item)
+        );
+      if (finiteArray(snapshot.angles, 3)) {
+        // LEGO's SPIKE 3 motion_sensor.tilt_angles() returns decidegrees.
+        const [yaw, pitch, roll] = snapshot.angles.map((value) => value / 10);
+        this._sensors.angle = { yaw, pitch, roll };
+      } else if (Object.prototype.hasOwnProperty.call(snapshot, "angles")) {
+        this._sensors.angle = { yaw: null, pitch: null, roll: null };
+      }
+      if (finiteArray(snapshot.gyro_filtered, 3)) {
+        const [x, y, z] = snapshot.gyro_filtered.map((value) => value / 10);
+        this._sensors.gyroFiltered = { x, y, z };
+      } else if (
+        Object.prototype.hasOwnProperty.call(snapshot, "gyro_filtered")
+      ) {
+        this._sensors.gyroFiltered = { x: null, y: null, z: null };
+      }
+      if (finiteArray(snapshot.acceleration_filtered, 3)) {
+        // The SPIKE 3 API and the block labels use milli-g.
+        const [x, y, z] = snapshot.acceleration_filtered;
+        this._sensors.accelerationFiltered = { x, y, z };
+      } else if (
+        Object.prototype.hasOwnProperty.call(snapshot, "acceleration_filtered")
+      ) {
+        this._sensors.accelerationFiltered = { x: null, y: null, z: null };
+      }
+      if (typeof snapshot.up_face === "string") {
+        const face = snapshot.up_face.toLowerCase();
+        if (
+          ["top", "front", "right", "bottom", "back", "left"].includes(face)
+        ) {
+          this._sensors.faceUp = face;
+          this._sensors.orientation = {
+            top: SpikeOrientation.up,
+            front: SpikeOrientation.front,
+            right: SpikeOrientation.rightside,
+            bottom: SpikeOrientation.down,
+            back: SpikeOrientation.back,
+            left: SpikeOrientation.leftside,
+          }[face];
+        }
+      } else if (Object.prototype.hasOwnProperty.call(snapshot, "up_face")) {
+        this._sensors.faceUp = null;
+        this._sensors.orientation = null;
+      }
+      if (snapshot.gesture !== undefined) {
+        const gesture = snapshot.gesture;
+        const validGestures = ["tapped", "doubletapped", "shake", "freefall"];
+        if (
+          validGestures.includes(gesture) &&
+          gesture !== this._lastControllerGesture
+        ) {
+          this._sensorEdges.add(`gesture:${gesture}`);
+        }
+        this._lastControllerGesture = validGestures.includes(gesture)
+          ? gesture
+          : null;
+        for (const name of validGestures)
+          this._sensors.gestures[name] = name === gesture;
+      } else if (Object.prototype.hasOwnProperty.call(snapshot, "gesture")) {
+        this._lastControllerGesture = null;
+        for (const name of ["tapped", "doubletapped", "shake", "freefall"]) {
+          this._sensors.gestures[name] = false;
+        }
+      }
+      if (snapshot.buttons && typeof snapshot.buttons === "object") {
+        for (const name of ["left", "right"]) {
+          const index = name === "left" ? 0 : 2;
+          const pressed = snapshot.buttons[name];
+          if (typeof pressed !== "boolean") {
+            this._sensors.buttons[index] = null;
+            continue;
+          }
+          const previous = this._sensors.buttons[index] === 1;
+          this._sensors.buttons[index] = pressed ? 1 : 0;
+          if (!previous && pressed) this._sensorEdges.add(`button:${name}`);
+        }
+        // The public SPIKE 3 button API does not expose the power button.
+        this._sensors.buttons[1] = null;
+      }
+      if (
+        typeof snapshot.hub_temperature === "number" &&
+        Number.isFinite(snapshot.hub_temperature)
+      ) {
+        this._sensors.hubTemp = snapshot.hub_temperature / 10;
+      } else if (
+        Object.prototype.hasOwnProperty.call(snapshot, "hub_temperature")
+      ) {
+        this._sensors.hubTemp = null;
+      }
+      if (snapshot.ports && typeof snapshot.ports === "object") {
+        for (const [port, reading] of Object.entries(snapshot.ports)) {
+          if (
+            !SpikePorts.includes(port) ||
+            !reading ||
+            typeof reading !== "object"
+          )
+            continue;
+          const previous = this._portValues[port] || {};
+          const next = { ...previous };
+          if (
+            typeof reading.reflection === "number" &&
+            Number.isFinite(reading.reflection)
+          ) {
+            next.type = "color";
+            next.reflection = reading.reflection;
+          } else {
+            delete next.reflection;
+          }
+          if (
+            typeof reading.distance_mm === "number" &&
+            Number.isFinite(reading.distance_mm)
+          ) {
+            next.type = "distance";
+            next.distanceMM =
+              reading.distance_mm < 0 ? null : reading.distance_mm;
+            next.distance =
+              reading.distance_mm < 0 ? null : reading.distance_mm / 10;
+          } else if (
+            Object.prototype.hasOwnProperty.call(reading, "distance_mm")
+          ) {
+            next.distanceMM = null;
+            next.distance = null;
+          }
+          if (
+            typeof reading.force === "number" &&
+            Number.isFinite(reading.force)
+          ) {
+            next.type = "force";
+            next.force = reading.force;
+            if (typeof reading.pressed === "boolean")
+              next.pressed = reading.pressed;
+          } else if (Object.prototype.hasOwnProperty.call(reading, "force")) {
+            delete next.force;
+            delete next.pressed;
+          }
+          if (
+            typeof reading.color === "number" &&
+            Number.isInteger(reading.color)
+          ) {
+            next.type = "color";
+            next.color = reading.color;
+          } else if (Object.prototype.hasOwnProperty.call(reading, "color")) {
+            delete next.color;
+          }
+          if (finiteArray(reading.rgb, 3)) {
+            next.type = "color";
+            [next.red, next.green, next.blue] = reading.rgb;
+          } else if (Object.prototype.hasOwnProperty.call(reading, "rgb")) {
+            delete next.red;
+            delete next.green;
+            delete next.blue;
+          }
+          this._recordPortEdges(port, previous, next);
+          this._portValues[port] = next;
+        }
+        for (const port of SpikePorts) {
+          if (Object.prototype.hasOwnProperty.call(snapshot.ports, port))
+            continue;
+          const current = this._portValues[port];
+          if (
+            !current ||
+            !Object.prototype.hasOwnProperty.call(current, "reflection")
+          )
+            continue;
+          const next = { ...current };
+          delete next.reflection;
+          this._portValues[port] = next;
+        }
+      }
+    }
+
+    _syncReflectionPorts() {
+      if (!this._controllerReady) return Promise.resolve();
+      const ports = SpikePorts.filter(
+        (port) => this._portValues[port]?.type === "color"
+      );
+      const signature = ports.join(",");
+      if (signature === this._reflectionPortsConfigured)
+        return Promise.resolve();
+      this._reflectionPortsConfigured = signature;
+      return this._sendControllerCommand("sensor.read", { ports }).catch(
+        (error) => {
+          if (this._reflectionPortsConfigured === signature) {
+            this._reflectionPortsConfigured = null;
+          }
+          this._recordCommunicationError(error);
+          throw error;
+        }
+      );
     }
 
     _handleTunnelMessage(data) {
@@ -4785,6 +5829,10 @@ continuous_sensor_loop()
         this._recordCommunicationError("controller response must be an object");
         return;
       }
+      if (response.e === "sensor") {
+        this._handleControllerSensorSnapshot(response.v);
+        return;
+      }
       if (response.c === "o" || response.event === "pong") {
         this._lastControllerPongAt = Date.now();
         this._diagnostics.lastControllerResponseAt = this._lastControllerPongAt;
@@ -4798,6 +5846,31 @@ continuous_sensor_loop()
             `${response.error?.code || response.error || "controller_error"}: ${response.error?.message || response.detail || "unknown controller error"}`
           );
         }
+        return;
+      }
+      const state = response.result && response.result.state;
+      if (
+        response.ok === true &&
+        ["accepted", "started"].includes(state) &&
+        new Set([
+          "motor.run_degrees",
+          "motor.run_time",
+          "motor.run_to_position",
+          "motor_pair.move_degrees",
+          "motor_pair.move_time",
+          "motor_pair.move_tank_degrees",
+          "motor_pair.move_tank_time",
+          "sound.beep",
+          "sound.wave",
+          "matrix.text",
+        ]).has(pending.commandName)
+      ) {
+        pending.lastState = state;
+        this._recordDiagnosticEvent("controller-command-stage", {
+          requestId,
+          command: pending.commandName,
+          state,
+        });
         return;
       }
       this._pendingControllerCommands.delete(requestId);
@@ -4839,6 +5912,7 @@ continuous_sensor_loop()
           version: this._controllerVersion,
           requestId,
         });
+        this._syncReflectionPorts().catch(() => {});
         this._startControllerHeartbeat();
         const attempt = this._diagnostics.controllerInstallAttempt;
         if (attempt?.outcome === "in-progress") {
@@ -5136,6 +6210,34 @@ continuous_sensor_loop()
       });
     }
 
+    _waitForProgramFlowStart(afterTimestamp, timeoutMs = 7000) {
+      return new Promise((resolve, reject) => {
+        const waiter = {
+          afterTimestamp,
+          resolve: (notification) => {
+            this._programFlowStartWaiters.delete(waiter);
+            clearTimeout(waiter.timeout);
+            resolve(notification);
+          },
+          reject: (error) => {
+            this._programFlowStartWaiters.delete(waiter);
+            clearTimeout(waiter.timeout);
+            reject(error);
+          },
+          timeout: null,
+        };
+        waiter.timeout = setTimeout(() => {
+          waiter.reject(
+            Object.assign(
+              new Error("Hub did not send a ProgramFlow start notification"),
+              { code: "ERR_PROGRAM_FLOW_START_TIMEOUT" }
+            )
+          );
+        }, timeoutMs);
+        this._programFlowStartWaiters.add(waiter);
+      });
+    }
+
     probeController() {
       if (!this.isConnected()) return Promise.reject(this._notConnectedError());
       this._diagnostics.controllerStatus = "checking";
@@ -5208,6 +6310,161 @@ continuous_sensor_loop()
             throw error;
           }
         }
+      }
+    }
+
+    async uploadProgramToSlot(source, slot) {
+      if (!this.isConnected()) throw this._notConnectedError();
+      if (!Number.isInteger(slot) || slot < 0 || slot > 19) {
+        throw this._unsupportedError(
+          "program slot must be an integer from 0 to 19"
+        );
+      }
+      if (this._link?.kind !== "gatt") {
+        throw this._unsupportedError("program transfer requires BLE GATT");
+      }
+      if (this._runningControllerSlot === slot) {
+        throw this._unsupportedError(
+          "the selected slot is running the Brickwright controller"
+        );
+      }
+      if (typeof source !== "string" || !source.length) {
+        throw this._unsupportedError("program source is empty");
+      }
+      const generation = this._controllerCommandGeneration;
+      const program = new TextEncoder().encode(source);
+      const crc = this._crc32(program);
+      this._recordDiagnosticEvent("user-program-transfer-started", {
+        slot,
+        fileName: "program.py",
+        bytes: program.length,
+        crc32: `0x${crc.toString(16).padStart(8, "0")}`,
+      });
+      this._assertControllerGeneration(generation);
+      await this._waitForInfoResponse();
+      this._assertControllerGeneration(generation);
+      const clear = await this._requestHubResponse(
+        this._buildClearSlotRequest(slot),
+        SPIKE3.CLEAR_SLOT_RESPONSE
+      );
+      this._assertControllerGeneration(generation);
+      // LEGO's transfer example accepts a non-acknowledged clear when the
+      // selected slot is already empty; the response is still recorded.
+      this._recordDiagnosticEvent("user-program-slot-clear-response", {
+        slot,
+        acknowledged: clear.ok,
+        status: clear.status,
+      });
+      const upload = await this._requestHubResponse(
+        this._buildStartFileUploadRequest("program.py", slot, crc),
+        SPIKE3.START_FILE_UPLOAD_RESPONSE
+      );
+      this._assertControllerGeneration(generation);
+      if (!upload.ok) throw new Error("Hub rejected StartFileUploadRequest");
+      let runningCrc = 0;
+      let transferredBytes = 0;
+      for (
+        let offset = 0;
+        offset < program.length;
+        offset += this._maxChunkSize
+      ) {
+        this._assertControllerGeneration(generation);
+        const chunk = program.slice(offset, offset + this._maxChunkSize);
+        runningCrc = this._crc32(chunk, runningCrc);
+        const response = await this._requestHubResponse(
+          this._buildTransferChunkRequest(runningCrc, chunk),
+          SPIKE3.TRANSFER_CHUNK_RESPONSE
+        );
+        this._assertControllerGeneration(generation);
+        if (!response.ok)
+          throw new Error(`Hub rejected program chunk at byte ${offset}`);
+        transferredBytes += chunk.length;
+      }
+      const result = {
+        slot,
+        fileName: "program.py",
+        bytes: program.length,
+        crc32: `0x${crc.toString(16).padStart(8, "0")}`,
+        transferredBytes,
+      };
+      this._recordDiagnosticEvent("user-program-transfer-complete", result);
+      return result;
+    }
+
+    async clearProgramSlot(slot) {
+      if (!this.isConnected()) throw this._notConnectedError();
+      if (!Number.isInteger(slot) || slot < 0 || slot > 19) {
+        throw this._unsupportedError(
+          "program slot must be an integer from 0 to 19"
+        );
+      }
+      if (this._runningControllerSlot === slot) {
+        throw this._unsupportedError(
+          "cannot clear the currently running program slot"
+        );
+      }
+      await this._waitForInfoResponse();
+      const response = await this._requestHubResponse(
+        this._buildClearSlotRequest(slot),
+        SPIKE3.CLEAR_SLOT_RESPONSE
+      );
+      if (!response.ok)
+        throw new Error(
+          "Hub did not confirm that the program slot was cleared"
+        );
+      this._recordDiagnosticEvent("user-program-slot-cleared", {
+        slot,
+        status: response.status,
+      });
+      return { slot, cleared: true };
+    }
+
+    async startProgramInSlot(slot) {
+      if (!this.isConnected()) throw this._notConnectedError();
+      if (!Number.isInteger(slot) || slot < 0 || slot > 19) {
+        throw this._unsupportedError(
+          "program slot must be an integer from 0 to 19"
+        );
+      }
+      if (this._link?.kind !== "gatt") {
+        throw this._unsupportedError("program start requires BLE GATT");
+      }
+      const afterTimestamp = Date.now();
+      const startNotification = this._waitForProgramFlowStart(afterTimestamp);
+      if (this._controllerHeartbeatTimer !== null) {
+        clearInterval(this._controllerHeartbeatTimer);
+        this._controllerHeartbeatTimer = null;
+      }
+      this._controllerReady = false;
+      this._controllerVersion = null;
+      this._diagnostics.controllerStatus = "starting-user-program";
+      this._runningControllerSlot = slot;
+      this._recordDiagnosticEvent("user-program-start-requested", { slot });
+      try {
+        const response = await this._requestHubResponse(
+          this._buildProgramFlowRequest(false, slot),
+          SPIKE3.PROGRAM_FLOW_RESPONSE
+        );
+        if (!response.ok)
+          throw new Error("Hub rejected ProgramFlowRequest(start)");
+        this._recordDiagnosticEvent("user-program-start-request-accepted", {
+          slot,
+          responseAt: response.receivedAt,
+          status: response.status,
+        });
+        const notification = await startNotification;
+        this._recordDiagnosticEvent("user-program-start-notified", {
+          slot,
+          notificationAt: notification.timestamp,
+        });
+        this._diagnostics.controllerStatus = "not-verified";
+        return { slot, startedAt: notification.timestamp };
+      } catch (error) {
+        startNotification.catch(() => {});
+        this._runningControllerSlot = null;
+        this._diagnostics.controllerStatus = "not-verified";
+        this._recordCommunicationError(error);
+        throw error;
       }
     }
 
@@ -6418,6 +7675,12 @@ continuous_sensor_loop()
         }
       }
 
+      if (action === 0) {
+        for (const waiter of [...this._programFlowStartWaiters]) {
+          if (timestamp >= waiter.afterTimestamp) waiter.resolve(notification);
+        }
+      }
+
       const stopAttempt = this._diagnostics.lastStopAttempt;
       if (
         action === 1 &&
@@ -6626,22 +7889,16 @@ continuous_sensor_loop()
               const v = data[offset + lo] | (data[offset + lo + 1] << 8);
               return v > 32767 ? v - 65536 : v;
             };
-            this._sensors.faceUp = Spike3Hub.FACES[data[offset + 1]] || "top";
-            this._sensors.angle.yaw = s16(3);
-            this._sensors.angle.pitch = s16(5);
-            this._sensors.angle.roll = s16(7);
+            this._sensors.faceUp = Spike3Hub.FACES[data[offset + 1]] ?? null;
+            this._sensors.angle.yaw = s16(3) / 10;
+            this._sensors.angle.pitch = s16(5) / 10;
+            this._sensors.angle.roll = s16(7) / 10;
+            // The extension reports milli-g, matching the Scratch block's unit.
             this._sensors.acceleration.x = s16(9);
             this._sensors.acceleration.y = s16(11);
-            this._sensors.acceleration.z = s16(13);
-            this._sensors.accelerationFiltered.x = this._sensors.acceleration.x;
-            this._sensors.accelerationFiltered.y = this._sensors.acceleration.y;
-            this._sensors.accelerationFiltered.z = this._sensors.acceleration.z;
-            this._sensors.gyro.x = s16(15);
-            this._sensors.gyro.y = s16(17);
-            this._sensors.gyro.z = s16(19);
-            this._sensors.gyroFiltered.x = this._sensors.gyro.x;
-            this._sensors.gyroFiltered.y = this._sensors.gyro.y;
-            this._sensors.gyroFiltered.z = this._sensors.gyro.z;
+            this._sensors.gyro.x = s16(15) / 10;
+            this._sensors.gyro.y = s16(17) / 10;
+            this._sensors.gyro.z = s16(19) / 10;
             this._diagnostics.imuNotificationCount++;
             this._diagnostics.lastImuReceivedAt = Date.now();
             offset += 21;
@@ -6691,6 +7948,7 @@ continuous_sensor_loop()
               const normalizedPosition = ((absolutePosition % 360) + 360) % 360;
               this._portValues[port] = {
                 type: "motor",
+                motorType: data[offset + 2],
                 speed: speed,
                 degreesCounted: position,
                 position: normalizedPosition,
@@ -6699,6 +7957,7 @@ continuous_sensor_loop()
                 absolutePosition: absolutePosition,
               };
               this._sensors.motorPositions[port] = {
+                motorType: data[offset + 2],
                 relativePosition: position,
                 absolutePosition: absolutePosition,
                 speed: speed,
@@ -6719,18 +7978,20 @@ continuous_sensor_loop()
               const red = data[offset + 3] | (data[offset + 4] << 8);
               const green = data[offset + 5] | (data[offset + 6] << 8);
               const blue = data[offset + 7] | (data[offset + 8] << 8);
+              const previous = this._portValues[port];
+              const rawColor =
+                data[offset + 2] > 127
+                  ? data[offset + 2] - 256
+                  : data[offset + 2];
               this._portValues[port] = {
                 type: "color",
-                color: data[offset + 2],
-                // The 3.x colour record has no reflection or ambient channel.
-                // Deriving them from RGB would be invention; they stay 0 and
-                // getReflection/getAmbientLight report unsupported in this mode.
-                reflection: 0,
-                ambient: 0,
+                color: rawColor,
                 red: red,
                 green: green,
                 blue: blue,
               };
+              this._recordPortEdges(port, previous, this._portValues[port]);
+              this._syncReflectionPorts().catch(() => {});
             }
             offset += 9;
             break;
@@ -6751,8 +8012,8 @@ continuous_sensor_loop()
                 // and `getDistance` inherited that meaning, so it is converted
                 // once here and `distanceMM` keeps the raw figure for the
                 // blocks that ask for millimetres explicitly.
-                distance: mm < 0 ? 0 : mm / 10,
-                distanceMM: mm < 0 ? 0 : mm,
+                distance: mm < 0 ? null : mm / 10,
+                distanceMM: mm < 0 ? null : mm,
               };
             }
             offset += 4;
@@ -6766,11 +8027,13 @@ continuous_sensor_loop()
             }
             const port = SpikePorts[data[offset + 1]];
             if (port) {
+              const previous = this._portValues[port];
               this._portValues[port] = {
                 type: "force",
                 force: data[offset + 2],
                 pressed: data[offset + 3] === 1,
               };
+              this._recordPortEdges(port, previous, this._portValues[port]);
             }
             offset += 4;
             break;
@@ -7161,7 +8424,7 @@ continuous_sensor_loop()
       return this.active.orientation;
     }
     get faceUp() {
-      return this.active.faceUp || "top";
+      return this.active.faceUp ?? "";
     }
     get portValues() {
       return this.active.portValues;
@@ -7334,19 +8597,30 @@ continuous_sensor_loop()
 
   HubRouter.SPIKE3_CAPABILITIES = [
     "motor",
+    "motor-pair",
     "display",
     "display-image",
     "sound",
+    "sound-waveform",
     "imu",
     "imu-gyro",
     "face-up",
+    "orientation-name",
+    "gesture",
+    "button",
     "color",
+    "reflection",
     "distance",
+    "distance-lights",
     "force",
     "battery",
+    "hub-temperature",
     "python",
+    "files",
     "streaming",
     "matrix3x3",
+    "center-button",
+    "rotate-display",
   ];
 
   // ============================================================================
@@ -7487,14 +8761,39 @@ continuous_sensor_loop()
 
     generateHeader() {
       this.addLine("#!/usr/bin/env python3");
-      this.addLine("# Generated from Scratch by SPIKE Prime Extension");
+      this.addLine(
+        "# Generated from Scratch by Brickwright SPIKE Prime Extension"
+      );
+      this.addLine(
+        "# Uses the SPIKE 3 Python API; accessory APIs require matching hardware."
+      );
       this.addLine("# Language: " + currentLang);
       this.addLine("");
       this.addLine("import hub");
-      this.addLine("import utime");
-      this.addLine("import sys");
+      this.addLine("import motor");
+      this.addLine("import motor_pair");
+      this.addLine("import runloop");
+      this.addLine("import device");
+      this.addLine("import time");
       this.addLine("import math");
       this.addLine("import random");
+      this.addLine("try:");
+      this.indentLevel++;
+      this.addLine("import os");
+      this.indentLevel--;
+      this.addLine("except ImportError:");
+      this.indentLevel++;
+      this.addLine("import uos as os");
+      this.indentLevel--;
+      this.addLine("import color");
+      this.addLine("import orientation");
+      this.addLine("import color_matrix");
+      this.addLine("import color_sensor");
+      this.addLine("import distance_sensor");
+      this.addLine("import force_sensor");
+      this.addLine(
+        "from hub import port, light_matrix, sound, light, motion_sensor, button"
+      );
       this.addLine("");
       this.addLine("# Global stop flag");
       this.addLine("stop_all = False");
@@ -7519,50 +8818,384 @@ continuous_sensor_loop()
       this.addLine("variables = {}");
       this.addLine("broadcasts = {}");
       this.addLine("movement_motors = ['A', 'B']  # Default movement motors");
+      this.addLine("movement_pair_configured = False");
       this.addLine("movement_speed = 75  # Default speed");
-      this.addLine("timer_start = utime.ticks_ms()  # Timer start time");
+      this.addLine("movement_wheel_circumference_cm = None");
+      this.addLine("motor_stop_modes = {}");
+      this.addLine("motor_speeds = {name: 75 for name in 'ABCDEF'}");
+      this.addLine("timer_start = time.ticks_ms()  # Timer start time");
       this.addLine("");
 
-      // Motor helper
-      this.addLine("def get_motor(port):");
+      // Translate the block vocabulary to the SPIKE 3 modules. Do not call
+      // the removed hub.port[*].motor API from generated programs.
+      this.addLine("def port_ref(name):");
       this.indentLevel++;
-      this.addLine('"""Get motor on specified port"""');
-      this.addLine("try:");
+      this.addLine("name = str(name).upper()");
+      this.addLine("if name not in ('A', 'B', 'C', 'D', 'E', 'F'):");
       this.indentLevel++;
-      this.addLine("return hub.port[port].motor");
+      this.addLine("raise ValueError('invalid SPIKE port: ' + name)");
       this.indentLevel--;
-      this.addLine("except:");
+      this.addLine("return getattr(port, name)");
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine("def require_device(name):");
       this.indentLevel++;
-      this.addLine("return None");
+      this.addLine("target = port_ref(name)");
+      this.addLine("if not device.ready(target):");
+      this.indentLevel++;
+      this.addLine(
+        "raise RuntimeError('No ready device on port ' + str(name))"
+      );
+      this.indentLevel--;
+      this.addLine("return target");
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine("def motor_velocity(target, percent):");
+      this.indentLevel++;
+      this.addLine("percent = max(-100, min(100, int(percent)))");
+      this.addLine("if percent == 0: return 0");
+      this.addLine("device_id = device.id(target)");
+      this.addLine("limits = {48: 1110, 49: 1050, 65: 660}");
+      this.addLine("maximum = limits.get(device_id)");
+      this.addLine("if maximum is None:");
+      this.indentLevel++;
+      this.addLine(
+        "raise RuntimeError('Unknown motor type on this port: ' + str(device_id))"
+      );
+      this.indentLevel--;
+      this.addLine("return int(maximum * percent / 100)");
+      this.indentLevel--;
+      this.addLine("");
+      this.addLine("def pair_velocity(percent):");
+      this.indentLevel++;
+      this.addLine(
+        "limits = [abs(motor_velocity(require_device(name), percent)) for name in movement_motors]"
+      );
+      this.addLine("return min(limits)");
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine("def ensure_movement_pair():");
+      this.indentLevel++;
+      this.addLine("global movement_pair_configured");
+      this.addLine("if not movement_pair_configured:");
+      this.indentLevel++;
+      this.addLine(
+        "motor_pair.pair(motor_pair.PAIR_1, require_device(movement_motors[0]), require_device(movement_motors[1]))"
+      );
+      this.addLine("movement_pair_configured = True");
       this.indentLevel--;
       this.indentLevel--;
       this.addLine("");
 
-      // Sensor helper
+      this.addLine("class MotorHandle:");
+      this.indentLevel++;
+      this.addLine("def __init__(self, name):");
+      this.indentLevel++;
+      this.addLine("self.name = str(name).upper()");
+      this.addLine("self.port = require_device(self.name)");
+      this.indentLevel--;
+      this.addLine("def start(self, percent=None):");
+      this.indentLevel++;
+      this.addLine("if percent is None: percent = motor_speeds[self.name]");
+      this.addLine("motor.run(self.port, motor_velocity(self.port, percent))");
+      this.indentLevel--;
+      this.addLine("async def run_for_degrees(self, degrees, percent=None):");
+      this.indentLevel++;
+      this.addLine("if percent is None: percent = motor_speeds[self.name]");
+      this.addLine(
+        "return await motor.run_for_degrees(self.port, int(degrees), motor_velocity(self.port, percent), stop=motor_stop_modes.get(self.name, motor.BRAKE))"
+      );
+      this.indentLevel--;
+      this.addLine("async def run_for_time(self, duration, percent=None):");
+      this.indentLevel++;
+      this.addLine("if percent is None: percent = motor_speeds[self.name]");
+      this.addLine(
+        "return await motor.run_for_time(self.port, int(duration), motor_velocity(self.port, percent), stop=motor_stop_modes.get(self.name, motor.BRAKE))"
+      );
+      this.indentLevel--;
+      this.addLine("async def run_to_position(self, position, percent=None):");
+      this.indentLevel++;
+      this.addLine("if percent is None: percent = motor_speeds[self.name]");
+      this.addLine(
+        "return await motor.run_to_absolute_position(self.port, int(position), abs(motor_velocity(self.port, percent)), stop=motor_stop_modes.get(self.name, motor.BRAKE))"
+      );
+      this.indentLevel--;
+      this.addLine("def pwm(self, percent):");
+      this.indentLevel++;
+      this.addLine(
+        "motor.set_duty_cycle(self.port, max(-10000, min(10000, int(percent) * 100)))"
+      );
+      this.indentLevel--;
+      this.addLine("def stop(self):");
+      this.indentLevel++;
+      this.addLine(
+        "motor.stop(self.port, stop=motor_stop_modes.get(self.name, motor.BRAKE))"
+      );
+      this.indentLevel--;
+      this.addLine("def preset(self, position):");
+      this.indentLevel++;
+      this.addLine("motor.reset_relative_position(self.port, int(position))");
+      this.indentLevel--;
+      this.addLine("def get(self):");
+      this.indentLevel++;
+      this.addLine(
+        "return (motor.velocity(self.port), motor.relative_position(self.port), motor.absolute_position(self.port))"
+      );
+      this.indentLevel--;
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine("def get_motor(name):");
+      this.indentLevel++;
+      this.addLine("return MotorHandle(name)");
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine("def set_motor_stop_action(name, action):");
+      this.indentLevel++;
+      this.addLine(
+        "modes = {'coast': motor.COAST, 'brake': motor.BRAKE, 'hold': motor.HOLD}"
+      );
+      this.addLine(
+        "if action not in modes: raise ValueError('invalid motor stop action')"
+      );
+      this.addLine("motor_stop_modes[str(name).upper()] = modes[action]");
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine("def sound_waveform(name):");
+      this.indentLevel++;
+      this.addLine("value = getattr(sound, name, None)");
+      this.addLine(
+        "if value is None: raise NotImplementedError('sound waveform is unavailable: ' + str(name))"
+      );
+      this.addLine("return value");
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine("def spike_color(index):");
+      this.indentLevel++;
+      this.addLine(
+        "names = ('BLACK', 'MAGENTA', 'PURPLE', 'BLUE', 'AZURE', 'TURQUOISE', 'GREEN', 'YELLOW', 'ORANGE', 'RED', 'WHITE')"
+      );
+      this.addLine("index = int(index)");
+      this.addLine(
+        "if index < 0 or index >= len(names): raise ValueError('SPIKE color index must be 0..10')"
+      );
+      this.addLine("value = getattr(color, names[index], None)");
+      this.addLine(
+        "if value is None: raise RuntimeError('SPIKE color constant unavailable: ' + names[index])"
+      );
+      this.addLine("return value");
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine("def spike_color_name(value):");
+      this.indentLevel++;
+      this.addLine(
+        "for name in ('BLACK', 'MAGENTA', 'PURPLE', 'BLUE', 'AZURE', 'TURQUOISE', 'GREEN', 'YELLOW', 'ORANGE', 'RED', 'WHITE'):"
+      );
+      this.indentLevel++;
+      this.addLine(
+        "if getattr(color, name, object()) == value: return name.lower()"
+      );
+      this.indentLevel--;
+      this.addLine("return 'none'");
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine("def require_reading(value, name):");
+      this.indentLevel++;
+      this.addLine(
+        "if value is None: raise RuntimeError(name + ' reading is unavailable')"
+      );
+      this.addLine("return value");
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine("def distance_cm(name):");
+      this.indentLevel++;
+      this.addLine("value = distance_sensor.distance(require_device(name))");
+      this.addLine(
+        "if value is None or value < 0: raise RuntimeError('distance measurement is unavailable')"
+      );
+      this.addLine("return value / 10");
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine("def unsupported_reporter(name):");
+      this.indentLevel++;
+      this.addLine(
+        "raise NotImplementedError(name + ' is not available in the SPIKE 3 public Python API')"
+      );
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine("def log_path(name):");
+      this.indentLevel++;
+      this.addLine("name = str(name).strip()");
+      this.addLine(
+        "allowed = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-'"
+      );
+      this.addLine(
+        "if not name or len(name) > 40 or name in ('.', '..') or any(char not in allowed for char in name): raise ValueError('invalid log file name')"
+      );
+      this.addLine("return 'brickwright-log-' + name");
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine("def read_log(name):");
+      this.indentLevel++;
+      this.addLine(
+        "with open(log_path(name), 'r') as file: return file.read()"
+      );
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine("def list_log_files():");
+      this.indentLevel++;
+      this.addLine(
+        "return sorted(name[len('brickwright-log-'):] for name in os.listdir() if name.startswith('brickwright-log-'))"
+      );
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine("def face_up_name():");
+      this.indentLevel++;
+      this.addLine("value = motion_sensor.up_face()");
+      this.addLine(
+        "for name in ('TOP', 'FRONT', 'RIGHT', 'BOTTOM', 'BACK', 'LEFT'):"
+      );
+      this.indentLevel++;
+      this.addLine(
+        "if getattr(motion_sensor, name, object()) == value: return name.lower()"
+      );
+      this.indentLevel--;
+      this.addLine("return 'unknown'");
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine("def hub_button_pressed(name):");
+      this.indentLevel++;
+      this.addLine("name = str(name).lower()");
+      this.addLine("if name == 'left': return button.pressed(button.LEFT)");
+      this.addLine("if name == 'right': return button.pressed(button.RIGHT)");
+      this.addLine(
+        "raise NotImplementedError('SPIKE 3 public button API does not expose ' + name + ' button state')"
+      );
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine("def hub_gesture_is(name):");
+      this.indentLevel++;
+      this.addLine(
+        "names = {'tapped': 'TAPPED', 'doubletapped': 'DOUBLE_TAPPED', 'shake': 'SHAKEN', 'freefall': 'FALLING'}"
+      );
+      this.addLine("enum_name = names.get(str(name).lower())");
+      this.addLine(
+        "if enum_name is None or not hasattr(motion_sensor, enum_name): raise ValueError('unknown SPIKE gesture: ' + str(name))"
+      );
+      this.addLine(
+        "return motion_sensor.gesture() == getattr(motion_sensor, enum_name)"
+      );
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine(
+        "async def wait_for_sensor_hat(kind, expected, port_name=None):"
+      );
+      this.indentLevel++;
+      this.addLine("previous = False");
+      this.addLine("while True:");
+      this.indentLevel++;
+      this.addLine("check_stop()");
+      this.addLine("if kind == 'gesture':");
+      this.indentLevel++;
+      this.addLine("if hub_gesture_is(expected): return");
+      this.indentLevel--;
+      this.addLine("elif kind == 'button':");
+      this.indentLevel++;
+      this.addLine("current = hub_button_pressed(expected)");
+      this.addLine("if current and not previous: return");
+      this.addLine("previous = current");
+      this.indentLevel--;
+      this.addLine("elif kind == 'color':");
+      this.indentLevel++;
+      this.addLine(
+        "expected_color = getattr(color, str(expected).upper(), None)"
+      );
+      this.addLine(
+        "if expected_color is None: raise ValueError('unknown color event: ' + str(expected))"
+      );
+      this.addLine(
+        "current = color_sensor.color(require_device(port_name)) == expected_color"
+      );
+      this.addLine("if current and not previous: return");
+      this.addLine("previous = current");
+      this.indentLevel--;
+      this.addLine("elif kind == 'force':");
+      this.indentLevel++;
+      this.addLine("target = require_device(port_name)");
+      this.addLine("pressed = force_sensor.pressed(target)");
+      this.addLine("force = force_sensor.force(target)");
+      this.addLine(
+        "current = pressed if expected == 'pressed' else (not pressed if expected == 'released' else force > 8)"
+      );
+      this.addLine("if current and not previous: return");
+      this.addLine("previous = current");
+      this.indentLevel--;
+      this.addLine("else:");
+      this.indentLevel++;
+      this.addLine("raise ValueError('unknown sensor event: ' + str(kind))");
+      this.indentLevel--;
+      this.addLine("await runloop.sleep_ms(20)");
+      this.indentLevel--;
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine("def parse_matrix3_pattern(pattern):");
+      this.indentLevel++;
+      this.addLine(
+        "codes = {'.': 0, 'm': 1, 'v': 2, 'b': 3, 't': 4, 'n': 5, 'g': 6, 'y': 7, 'o': 8, 'r': 9, 'w': 10}"
+      );
+      this.addLine("tokens = str(pattern).replace(',', ' ').split()");
+      this.addLine(
+        "if len(tokens) != 9: raise ValueError('3x3 pattern must contain exactly nine color/brightness tokens')"
+      );
+      this.addLine("pixels = []");
+      this.addLine("for token in tokens:");
+      this.indentLevel++;
+      this.addLine(
+        "if len(token) not in (2, 3) or token[0].lower() not in codes or token[1:] not in ('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10'): raise ValueError('invalid 3x3 color/brightness token: ' + token)"
+      );
+      this.addLine(
+        "pixels.append((spike_color(codes[token[0].lower()]), int(token[1:])))"
+      );
+      this.indentLevel--;
+      this.addLine("return pixels");
+      this.indentLevel--;
+      this.addLine("");
+
+      // A reporter must not turn an absent accessory into a believable zero.
       this.addLine("def get_sensor(port):");
       this.indentLevel++;
-      this.addLine('"""Get sensor on specified port"""');
-      this.addLine("try:");
-      this.indentLevel++;
-      this.addLine("return hub.port[port].device");
-      this.indentLevel--;
-      this.addLine("except:");
-      this.indentLevel++;
-      this.addLine("return None");
-      this.indentLevel--;
+      this.addLine("return require_device(port)");
       this.indentLevel--;
       this.addLine("");
     }
 
     generateBroadcastHelper() {
-      this.addLine("def trigger_broadcast(message):");
+      this.addLine("async def trigger_broadcast(message):");
       this.indentLevel++;
       this.addLine('"""Trigger all handlers for broadcast"""');
       this.addLine("if message in broadcasts:");
       this.indentLevel++;
       this.addLine("for handler in broadcasts[message]:");
       this.indentLevel++;
-      this.addLine("handler()");
+      this.addLine("await handler()");
       this.indentLevel--;
       this.indentLevel--;
       this.indentLevel--;
@@ -7570,14 +9203,14 @@ continuous_sensor_loop()
     }
 
     generateBroadcastWaitHelper() {
-      this.addLine("def trigger_broadcast_wait(message):");
+      this.addLine("async def trigger_broadcast_wait(message):");
       this.indentLevel++;
       this.addLine('"""Trigger broadcast and wait for completion"""');
       this.addLine("if message in broadcasts:");
       this.indentLevel++;
       this.addLine("for handler in broadcasts[message]:");
       this.indentLevel++;
-      this.addLine("handler()");
+      this.addLine("await handler()");
       this.indentLevel--;
       this.indentLevel--;
       this.indentLevel--;
@@ -7591,11 +9224,9 @@ continuous_sensor_loop()
         this.indentLevel++;
         this.addLine("try:");
         this.indentLevel++;
-
-        for (let i = 0; i < this.mainScripts.length; i++) {
-          this.addLine(this.mainScripts[i] + "()");
-        }
-
+        this.addLine(
+          `runloop.run(${this.mainScripts.map((name) => `${name}()`).join(", ")})`
+        );
         this.indentLevel--;
         this.addLine("except KeyboardInterrupt:");
         this.indentLevel++;
@@ -7609,12 +9240,18 @@ continuous_sensor_loop()
         this.indentLevel++;
         this.addLine('print("Cleaning up...")');
         this.addLine("# Stop all motors");
-        this.addLine('for port in "ABCDEF":');
+        this.addLine('for port_name in "ABCDEF":');
         this.indentLevel++;
-        this.addLine("motor = get_motor(port)");
-        this.addLine("if motor:");
+        this.addLine("try:");
         this.indentLevel++;
-        this.addLine("motor.stop()");
+        this.addLine("target = port_ref(port_name)");
+        this.addLine(
+          "if device.ready(target): motor.stop(target, stop=motor.BRAKE)"
+        );
+        this.indentLevel--;
+        this.addLine("except Exception:");
+        this.indentLevel++;
+        this.addLine("pass");
         this.indentLevel--;
         this.indentLevel--;
         this.indentLevel--;
@@ -7652,7 +9289,16 @@ continuous_sensor_loop()
       const hatBlocks = [];
       for (let i = 0; i < blockKeys.length; i++) {
         const block = blockArray[blockKeys[i]];
-        if (block.opcode && block.opcode.startsWith("event_when")) {
+        if (
+          block.opcode &&
+          (block.opcode.startsWith("event_when") ||
+            [
+              "spikeprime_whenGesture",
+              "spikeprime_whenColor",
+              "spikeprime_whenForceSensor",
+              "spikeprime_whenButtonPressed",
+            ].includes(block.opcode))
+        ) {
           hatBlocks.push(block);
         }
       }
@@ -7683,14 +9329,45 @@ continuous_sensor_loop()
         const key = this.getFieldValue(hatBlock, "KEY_OPTION");
         funcName =
           "on_key_" + this.sanitizeName(key) + "_" + this.scriptCounter;
+      } else if (opcode === "spikeprime_whenGesture") {
+        funcName = "on_gesture_" + this.scriptCounter;
+      } else if (opcode === "spikeprime_whenColor") {
+        funcName = "on_color_" + this.scriptCounter;
+      } else if (opcode === "spikeprime_whenForceSensor") {
+        funcName = "on_force_" + this.scriptCounter;
+      } else if (opcode === "spikeprime_whenButtonPressed") {
+        funcName = "on_button_" + this.scriptCounter;
       } else {
         funcName = "on_event_" + this.scriptCounter;
       }
 
       this.scriptCounter++;
 
-      this.addLine("def " + funcName + "():");
+      this.addLine("async def " + funcName + "():");
       this.indentLevel++;
+      if (opcode === "spikeprime_whenGesture") {
+        const expected = this.getInputValue(hatBlock, "GESTURE", blocks);
+        this.addLine(`await wait_for_sensor_hat("gesture", ${expected})`);
+      } else if (opcode === "spikeprime_whenColor") {
+        const expected = this.getInputValue(hatBlock, "COLOR", blocks);
+        const portName = this.getInputValue(hatBlock, "PORT", blocks);
+        this.addLine(
+          `await wait_for_sensor_hat("color", ${expected}, ${portName})`
+        );
+      } else if (opcode === "spikeprime_whenForceSensor") {
+        const expected = this.getInputValue(hatBlock, "STATE", blocks);
+        const portName = this.getInputValue(hatBlock, "PORT", blocks);
+        this.addLine(
+          `await wait_for_sensor_hat("force", ${expected}, ${portName})`
+        );
+      } else if (opcode === "spikeprime_whenButtonPressed") {
+        const expected = this.getInputValue(hatBlock, "BUTTON", blocks);
+        this.addLine(`await wait_for_sensor_hat("button", ${expected})`);
+      } else if (opcode === "event_whenkeypressed") {
+        this.addLine(
+          'raise NotImplementedError("keyboard events are not available in a standalone hub program")'
+        );
+      }
 
       // Measure what the body EMITS, not how many blocks we walked. The old
       // guard counted visited blocks, so a script made only of opcodes this
@@ -7729,6 +9406,16 @@ continuous_sensor_loop()
 
       if (opcode === "event_whenflagclicked") {
         this.mainScripts.push(funcName);
+      } else if (
+        [
+          "spikeprime_whenGesture",
+          "spikeprime_whenColor",
+          "spikeprime_whenForceSensor",
+          "spikeprime_whenButtonPressed",
+          "event_whenkeypressed",
+        ].includes(opcode)
+      ) {
+        this.mainScripts.push(funcName);
       } else if (opcode === "event_whenbroadcastreceived") {
         const broadcastName = this.getFieldValue(hatBlock, "BROADCAST_OPTION");
         this.addLine(
@@ -7756,8 +9443,26 @@ continuous_sensor_loop()
           /"/g,
           ""
         );
+        const circumference = this.getInputValue(
+          block,
+          "WHEEL_CIRCUMFERENCE_CM",
+          blocks
+        );
         this.addLine(`# Set movement motors to ${portA} and ${portB}`);
+        this.addLine(
+          "global movement_motors, movement_pair_configured, movement_wheel_circumference_cm"
+        );
+        this.addLine(
+          `if "${portA}" == "${portB}": raise ValueError("movement motors must use different ports")`
+        );
         this.addLine(`movement_motors = ["${portA}", "${portB}"]`);
+        this.addLine(
+          `movement_wheel_circumference_cm = float(${circumference}) if float(${circumference}) > 0 else None`
+        );
+        this.addLine(
+          `motor_pair.pair(motor_pair.PAIR_1, require_device("${portA}"), require_device("${portB}"))`
+        );
+        this.addLine("movement_pair_configured = True");
       } else if (opcode === "spikeprime_moveForward") {
         const direction = this.getInputValue(
           block,
@@ -7770,96 +9475,63 @@ continuous_sensor_loop()
           ""
         );
         const dirMult = direction === "forward" ? 1 : -1;
+        this.addLine("ensure_movement_pair()");
 
-        if (unit === "cm") {
-          const rotations = `(${value} / 17.6)`;
-          this.addLine(`for port in movement_motors:`);
-          this.indentLevel++;
-          this.addLine(`motor = get_motor(port)`);
-          this.addLine(`if motor:`);
+        if (unit === "cm" || unit === "in") {
+          const centimeters = unit === "cm" ? value : `(${value} * 2.54)`;
+          this.addLine(
+            "if movement_wheel_circumference_cm is None or movement_wheel_circumference_cm <= 0:"
+          );
           this.indentLevel++;
           this.addLine(
-            `motor.run_for_degrees(int(${rotations} * 360 * ${dirMult}), 75)`
+            "raise ValueError('set a positive wheel circumference before moving by distance')"
           );
           this.indentLevel--;
-          this.indentLevel--;
-        } else if (unit === "in") {
-          const rotations = `(${value} / 6.93)`;
-          this.addLine(`for port in movement_motors:`);
-          this.indentLevel++;
-          this.addLine(`motor = get_motor(port)`);
-          this.addLine(`if motor:`);
-          this.indentLevel++;
           this.addLine(
-            `motor.run_for_degrees(int(${rotations} * 360 * ${dirMult}), 75)`
+            `distance_degrees = int((${centimeters} / movement_wheel_circumference_cm) * 360 * ${dirMult})`
           );
-          this.indentLevel--;
-          this.indentLevel--;
-        } else if (unit === "rotations") {
-          this.addLine(`for port in movement_motors:`);
-          this.indentLevel++;
-          this.addLine(`motor = get_motor(port)`);
-          this.addLine(`if motor:`);
-          this.indentLevel++;
           this.addLine(
-            `motor.run_for_degrees(int(${value} * 360 * ${dirMult}), 75)`
+            "await motor_pair.move_for_degrees(motor_pair.PAIR_1, distance_degrees, 0, velocity=abs(pair_velocity(movement_speed)))"
           );
-          this.indentLevel--;
-          this.indentLevel--;
-        } else if (unit === "degrees") {
-          this.addLine(`for port in movement_motors:`);
-          this.indentLevel++;
-          this.addLine(`motor = get_motor(port)`);
-          this.addLine(`if motor:`);
-          this.indentLevel++;
-          this.addLine(`motor.run_for_degrees(int(${value} * ${dirMult}), 75)`);
-          this.indentLevel--;
-          this.indentLevel--;
+        } else if (unit === "rotations" || unit === "degrees") {
+          const amount = unit === "rotations" ? `(${value} * 360)` : value;
+          this.addLine(
+            `await motor_pair.move_for_degrees(motor_pair.PAIR_1, int(${amount} * ${dirMult}), 0, velocity=abs(pair_velocity(movement_speed)))`
+          );
         } else if (unit === "seconds") {
-          this.addLine(`for port in movement_motors:`);
-          this.indentLevel++;
-          this.addLine(`motor = get_motor(port)`);
-          this.addLine(`if motor:`);
-          this.indentLevel++;
           this.addLine(
-            `motor.run_for_time(int(${value} * 1000), 75 * ${dirMult})`
+            `await motor_pair.move_for_time(motor_pair.PAIR_1, max(1, int(${value} * 1000)), 0, velocity=pair_velocity(movement_speed) * ${dirMult})`
           );
-          this.indentLevel--;
-          this.indentLevel--;
+        } else {
+          this.addLine(`raise ValueError("unsupported move unit: ${unit}")`);
         }
       } else if (opcode === "spikeprime_steer") {
         const steering = this.getInputValue(block, "STEERING", blocks);
-        this.addLine(`# Steering: ${steering}`);
-        this.addLine(`left_speed = 75`);
-        this.addLine(`right_speed = 75`);
-        this.addLine(`if ${steering} > 0:`);
-        this.indentLevel++;
-        this.addLine(`right_speed = int(75 * (1 - ${steering} / 100))`);
-        this.indentLevel--;
-        this.addLine(`elif ${steering} < 0:`);
-        this.indentLevel++;
-        this.addLine(`left_speed = int(75 * (1 + ${steering} / 100))`);
-        this.indentLevel--;
-        this.addLine(`motor_left = get_motor(movement_motors[0])`);
-        this.addLine(`motor_right = get_motor(movement_motors[1])`);
-        this.addLine(`if motor_left: motor_left.start(left_speed)`);
-        this.addLine(`if motor_right: motor_right.start(right_speed)`);
+        this.addLine("ensure_movement_pair()");
+        this.addLine(
+          `motor_pair.move(motor_pair.PAIR_1, max(-100, min(100, int(${steering}))), velocity=pair_velocity(movement_speed))`
+        );
+      } else if (opcode === "spikeprime_motorPairMove") {
+        const steering = this.getInputValue(block, "STEERING", blocks);
+        const speed = this.getInputValue(block, "SPEED", blocks);
+        this.addLine("ensure_movement_pair()");
+        this.addLine(
+          `motor_pair.move(motor_pair.PAIR_1, max(-100, min(100, int(${steering}))), velocity=pair_velocity(${speed}))`
+        );
       } else if (opcode === "spikeprime_startTank") {
         const leftSpeed = this.getInputValue(block, "LEFT_SPEED", blocks);
         const rightSpeed = this.getInputValue(block, "RIGHT_SPEED", blocks);
-        this.addLine(`motor_left = get_motor(movement_motors[0])`);
-        this.addLine(`motor_right = get_motor(movement_motors[1])`);
-        this.addLine(`if motor_left: motor_left.start(${leftSpeed})`);
-        this.addLine(`if motor_right: motor_right.start(${rightSpeed})`);
+        this.addLine("ensure_movement_pair()");
+        this.addLine(
+          `motor_pair.move_tank(motor_pair.PAIR_1, motor_velocity(require_device(movement_motors[0]), ${leftSpeed}), motor_velocity(require_device(movement_motors[1]), ${rightSpeed}))`
+        );
       } else if (opcode === "spikeprime_setMovementSpeed") {
         const speed = this.getInputValue(block, "SPEED", blocks);
-        this.addLine(`movement_speed = ${speed}`);
+        this.addLine("global movement_speed");
+        this.addLine(`movement_speed = max(-100, min(100, int(${speed})))`);
       } else if (opcode === "spikeprime_stopMovement") {
-        this.addLine(`for port in movement_motors:`);
-        this.indentLevel++;
-        this.addLine(`motor = get_motor(port)`);
-        this.addLine(`if motor: motor.stop()`);
-        this.indentLevel--;
+        this.addLine("ensure_movement_pair()");
+        this.addLine("motor_pair.stop(motor_pair.PAIR_1, stop=motor.BRAKE)");
       }
 
       // SPIKE-specific motor blocks
@@ -7908,19 +9580,19 @@ continuous_sensor_loop()
           this.safeIfBlock("motor", () => {
             if (unit === "rotations") {
               this.addLine(
-                `motor.run_for_degrees(int(${value} * 360), ${direction} * 75)`
+                `await motor.run_for_degrees(int(${value} * 360), ${direction} * motor_speeds["${p}"])`
               );
             } else if (unit === "degrees") {
               this.addLine(
-                `motor.run_for_degrees(int(${value}), ${direction} * 75)`
+                `await motor.run_for_degrees(int(${value}), ${direction} * motor_speeds["${p}"])`
               );
             } else if (unit === "seconds") {
               this.addLine(
-                `motor.run_for_time(int(${value} * 1000), ${direction} * 75)`
+                `await motor.run_for_time(int(${value} * 1000), ${direction} * motor_speeds["${p}"])`
               );
             } else {
               this.addLine(
-                `motor.run_for_degrees(int(${value}), ${direction} * 75)`
+                `await motor.run_for_degrees(int(${value}), ${direction} * motor_speeds["${p}"])`
               );
             }
           });
@@ -7936,7 +9608,9 @@ continuous_sensor_loop()
         this.addLine(`motor = get_motor("${port}")`);
         this.addLine(`if motor:`);
         this.indentLevel++;
-        this.addLine(`motor.run_to_position(${position}, 75)`);
+        this.addLine(
+          `await motor.run_to_position(${position}, motor_speeds["${port}"])`
+        );
         this.indentLevel--;
       } else if (opcode === "spikeprime_motorStart") {
         const port = this.getInputValue(block, "PORT", blocks).replace(
@@ -7957,7 +9631,7 @@ continuous_sensor_loop()
         for (const p of ports) {
           this.addLine(`motor = get_motor("${p}")`);
           this.safeIfBlock("motor", () => {
-            this.addLine(`motor.start(${direction} * 75)`);
+            this.addLine(`motor.start(${direction} * motor_speeds["${p}"])`);
           });
         }
       } else if (opcode === "spikeprime_motorStartPower") {
@@ -7988,12 +9662,9 @@ continuous_sensor_loop()
 
         const ports = port.includes("+") ? port.split("+") : [port];
 
-        for (const _p of ports) {
-          this.addLine(`motor = get_motor("${port}")`); // Use 'port' not 'p'
-          this.addLine(`if motor:`);
-          this.indentLevel++;
+        for (const p of ports) {
+          this.addLine(`motor = get_motor("${p}")`);
           this.addLine(`motor.stop()`);
-          this.indentLevel--;
         }
       } else if (opcode === "spikeprime_motorSetSpeed") {
         const port = this.getInputValue(block, "PORT", blocks).replace(
@@ -8002,7 +9673,13 @@ continuous_sensor_loop()
         );
         const speed = this.getInputValue(block, "SPEED", blocks);
         this.addLine(`# Set motor ${port} speed to ${speed}`);
-        this.addLine(`motor_speed_${port.replace(/\+/g, "_")} = ${speed}`);
+        for (const name of port.split("+")) {
+          if (/^[A-F]$/.test(name)) {
+            this.addLine(
+              `motor_speeds["${name}"] = max(-100, min(100, int(${speed})))`
+            );
+          }
+        }
       } else if (opcode === "spikeprime_motorSetStopAction") {
         const port = this.getInputValue(block, "PORT", blocks).replace(
           /"/g,
@@ -8012,7 +9689,7 @@ continuous_sensor_loop()
           /"/g,
           ""
         );
-        this.addLine(`# Set motor ${port} stop action to ${action}`);
+        this.addLine(`set_motor_stop_action("${port}", "${action}")`);
       } else if (opcode === "spikeprime_resetMotorPosition") {
         const port = this.getInputValue(block, "PORT", blocks).replace(
           /"/g,
@@ -8031,7 +9708,7 @@ continuous_sensor_loop()
       // Display blocks
       else if (opcode === "spikeprime_displayText") {
         const text = this.getInputValue(block, "TEXT", blocks);
-        this.addLine(`hub.display.show(str(${text}))`);
+        this.addLine(`await light_matrix.write(str(${text}))`);
       } else if (opcode === "spikeprime_displayImage") {
         const matrix = this.getInputValue(block, "MATRIX", blocks).replace(
           /"/g,
@@ -8041,12 +9718,8 @@ continuous_sensor_loop()
           0,
           25
         );
-        const image = symbol
-          .replace(/1/g, "9")
-          .replace(/0/g, "0")
-          .match(/.{5}/g)
-          .join(":");
-        this.addLine(`hub.display.show(hub.Image("${image}"))`);
+        const pixels = [...symbol].map((value) => `int(${value}) * 100 // 9`);
+        this.addLine(`light_matrix.show([${pixels.join(", ")}])`);
       } else if (opcode === "spikeprime_displayPattern") {
         const pattern = this.getInputValue(block, "PATTERN", blocks).replace(
           /"/g,
@@ -8054,31 +9727,60 @@ continuous_sensor_loop()
         );
         const patternData = DisplayPatterns[pattern];
         if (patternData) {
-          const image = patternData
-            .replace(/[0-9a-f]/g, (m) => String(Math.min(9, parseInt(m, 16))))
-            .match(/.{5}/g)
-            .join(":");
-          this.addLine(`hub.display.show(hub.Image("${image}"))`);
+          const pixels = patternData
+            .split("")
+            .map((value) => Math.min(15, parseInt(value, 16) || 0))
+            .map((value) => String(Math.round((value * 100) / 15)));
+          this.addLine(`light_matrix.show([${pixels.join(", ")}])`);
+        } else {
+          this.addLine(
+            `raise ValueError("unknown built-in display pattern: ${pattern}")`
+          );
         }
       } else if (opcode === "spikeprime_displayClear") {
-        this.addLine(`hub.display.clear()`);
+        this.addLine(`light_matrix.clear()`);
+      } else if (opcode === "spikeprime_displayShowImage") {
+        const image = this.getInputValue(block, "IMAGE", blocks);
+        this.addLine(`image_id = int(${image})`);
+        this.addLine(
+          `if image_id < 1 or image_id > 67: raise ValueError("image ID must be 1..67")`
+        );
+        this.addLine(`light_matrix.show_image(image_id)`);
       } else if (opcode === "spikeprime_setPixel") {
         const x = this.getInputValue(block, "X", blocks);
         const y = this.getInputValue(block, "Y", blocks);
         const brightness = this.getInputValue(block, "BRIGHTNESS", blocks);
+        this.addLine(`pixel_x = int(${x}) - 1`);
+        this.addLine(`pixel_y = int(${y}) - 1`);
         this.addLine(
-          `hub.display.pixel(int(${x}) - 1, int(${y}) - 1, int(${brightness} * 9 / 100))`
+          `if pixel_x < 0 or pixel_x > 4 or pixel_y < 0 or pixel_y > 4: raise ValueError("5x5 pixel coordinates must be 1..5")`
+        );
+        this.addLine(
+          `light_matrix.set_pixel(pixel_x, pixel_y, max(0, min(100, int(${brightness}))))`
         );
       } else if (opcode === "spikeprime_rotateDisplay") {
         const angle = this.getInputValue(block, "ANGLE", blocks);
-        this.addLine(`hub.display.rotation(${angle})`);
+        this.addLine(`rotation = int(${angle})`);
+        this.addLine(
+          `orientations = {90: orientation.RIGHT, -90: orientation.LEFT, 180: orientation.DOWN, -180: orientation.DOWN}`
+        );
+        this.addLine(
+          `if rotation not in orientations: raise ValueError("rotation must be 90, -90, 180, or -180")`
+        );
+        this.addLine(`light_matrix.set_orientation(orientations[rotation])`);
       } else if (opcode === "spikeprime_setCenterButtonColor") {
         const color = this.getInputValue(block, "COLOR", blocks).replace(
           /"/g,
           ""
         );
-        const colorValue = CenterLEDColors[color] || 0;
-        this.addLine(`hub.led(${colorValue})`);
+        const colorId = CenterLEDColors[color];
+        if (!Number.isInteger(colorId) || colorId < 0 || colorId > 10) {
+          this.addLine(
+            `raise ValueError("unsupported SPIKE 3 hub light color: ${color}")`
+          );
+        } else {
+          this.addLine(`light.color(light.POWER, spike_color(${colorId}))`);
+        }
       }
 
       // Sound blocks
@@ -8087,20 +9789,24 @@ continuous_sensor_loop()
           /"/g,
           ""
         );
-        this.addLine(`hub.sound.play("/sounds/${sound}")`);
+        this.addLine(
+          `raise NotImplementedError("SPIKE 3 public hub API does not expose bundled sound-file playback (${sound}); use a supported beep or sound block")`
+        );
       } else if (opcode === "spikeprime_playBeep") {
         const freq = this.getInputValue(block, "FREQUENCY", blocks);
         const duration = this.getInputValue(block, "DURATION", blocks);
         this.addLine(
-          `hub.sound.beep(${freq}, ${duration}, hub.sound.SOUND_SIN)`
+          `await sound.beep(max(100, min(2000, int(${freq}))), max(20, min(10000, int(${duration}))), 100)`
         );
       } else if (opcode === "spikeprime_playNote") {
         const note = this.getInputValue(block, "NOTE", blocks);
         const secs = this.getInputValue(block, "SECS", blocks);
         // Convert MIDI note to frequency
-        this.addLine(`freq = int(440 * (2 ** ((${note} - 69) / 12)))`);
         this.addLine(
-          `hub.sound.beep(freq, int(${secs} * 1000), hub.sound.SOUND_SIN)`
+          `freq = max(100, min(2000, int(440 * (2 ** ((${note} - 69) / 12)))))`
+        );
+        this.addLine(
+          `await sound.beep(freq, max(20, min(10000, int(${secs} * 1000))), 100)`
         );
       } else if (opcode === "spikeprime_playWaveBeep") {
         const waveform = this.getInputValue(block, "WAVEFORM", blocks).replace(
@@ -8109,21 +9815,35 @@ continuous_sensor_loop()
         );
         const freq = this.getInputValue(block, "FREQUENCY", blocks);
         const duration = this.getInputValue(block, "DURATION", blocks);
-        const waveformCode = SoundWaveforms[waveform] || SoundWaveforms.sin;
-        this.addLine(`hub.sound.beep(${freq}, ${duration}, ${waveformCode})`);
+        const waveforms = {
+          sin: 'sound_waveform("WAVEFORM_SINE")',
+          square: 'sound_waveform("WAVEFORM_SQUARE")',
+          triangle: 'sound_waveform("WAVEFORM_TRIANGLE")',
+          sawtooth: 'sound_waveform("WAVEFORM_SAWTOOTH")',
+        };
+        const waveformCode = waveforms[waveform];
+        if (!waveformCode) {
+          this.addLine(
+            `raise ValueError("unknown beep waveform: ${waveform}")`
+          );
+        } else {
+          this.addLine(
+            `await sound.beep(max(100, min(2000, int(${freq}))), max(20, min(10000, int(${duration}))), 100, waveform=${waveformCode})`
+          );
+        }
       } else if (opcode === "spikeprime_setVolume") {
         const volume = this.getInputValue(block, "VOLUME", blocks);
-        this.addLine(`hub.sound.volume(${volume})`);
+        this.addLine(`sound.volume(max(0, min(100, int(${volume}))))`);
       } else if (opcode === "spikeprime_stopSound") {
-        this.addLine(`hub.sound.stop()`);
+        this.addLine(`sound.stop()`);
       }
 
       // IMU blocks
       else if (opcode === "spikeprime_resetYaw") {
-        this.addLine(`hub.motion.reset_yaw()`);
+        this.addLine(`motion_sensor.reset_yaw(0)`);
       } else if (opcode === "spikeprime_presetYaw") {
         const angle = this.getInputValue(block, "ANGLE", blocks);
-        this.addLine(`hub.motion.preset_yaw(${angle})`);
+        this.addLine(`motion_sensor.reset_yaw(int(${angle}))`);
       }
 
       // 3x3 Matrix blocks
@@ -8147,31 +9867,21 @@ continuous_sensor_loop()
             /"/g,
             ""
           );
-          const colorId = ColorEmojiMap[emoji] || 0;
-          return 5 * 16 + colorId;
+          const colorId = ColorEmojiMap[emoji] ?? -1;
+          return `(spike_color(${colorId}), 5)`;
         });
-        const byteString = pixels
-          .map((b) => `\\x${b.toString(16).padStart(2, "0")}`)
-          .join("");
-        this.addLine(`matrix = hub.port.${port}.device`);
-        this.addLine(`if matrix:`);
-        this.indentLevel++;
-        this.addLine(`matrix.mode(2)`);
-        this.addLine(`matrix.mode(2, b"${byteString}")`);
-        this.indentLevel--;
+        this.addLine(
+          `color_matrix.show(require_device("${port}"), [${pixels.join(", ")}])`
+        );
       } else if (opcode === "spikeprime_setMatrix3x3Custom") {
         const port = this.getInputValue(block, "PORT", blocks).replace(
           /"/g,
           ""
         );
         const pattern = this.getInputValue(block, "PATTERN", blocks);
-        this.addLine(`# Custom 3x3 matrix pattern on port ${port}`);
-        this.addLine(`matrix = hub.port.${port}.device`);
-        this.addLine(`if matrix:`);
-        this.indentLevel++;
-        this.addLine(`matrix.mode(2)`);
-        this.addLine(`# Pattern: ${pattern}`);
-        this.indentLevel--;
+        this.addLine(
+          `color_matrix.show(require_device("${port}"), parse_matrix3_pattern(${pattern}))`
+        );
       } else if (opcode === "spikeprime_setMatrix3x3SolidColor") {
         const port = this.getInputValue(block, "PORT", blocks).replace(
           /"/g,
@@ -8182,33 +9892,44 @@ continuous_sensor_loop()
           ""
         );
         const brightness = this.getInputValue(block, "BRIGHTNESS", blocks);
-        const colorId = ColorEmojiMap[colorEmoji] || 0;
-        this.addLine(`value = int(${brightness}) * 16 + ${colorId}`);
-        this.addLine(`pixels = bytes([value] * 9)`);
-        this.addLine(`matrix = hub.port.${port}.device`);
-        this.addLine(`if matrix:`);
-        this.indentLevel++;
-        this.addLine(`matrix.mode(2)`);
-        this.addLine(`matrix.mode(2, pixels)`);
-        this.indentLevel--;
+        const colorId = ColorEmojiMap[colorEmoji] ?? -1;
+        this.addLine(
+          `matrix_pixels = [(spike_color(${colorId}), max(0, min(10, int(${brightness})))) for _ in range(9)]`
+        );
+        this.addLine(
+          `color_matrix.show(require_device("${port}"), matrix_pixels)`
+        );
       } else if (opcode === "spikeprime_clearMatrix3x3") {
         const port = this.getInputValue(block, "PORT", blocks).replace(
           /"/g,
           ""
         );
-        this.addLine(`matrix = hub.port.${port}.device`);
-        this.addLine(`if matrix:`);
-        this.indentLevel++;
-        this.addLine(`matrix.mode(2)`);
-        this.addLine(
-          `matrix.mode(2, b"\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01")`
+        this.addLine(`color_matrix.clear(require_device("${port}"))`);
+      } else if (opcode === "spikeprime_setLightMatrixPixel") {
+        const port = this.getInputValue(block, "PORT", blocks).replace(
+          /"/g,
+          ""
         );
-        this.indentLevel--;
+        const x = this.getInputValue(block, "X", blocks);
+        const y = this.getInputValue(block, "Y", blocks);
+        const brightness = this.getInputValue(block, "BRIGHTNESS", blocks);
+        this.addLine(`matrix_port = require_device("${port}")`);
+        this.addLine(`matrix_x = int(${x}) - 1; matrix_y = int(${y}) - 1`);
+        this.addLine(
+          `if matrix_x < 0 or matrix_x > 2 or matrix_y < 0 or matrix_y > 2: raise ValueError("3x3 pixel coordinates must be 1..3")`
+        );
+        this.addLine(
+          `old_pixel = color_matrix.get_pixel(matrix_port, matrix_x, matrix_y)`
+        );
+        this.addLine(
+          `color_matrix.set_pixel(matrix_port, matrix_x, matrix_y, (old_pixel[0], max(0, min(10, int(${brightness}) * 10 // 100))))`
+        );
       }
 
       // Timer blocks
       else if (opcode === "spikeprime_resetTimer") {
-        this.addLine(`timer_start = utime.ticks_ms()`);
+        this.addLine("global timer_start");
+        this.addLine(`timer_start = time.ticks_ms()`);
       }
 
       // Sensor blocks
@@ -8221,52 +9942,41 @@ continuous_sensor_loop()
         const tr = this.getInputValue(block, "TR", blocks);
         const bl = this.getInputValue(block, "BL", blocks);
         const br = this.getInputValue(block, "BR", blocks);
-        this.addLine(`dist_sensor = hub.port.${port}.device`);
-        this.addLine(`if dist_sensor:`);
-        this.indentLevel++;
+        const levels = [tl, tr, bl, br]
+          .map((value) => `max(0, min(100, int(${value}) * 100 // 9))`)
+          .join(", ");
         this.addLine(
-          `dist_sensor.mode(5, bytes([${tl}, ${tr}, ${bl}, ${br}]))`
+          `distance_sensor.show(require_device("${port}"), [${levels}])`
         );
-        this.indentLevel--;
       }
 
       // File System blocks
       else if (opcode === "spikeprime_writeLogFile") {
-        const filename = this.getInputValue(block, "FILENAME", blocks).replace(
-          /"/g,
-          ""
-        );
+        const filename = this.getInputValue(block, "FILENAME", blocks);
         const text = this.getInputValue(block, "TEXT", blocks);
-        this.addLine(`with open("${filename}", "a") as f:`);
+        this.addLine(`with open(log_path(${filename}), "a") as f:`);
         this.indentLevel++;
         this.addLine(`f.write(str(${text}) + "\\n")`);
         this.indentLevel--;
+      } else if (opcode === "spikeprime_readLogFile") {
+        const filename = this.getInputValue(block, "FILENAME", blocks);
+        this.addLine(`read_log(${filename})`);
       } else if (opcode === "spikeprime_deleteLogFile") {
-        const filename = this.getInputValue(block, "FILENAME", blocks).replace(
-          /"/g,
-          ""
-        );
-        this.addLine(`import uos`);
-        this.addLine(`try:`);
-        this.indentLevel++;
-        this.addLine(`uos.remove("${filename}")`);
-        this.indentLevel--;
-        this.addLine(`except:`);
-        this.indentLevel++;
-        this.addLine(`pass`);
-        this.indentLevel--;
+        const filename = this.getInputValue(block, "FILENAME", blocks);
+        this.addLine(`os.remove(log_path(${filename}))`);
+      } else if (opcode === "spikeprime_listFiles") {
+        this.addLine(`list_log_files()`);
       }
 
       // Python blocks
       else if (opcode === "spikeprime_runPythonCommand") {
-        const code = this.getInputValue(block, "CODE", blocks);
-        // Remove quotes if present
-        const cleanCode = code.replace(/^["']|["']$/g, "");
-        this.addLine(`${cleanCode}`);
+        this.addLine(
+          `raise NotImplementedError("Raw Python execution is not included in generated Scratch programs; use the explicit program upload block")`
+        );
       } else if (opcode === "spikeprime_runHubCommand") {
-        const code = this.getInputValue(block, "CODE", blocks);
-        const cleanCode = code.replace(/^["']|["']$/g, "");
-        this.addLine(`${cleanCode}`);
+        this.addLine(
+          `raise NotImplementedError("Hub command strings are not compiled as arbitrary Python")`
+        );
       } else if (opcode === "spikeprime_exitScript") {
         this.addLine(`raise SystemExit`);
       }
@@ -8279,40 +9989,30 @@ continuous_sensor_loop()
       else if (opcode === "motion_movesteps") {
         const steps = this.getInputValue(block, "STEPS", blocks);
         this.addLine(`# Move ${steps} steps`);
-        this.addLine(`for port in movement_motors:`);
-        this.indentLevel++;
-        this.addLine(`motor = get_motor(port)`);
-        this.addLine(`if motor:`);
-        this.indentLevel++;
-        this.addLine(`motor.run_for_degrees(int(${steps} * 3.6), 50)`);
-        this.indentLevel--;
-        this.indentLevel--;
+        this.addLine("ensure_movement_pair()");
+        this.addLine(
+          `await motor_pair.move_for_degrees(motor_pair.PAIR_1, int(${steps} * 3.6), 0, velocity=abs(pair_velocity(50)))`
+        );
       } else if (opcode === "motion_turnright") {
         const degrees = this.getInputValue(block, "DEGREES", blocks);
         this.addLine(`# Turn right ${degrees} degrees`);
-        this.addLine(`motor_left = get_motor(movement_motors[0])`);
-        this.addLine(`motor_right = get_motor(movement_motors[1])`);
-        this.addLine(`if motor_left and motor_right:`);
-        this.indentLevel++;
-        this.addLine(`motor_left.run_for_degrees(int(${degrees}), 50)`);
-        this.addLine(`motor_right.run_for_degrees(int(${degrees}), -50)`);
-        this.indentLevel--;
+        this.addLine("ensure_movement_pair()");
+        this.addLine(
+          `await motor_pair.move_tank_for_degrees(motor_pair.PAIR_1, int(${degrees}), abs(motor_velocity(require_device(movement_motors[0]), 50)), -abs(motor_velocity(require_device(movement_motors[1]), 50)))`
+        );
       } else if (opcode === "motion_turnleft") {
         const degrees = this.getInputValue(block, "DEGREES", blocks);
         this.addLine(`# Turn left ${degrees} degrees`);
-        this.addLine(`motor_left = get_motor(movement_motors[0])`);
-        this.addLine(`motor_right = get_motor(movement_motors[1])`);
-        this.addLine(`if motor_left and motor_right:`);
-        this.indentLevel++;
-        this.addLine(`motor_left.run_for_degrees(int(${degrees}), -50)`);
-        this.addLine(`motor_right.run_for_degrees(int(${degrees}), 50)`);
-        this.indentLevel--;
+        this.addLine("ensure_movement_pair()");
+        this.addLine(
+          `await motor_pair.move_tank_for_degrees(motor_pair.PAIR_1, int(${degrees}), -abs(motor_velocity(require_device(movement_motors[0]), 50)), abs(motor_velocity(require_device(movement_motors[1]), 50)))`
+        );
       }
 
       // Control blocks
       else if (opcode === "control_wait") {
         const duration = this.getInputValue(block, "DURATION", blocks);
-        this.addLine(`utime.sleep(${duration})`);
+        this.addLine(`await runloop.sleep_ms(max(0, int(${duration} * 1000)))`);
         this.addLine(`check_stop()`);
       } else if (opcode === "control_repeat") {
         const times = this.getInputValue(block, "TIMES", blocks);
@@ -8338,7 +10038,7 @@ continuous_sensor_loop()
         } else {
           this.addLine(`pass`);
         }
-        this.addLine(`utime.sleep(0.01)`);
+        this.addLine(`await runloop.sleep_ms(10)`);
         this.indentLevel--;
       } else if (opcode === "control_if") {
         const condition = this.getInputValue(block, "CONDITION", blocks);
@@ -8406,24 +10106,24 @@ continuous_sensor_loop()
           "BROADCAST_INPUT",
           blocks
         );
-        this.addLine(`trigger_broadcast(${broadcastInput})`);
+        this.addLine(`await trigger_broadcast(${broadcastInput})`);
       } else if (opcode === "event_broadcastandwait") {
         const broadcastInput = this.getInputValue(
           block,
           "BROADCAST_INPUT",
           blocks
         );
-        this.addLine(`trigger_broadcast_wait(${broadcastInput})`);
+        this.addLine(`await trigger_broadcast_wait(${broadcastInput})`);
       }
 
       // Looks blocks
       else if (opcode === "looks_say" || opcode === "looks_sayforsecs") {
         const message = this.getInputValue(block, "MESSAGE", blocks);
-        this.addLine(`hub.display.show(str(${message}))`);
+        this.addLine(`await light_matrix.write(str(${message}))`);
         if (opcode === "looks_sayforsecs") {
           const secs = this.getInputValue(block, "SECS", blocks);
-          this.addLine(`utime.sleep(${secs})`);
-          this.addLine(`hub.display.clear()`);
+          this.addLine(`await runloop.sleep_ms(max(0, int(${secs} * 1000)))`);
+          this.addLine(`light_matrix.clear()`);
         }
       }
 
@@ -8431,12 +10131,9 @@ continuous_sensor_loop()
       else if (opcode === "sound_play" || opcode === "sound_playuntildone") {
         const soundMenu = this.getInputValue(block, "SOUND_MENU", blocks);
         const soundName = soundMenu.replace(/"/g, "");
-        if (soundName && soundName !== "0") {
-          this.addLine(`# Play sound: ${soundName}`);
-          this.addLine(`hub.sound.beep(440, 200, hub.sound.SOUND_SIN)`);
-        } else {
-          this.addLine(`hub.sound.beep(440, 200, hub.sound.SOUND_SIN)`);
-        }
+        this.addLine(
+          `raise NotImplementedError(${pyStringLiteral(`Scratch sound asset ${soundName} is not available as a SPIKE hub sound file`)})`
+        );
       }
 
       // Data blocks
@@ -8454,7 +10151,9 @@ continuous_sensor_loop()
 
       // Default - Unknown block
       else {
-        this.addLine(`# Unknown block: ${opcode}`);
+        this.addLine(
+          `raise NotImplementedError(${pyStringLiteral(`No SPIKE 3 Python translation for ${opcode}`)})`
+        );
       }
     }
 
@@ -8495,8 +10194,9 @@ continuous_sensor_loop()
           return pyStringLiteral(value);
         }
 
-        console.warn(`[DEBUG] ${inputName} not found in inputs or fields`);
-        return "0";
+        throw new Error(
+          `Cannot translate ${block.opcode}: missing input ${inputName}`
+        );
       }
 
       // Handle object-style inputs
@@ -8529,12 +10229,17 @@ continuous_sensor_loop()
           }
         }
 
-        console.warn(`[TRANSPILER] Could not resolve input object`, input);
-        return "0";
+        throw new Error(
+          `Cannot translate ${block.opcode}: unresolved input ${inputName}`
+        );
       }
 
       // Handle array-style inputs
-      if (!Array.isArray(input)) return "0";
+      if (!Array.isArray(input)) {
+        throw new Error(
+          `Cannot translate ${block.opcode}: invalid input ${inputName}`
+        );
+      }
 
       const inputType = input[0];
       const inputData = input[1];
@@ -8598,7 +10303,9 @@ continuous_sensor_loop()
         }
       }
 
-      return "0";
+      throw new Error(
+        `Cannot translate ${block.opcode}: unsupported input ${inputName}`
+      );
     }
 
     evaluateBlock(block, blocks) {
@@ -8654,11 +10361,9 @@ continuous_sensor_loop()
         }
 
         if (!value) {
-          console.warn(
-            `[TRANSPILER] Could not extract menu value from ${block.opcode}`,
-            block
+          throw new Error(
+            `Cannot translate ${block.opcode}: menu value is missing`
           );
-          return '"default"';
         }
 
         console.log(`[DEBUG] Extracted menu value:`, value);
@@ -8692,47 +10397,124 @@ continuous_sensor_loop()
           ""
         );
         this.usedSensors.add(port);
-        return `(get_motor("${port}").get()[1] if get_motor("${port}") else 0)`;
+        return `require_reading(motor.relative_position(require_device("${port}")), "motor position")`;
+      } else if (block.opcode === "spikeprime_getRelativePosition") {
+        const port = this.getInputValue(block, "PORT", blocks).replace(
+          /"/g,
+          ""
+        );
+        return `require_reading(motor.relative_position(require_device("${port}")), "relative motor position")`;
+      } else if (block.opcode === "spikeprime_getAbsolutePosition") {
+        const port = this.getInputValue(block, "PORT", blocks).replace(
+          /"/g,
+          ""
+        );
+        return `require_reading(motor.absolute_position(require_device("${port}")), "absolute motor position")`;
       } else if (block.opcode === "spikeprime_getSpeed") {
         const port = this.getInputValue(block, "PORT", blocks).replace(
           /"/g,
           ""
         );
         this.usedSensors.add(port);
-        return `(get_motor("${port}").get()[0] if get_motor("${port}") else 0)`;
+        return `require_reading(motor.velocity(require_device("${port}")), "motor velocity")`;
       } else if (block.opcode === "spikeprime_getAngle") {
         const axis = this.getInputValue(block, "AXIS", blocks).replace(
           /"/g,
           ""
         );
         const axisMap = { pitch: 1, roll: 2, yaw: 0 };
-        const idx = axisMap[axis] || 0;
-        return `hub.motion.position()[${idx}]`;
+        const idx = axisMap[axis] ?? 0;
+        return `motion_sensor.tilt_angles()[${idx}] / 10`;
+      } else if (
+        block.opcode === "spikeprime_getGyroRate" ||
+        block.opcode === "spikeprime_getFilteredGyroRate"
+      ) {
+        const axis = this.getInputValue(block, "AXIS", blocks).replace(
+          /"/g,
+          ""
+        );
+        const idx = { roll: 0, pitch: 1, yaw: 2 }[axis] ?? 2;
+        const raw =
+          block.opcode === "spikeprime_getGyroRate" ? "True" : "False";
+        return `motion_sensor.angular_velocity(${raw})[${idx}] / 10`;
+      } else if (
+        block.opcode === "spikeprime_getAcceleration" ||
+        block.opcode === "spikeprime_getFilteredAcceleration"
+      ) {
+        const axis = this.getInputValue(block, "AXIS", blocks).replace(
+          /"/g,
+          ""
+        );
+        const idx = { x: 0, y: 1, z: 2 }[axis] ?? 0;
+        const raw =
+          block.opcode === "spikeprime_getAcceleration" ? "True" : "False";
+        return `motion_sensor.acceleration(${raw})[${idx}]`;
       } else if (block.opcode === "spikeprime_getBatteryLevel") {
-        return "hub.battery.voltage()";
+        return `unsupported_reporter("battery percentage")`;
+      } else if (block.opcode === "spikeprime_getBatteryTemperature") {
+        return `unsupported_reporter("battery temperature")`;
+      } else if (block.opcode === "spikeprime_getHubTemperature") {
+        return `hub.temperature() / 10`;
+      } else if (block.opcode === "spikeprime_getHubCurrent") {
+        return `unsupported_reporter("hub current")`;
+      } else if (block.opcode === "spikeprime_getHubVoltage") {
+        return `unsupported_reporter("hub voltage")`;
       } else if (block.opcode === "spikeprime_getTimer") {
-        return "((utime.ticks_ms() - timer_start) / 1000.0)";
+        return "(time.ticks_diff(time.ticks_ms(), timer_start) / 1000.0)";
       } else if (block.opcode === "spikeprime_getDistance") {
         const port = this.getInputValue(block, "PORT", blocks).replace(
           /"/g,
           ""
         );
         this.usedSensors.add(port);
-        return `(get_sensor("${port}").get()[0] if get_sensor("${port}") else 0)`;
+        return `distance_cm("${port}")`;
+      } else if (block.opcode === "spikeprime_getDistanceIn") {
+        const port = this.getInputValue(block, "PORT", blocks).replace(
+          /"/g,
+          ""
+        );
+        const unit = this.getInputValue(block, "UNIT", blocks).replace(
+          /"/g,
+          ""
+        );
+        const centimeters = `distance_cm("${port}")`;
+        if (unit === "mm") return `(${centimeters} * 10)`;
+        if (unit === "in") return `(${centimeters} / 2.54)`;
+        if (unit === "%")
+          return `max(0, min(100, (${centimeters} / 200) * 100))`;
+        return centimeters;
+      } else if (block.opcode === "spikeprime_readLogFile") {
+        const filename = this.getInputValue(block, "FILENAME", blocks);
+        return `read_log(${filename})`;
+      } else if (block.opcode === "spikeprime_listFiles") {
+        return '", ".join(list_log_files())';
       } else if (block.opcode === "spikeprime_getColor") {
         const port = this.getInputValue(block, "PORT", blocks).replace(
           /"/g,
           ""
         );
         this.usedSensors.add(port);
-        return `(get_sensor("${port}").get()[0] if get_sensor("${port}") else 0)`;
+        return `spike_color_name(color_sensor.color(require_device("${port}")))`;
+      } else if (block.opcode === "spikeprime_isColor") {
+        const port = this.getInputValue(block, "PORT", blocks).replace(
+          /"/g,
+          ""
+        );
+        const expected = this.getInputValue(block, "COLOR", blocks).replace(
+          /"/g,
+          ""
+        );
+        this.usedSensors.add(port);
+        return `(spike_color_name(color_sensor.color(require_device("${port}"))) == ${pyStringLiteral(expected.toLowerCase())})`;
       } else if (block.opcode === "spikeprime_getReflection") {
         const port = this.getInputValue(block, "PORT", blocks).replace(
           /"/g,
           ""
         );
         this.usedSensors.add(port);
-        return `(get_sensor("${port}").get()[1] if get_sensor("${port}") else 0)`;
+        return `color_sensor.reflection(require_device("${port}"))`;
+      } else if (block.opcode === "spikeprime_getAmbientLight") {
+        return `unsupported_reporter("ambient light")`;
       } else if (block.opcode === "spikeprime_getColorRGB") {
         const port = this.getInputValue(block, "PORT", blocks).replace(
           /"/g,
@@ -8742,16 +10524,52 @@ continuous_sensor_loop()
           /"/g,
           ""
         );
-        const idx = { red: 3, green: 4, blue: 5 }[channel] ?? 3;
+        const idx = { red: 0, green: 1, blue: 2 }[channel] ?? 0;
         this.usedSensors.add(port);
-        return `(get_sensor("${port}").get()[${idx}] if get_sensor("${port}") else 0)`;
+        return `color_sensor.rgbi(require_device("${port}"))[${idx}]`;
       } else if (block.opcode === "spikeprime_getForce") {
         const port = this.getInputValue(block, "PORT", blocks).replace(
           /"/g,
           ""
         );
         this.usedSensors.add(port);
-        return `(get_sensor("${port}").get()[0] if get_sensor("${port}") else 0)`;
+        return `force_sensor.force(require_device("${port}"))`;
+      } else if (block.opcode === "spikeprime_isForceSensorPressed") {
+        const port = this.getInputValue(block, "PORT", blocks).replace(
+          /"/g,
+          ""
+        );
+        return `force_sensor.pressed(require_device("${port}"))`;
+      } else if (block.opcode === "spikeprime_isGesture") {
+        const gesture = this.getInputValue(block, "GESTURE", blocks).replace(
+          /"/g,
+          ""
+        );
+        return `hub_gesture_is("${gesture}")`;
+      } else if (
+        block.opcode === "spikeprime_getOrientation" ||
+        block.opcode === "spikeprime_getFaceUp"
+      ) {
+        return "face_up_name()";
+      } else if (block.opcode === "spikeprime_isButtonPressed") {
+        const name = this.getInputValue(block, "BUTTON", blocks).replace(
+          /"/g,
+          ""
+        );
+        return `hub_button_pressed("${name}")`;
+      } else if (
+        block.opcode === "spikeprime_isConnected" ||
+        block.opcode === "spikeprime_getHubType" ||
+        block.opcode === "spikeprime_getFirmwareVersion" ||
+        block.opcode === "spikeprime_getConnectionMode" ||
+        block.opcode === "spikeprime_getCommunicationDiagnostics" ||
+        block.opcode === "spikeprime_getCommunicationDiagnosticsSummary" ||
+        block.opcode === "spikeprime_getTranspiledCode" ||
+        block.opcode === "spikeprime_listScriptsOnHub" ||
+        block.opcode === "spikeprime_getReplOutput" ||
+        block.opcode === "spikeprime_getReplHistory"
+      ) {
+        return `unsupported_reporter(${pyStringLiteral(block.opcode.replace("spikeprime_", ""))})`;
       }
 
       // Operators
@@ -8831,7 +10649,9 @@ continuous_sensor_loop()
         return mathOps[operator] || `${num}`;
       }
 
-      return "0";
+      throw new Error(
+        `Unsupported value block in SPIKE Python conversion: ${block.opcode}`
+      );
     }
 
     getFieldValue(block, fieldName) {
@@ -8885,7 +10705,57 @@ continuous_sensor_loop()
       // answered, so the blocks below are written against one surface.
       this._peripheral = new HubRouter(this.runtime, "spikeprime");
       this._transpiler = new SpikeTranspiler();
+      this._sessionProgramSlots = new Map();
       console.log("🤖 [SPIKE] Extension loaded - Language:", currentLang);
+    }
+
+    _programSlotStorageKey() {
+      const deviceId = this._peripheral.active?._link?._device?.id || "default";
+      return `brickwright.spikeprime.program-slots.${deviceId}`;
+    }
+
+    _readProgramSlots() {
+      const slots = new Map(this._sessionProgramSlots);
+      try {
+        if (typeof localStorage !== "undefined") {
+          const stored = JSON.parse(
+            localStorage.getItem(this._programSlotStorageKey()) || "{}"
+          );
+          for (const [name, slot] of Object.entries(stored)) {
+            if (Number.isInteger(slot) && slot >= 0 && slot <= 19)
+              slots.set(name, slot);
+          }
+        }
+      } catch (error) {
+        this._peripheral.active?._recordCommunicationError?.(error);
+      }
+      return slots;
+    }
+
+    _writeProgramSlots(slots) {
+      this._sessionProgramSlots = new Map(slots);
+      try {
+        if (typeof localStorage !== "undefined") {
+          localStorage.setItem(
+            this._programSlotStorageKey(),
+            JSON.stringify(Object.fromEntries(slots))
+          );
+        }
+      } catch (error) {
+        this._peripheral.active?._recordCommunicationError?.(error);
+      }
+    }
+
+    _normalizeProgramName(value) {
+      const name = Cast.toString(value)
+        .trim()
+        .replace(/[^a-zA-Z0-9._-]/g, "_");
+      if (!name || name === "." || name === ".." || name.length > 40) {
+        throw new Error(
+          "Program name must be 1–40 letters, numbers, dots, underscores, or dashes."
+        );
+      }
+      return name;
     }
 
     getInfo() {
@@ -9061,6 +10931,10 @@ continuous_sensor_loop()
                 type: ArgumentType.STRING,
                 defaultValue: t("scriptName"),
               },
+              SLOT: {
+                type: ArgumentType.NUMBER,
+                defaultValue: 1,
+              },
             },
           },
           {
@@ -9128,6 +11002,10 @@ continuous_sensor_loop()
                 type: ArgumentType.STRING,
                 menu: "PORT",
                 defaultValue: "B",
+              },
+              WHEEL_CIRCUMFERENCE_CM: {
+                type: ArgumentType.NUMBER,
+                defaultValue: 17.6,
               },
             },
           },
@@ -10391,56 +12269,49 @@ continuous_sensor_loop()
         return this._rejectOperation(new Error(t("notConnected")));
       }
 
-      const filename = Cast.toString(args.NAME).replace(
-        /[^a-zA-Z0-9._-]/g,
-        "_"
-      );
-
-      console.log(`📤 Uploading ${filename} to hub...`);
-
-      // Escape the code for Python string
-      const escapedCode = code
-        .replace(/\\/g, "\\\\")
-        .replace(/"/g, '\\"')
-        .replace(/\n/g, "\\n")
-        .replace(/\r/g, "\\r");
-
-      // Split into chunks if too large
-      const chunkSize = 200;
-      const chunks = [];
-
-      for (let i = 0; i < escapedCode.length; i += chunkSize) {
-        chunks.push(escapedCode.slice(i, i + chunkSize));
+      let filename;
+      const slot = Math.trunc(Cast.toNumber(args.SLOT ?? 1));
+      try {
+        filename = this._normalizeProgramName(args.NAME);
+      } catch (error) {
+        return this._rejectOperation(error);
       }
-
-      console.log(`📦 Uploading in ${chunks.length} chunks...`);
-
-      // Upload in chunks
-      const uploadCommands = [`f = open("${filename}", "w")`];
-
-      for (const chunk of chunks) {
-        uploadCommands.push(`f.write("${chunk}")`);
+      if (this._peripheral.protocol !== "spike3") {
+        const filenameLiteral = pyStringLiteral(filename);
+        const chunks = code.match(/[\s\S]{1,160}/g) || [""];
+        let promise = this._peripheral.sendPythonCommand(
+          `f = open(${filenameLiteral}, "w")`
+        );
+        for (const chunk of chunks) {
+          promise = promise.then(() =>
+            this._peripheral.sendPythonCommand(
+              `f.write(${pyStringLiteral(chunk)})`
+            )
+          );
+        }
+        return promise.then(() =>
+          this._peripheral.sendPythonCommand("f.close()")
+        );
       }
-
-      uploadCommands.push("f.close()");
-      uploadCommands.push(`print("✓ Uploaded ${filename}")`);
-
-      // Send all commands
-      let promise = Promise.resolve();
-      for (const cmd of uploadCommands) {
-        promise = promise
-          .then(() => {
-            return this._peripheral.sendPythonCommand(cmd);
-          })
-          .then(() => {
-            return new Promise((resolve) => setTimeout(resolve, 50)); // Small delay between chunks
+      const active = this._peripheral.active;
+      return active
+        .uploadProgramToSlot(code, slot)
+        .then((result) => {
+          const slots = this._readProgramSlots();
+          for (const [name, assignedSlot] of slots) {
+            if (assignedSlot === slot) slots.delete(name);
+          }
+          slots.set(filename, slot);
+          this._writeProgramSlots(slots);
+          active._recordDiagnosticEvent("program-name-mapped-to-slot", {
+            name: filename,
+            slot,
+            fileName: result.fileName,
           });
-      }
-
-      return promise
-        .then(() => undefined)
+          return result;
+        })
         .catch((error) => {
-          this._peripheral.active?._recordCommunicationError?.(error);
+          active?._recordCommunicationError?.(error);
           throw error;
         });
     }
@@ -10450,25 +12321,27 @@ continuous_sensor_loop()
         return this._rejectOperation(new Error(t("notConnected")));
       }
 
-      const filename = Cast.toString(args.NAME).replace(
-        /[^a-zA-Z0-9._-]/g,
-        "_"
-      );
-
-      console.log(`▶️ Running ${filename} on hub...`);
-
-      // Execute the script
-      const runCommand = `exec(open("${filename}").read())`;
-
-      return this._peripheral
-        .sendPythonCommand(runCommand)
-        .then(() => {
-          console.log(`✓ Script ${filename} started`);
-        })
-        .catch((error) => {
-          this._peripheral.active?._recordCommunicationError?.(error);
-          throw error;
-        });
+      let filename;
+      try {
+        filename = this._normalizeProgramName(args.NAME);
+      } catch (error) {
+        return this._rejectOperation(error);
+      }
+      if (this._peripheral.protocol !== "spike3") {
+        return this._peripheral.sendPythonCommand(
+          `exec(open(${pyStringLiteral(filename)}).read())`
+        );
+      }
+      const slot = this._readProgramSlots().get(filename);
+      if (!Number.isInteger(slot)) {
+        return this._rejectOperation(
+          new Error(t("programNotUploaded", filename))
+        );
+      }
+      return this._peripheral.active.startProgramInSlot(slot).catch((error) => {
+        this._peripheral.active?._recordCommunicationError?.(error);
+        throw error;
+      });
     }
 
     renameScriptOnHub(args) {
@@ -10476,22 +12349,43 @@ continuous_sensor_loop()
         return this._rejectOperation(new Error(t("notConnected")));
       }
 
-      const oldName = Cast.toString(args.OLD).replace(/[^a-zA-Z0-9._-]/g, "_");
-      const newName = Cast.toString(args.NEW).replace(/[^a-zA-Z0-9._-]/g, "_");
-
-      console.log(`📝 Renaming ${oldName} → ${newName}...`);
-
-      const renameCommand = `import uos; uos.rename("${oldName}", "${newName}"); print("✓ Renamed")`;
-
-      return this._peripheral
-        .sendPythonCommand(renameCommand)
-        .then(() => {
-          return undefined;
-        })
-        .catch((error) => {
-          this._peripheral.active?._recordCommunicationError?.(error);
-          throw error;
-        });
+      let oldName;
+      let newName;
+      try {
+        oldName = this._normalizeProgramName(args.OLD);
+        newName = this._normalizeProgramName(args.NEW);
+      } catch (error) {
+        return this._rejectOperation(error);
+      }
+      if (this._peripheral.protocol !== "spike3") {
+        return this._peripheral.sendPythonCommand(
+          `import uos; uos.rename(${pyStringLiteral(oldName)}, ${pyStringLiteral(newName)})`
+        );
+      }
+      const slots = this._readProgramSlots();
+      const slot = slots.get(oldName);
+      if (!Number.isInteger(slot)) {
+        return this._rejectOperation(
+          new Error(t("programNotUploaded", oldName))
+        );
+      }
+      if (slots.has(newName)) {
+        return this._rejectOperation(
+          new Error(t("programNameAlreadyExists", newName))
+        );
+      }
+      slots.delete(oldName);
+      slots.set(newName, slot);
+      this._writeProgramSlots(slots);
+      this._peripheral.active?._recordDiagnosticEvent?.(
+        "program-name-renamed",
+        {
+          oldName,
+          newName,
+          slot,
+        }
+      );
+      return Promise.resolve();
     }
 
     deleteScriptOnHub(args) {
@@ -10499,32 +12393,35 @@ continuous_sensor_loop()
         return this._rejectOperation(new Error(t("notConnected")));
       }
 
-      const filename = Cast.toString(args.NAME).replace(
-        /[^a-zA-Z0-9._-]/g,
-        "_"
-      );
-
-      // Nothing is sent until the user has answered, and only OK deletes.
-      return askYesNo(t("confirmDelete", filename)).then((yes) => {
-        if (!yes) {
-          return;
-        }
-
-        console.log("🗑️ Deleting " + filename + "...");
-
-        const deleteCommand =
-          'import uos; uos.remove("' + filename + '"); print("✓ Deleted")';
-
-        return this._peripheral
-          .sendPythonCommand(deleteCommand)
-          .then(() => {
-            return undefined;
-          })
-          .catch((error) => {
-            this._peripheral.active?._recordCommunicationError?.(error);
-            throw error;
-          });
-      });
+      let filename;
+      try {
+        filename = this._normalizeProgramName(args.NAME);
+      } catch (error) {
+        return this._rejectOperation(error);
+      }
+      if (this._peripheral.protocol !== "spike3") {
+        return this._peripheral.sendPythonCommand(
+          `import uos; uos.remove(${pyStringLiteral(filename)})`
+        );
+      }
+      const slots = this._readProgramSlots();
+      const slot = slots.get(filename);
+      if (!Number.isInteger(slot)) {
+        return this._rejectOperation(
+          new Error(t("programNotUploaded", filename))
+        );
+      }
+      return this._peripheral.active
+        .clearProgramSlot(slot)
+        .then((result) => {
+          slots.delete(filename);
+          this._writeProgramSlots(slots);
+          return result;
+        })
+        .catch((error) => {
+          this._peripheral.active?._recordCommunicationError?.(error);
+          throw error;
+        });
     }
 
     listScriptsOnHub() {
@@ -10532,12 +12429,14 @@ continuous_sensor_loop()
         return this._rejectOperation(new Error(t("notConnected")));
       }
 
-      // Request list of .py files
+      if (this._peripheral.protocol === "spike3") {
+        // Slot-to-name mappings are held by this browser because the BLE
+        // protocol has no public API for listing arbitrary hub files.
+        return [...this._readProgramSlots().keys()].join(", ");
+      }
       this._peripheral.sendReplCommand(
         'import uos; print(",".join([f for f in uos.listdir() if f.endswith(".py")]))'
       );
-
-      // Return instruction to check REPL output
       return t("checkReplOutput");
     }
 
@@ -10548,7 +12447,14 @@ continuous_sensor_loop()
 
       console.log("⏹️ Stopping script...");
 
-      // Send Ctrl+C to interrupt
+      if (this._peripheral.protocol === "spike3") {
+        const slot = this._peripheral.active?._runningControllerSlot;
+        if (!Number.isInteger(slot)) {
+          return this._rejectOperation(new Error(t("noRunningProgramSlot")));
+        }
+        return this._peripheral.active.stopAll();
+      }
+      // Send Ctrl+C to interrupt the legacy REPL.
       return this._peripheral
         .sendRaw("\x03")
         .then(() => {
@@ -10569,7 +12475,31 @@ continuous_sensor_loop()
       const portA = this._validatePort(args.PORT_A);
       const portB = this._validatePort(args.PORT_B);
       if (!portA || !portB) return;
+      if (portA === portB) {
+        return this._rejectOperation(
+          new Error(t("controllerInvalidMotorPair"))
+        );
+      }
       this._peripheral._movementMotors = [portA, portB];
+      const circumference = Number(args.WHEEL_CIRCUMFERENCE_CM);
+      if (
+        Number.isFinite(circumference) &&
+        circumference > 0 &&
+        circumference <= 100
+      ) {
+        this._peripheral._movementWheelCircumferenceCm = circumference;
+      } else {
+        // cm/in movement requires a physical wheel measurement; degrees,
+        // rotations, and time do not. Clearing an old value prevents a stale
+        // wheel size from silently surviving a new motor-pair configuration.
+        this._peripheral._movementWheelCircumferenceCm = null;
+      }
+      if (this._peripheral.protocol === "spike3") {
+        return this._peripheral.sendCommand("scratch.motor_pair_configure", {
+          left_port: portA,
+          right_port: portB,
+        });
+      }
       // Tell the hub too: motors.move/start/... drive whatever the hub's own
       // motors pair is, and recording the ports here alone left it unchanged.
       return this._peripheral.sendPythonCommand(this._motorPairPython(false));
@@ -10691,13 +12621,55 @@ continuous_sensor_loop()
       const ports = this._peripheral.movementMotors;
       const speed = this._peripheral.motorSettings[ports[0]].speed;
       const dirMultiplier = direction === "forward" ? 1 : -1;
+      if (this._peripheral.protocol === "spike3") {
+        const circumference = this._peripheral._movementWheelCircumferenceCm;
+        if (unit === "seconds") {
+          return this._peripheral.sendCommand("scratch.motor_pair_move_time", {
+            duration_ms: Math.round(Math.max(0, value) * 1000),
+            steering: 0,
+            speed: speed * dirMultiplier,
+          });
+        }
+        let degrees;
+        if (unit === "rotations") degrees = value * 360;
+        else if (unit === "degrees") degrees = value;
+        else if (unit === "cm" || unit === "in") {
+          if (!Number.isFinite(circumference) || circumference <= 0) {
+            return this._rejectOperation(
+              new Error(t("controllerWheelSizeRequired"))
+            );
+          }
+          const centimeters = unit === "cm" ? value : value * 2.54;
+          degrees = (centimeters / circumference) * 360;
+        } else
+          return this._rejectOperation(
+            new Error(t("controllerInvalidMoveUnit"))
+          );
+        return this._peripheral.sendCommand("scratch.motor_pair_move_degrees", {
+          degrees: Math.round(degrees * dirMultiplier),
+          steering: 0,
+          speed,
+        });
+      }
       let amount = value;
       let sentUnit = unit;
       if (unit === "cm") {
-        amount = value / 17.6;
+        const circumference = this._peripheral._movementWheelCircumferenceCm;
+        if (!Number.isFinite(circumference) || circumference <= 0) {
+          return this._rejectOperation(
+            new Error(t("controllerWheelSizeRequired"))
+          );
+        }
+        amount = value / circumference;
         sentUnit = "rotations";
       } else if (unit === "in") {
-        amount = value / 6.93;
+        const circumference = this._peripheral._movementWheelCircumferenceCm;
+        if (!Number.isFinite(circumference) || circumference <= 0) {
+          return this._rejectOperation(
+            new Error(t("controllerWheelSizeRequired"))
+          );
+        }
+        amount = (value * 2.54) / circumference;
         sentUnit = "rotations";
       }
       const sent = this._sendMotorPairCommand(
@@ -10721,6 +12693,12 @@ continuous_sensor_loop()
       const steering = Cast.toNumber(args.STEERING);
       const [portA] = this._peripheral.movementMotors;
       const speed = this._peripheral.motorSettings[portA].speed;
+      if (this._peripheral.protocol === "spike3") {
+        return this._peripheral.sendCommand("scratch.motor_pair_move", {
+          steering,
+          speed,
+        });
+      }
       return this._sendMotorPairCommand(
         `motors.start(${steering}, speed=${speed})`
       );
@@ -10729,6 +12707,12 @@ continuous_sensor_loop()
     startTank(args) {
       const leftSpeed = Cast.toNumber(args.LEFT_SPEED);
       const rightSpeed = Cast.toNumber(args.RIGHT_SPEED);
+      if (this._peripheral.protocol === "spike3") {
+        return this._peripheral.sendCommand("scratch.motor_pair_move_tank", {
+          left_speed: leftSpeed,
+          right_speed: rightSpeed,
+        });
+      }
       return this._sendMotorPairCommand(
         `motors.start_tank(${leftSpeed}, ${rightSpeed})`
       );
@@ -10739,10 +12723,16 @@ continuous_sensor_loop()
       const [portA, portB] = this._peripheral.movementMotors;
       this._peripheral.motorSettings[portA].speed = speed;
       this._peripheral.motorSettings[portB].speed = speed;
+      if (this._peripheral.protocol === "spike3") return Promise.resolve();
       return this._sendMotorPairCommand(`motors.set_default_speed(${speed})`);
     }
 
     stopMovement() {
+      if (this._peripheral.protocol === "spike3") {
+        return this._peripheral.sendCommand("scratch.motor_pair_stop", {
+          stop: "brake",
+        });
+      }
       return this._sendMotorPairCommand("motors.stop()");
     }
 
@@ -10766,23 +12756,19 @@ continuous_sensor_loop()
       );
 
       if (this._peripheral.protocol === "spike3") {
-        const speeds = ports.map(
-          (port) => this._peripheral.motorSettings[port].speed * direction
-        );
-        const slowest = speeds.reduce(
-          (current, speed) => Math.min(current, Math.abs(speed)),
-          Infinity
-        );
         return Promise.all(
-          ports.map((port, index) =>
-            this._peripheral.sendCommand("scratch.motor_run_for_degrees", {
-              port,
-              speed: speeds[index],
-              degrees: Math.floor(degrees),
-            })
-          )
-        ).then(() =>
-          this._waitForMovement(ports, Math.floor(degrees), slowest)
+          ports.map((port) => {
+            const setting = this._peripheral.motorSettings[port];
+            return this._peripheral.sendCommand(
+              "scratch.motor_run_for_degrees",
+              {
+                port,
+                speed: setting.speed * direction,
+                degrees: Math.trunc(degrees),
+                stop_mode: setting.stopMode,
+              }
+            );
+          })
         );
       }
 
@@ -10818,6 +12804,7 @@ continuous_sensor_loop()
           port,
           position,
           speed,
+          stop_mode: this._peripheral.motorSettings[port].stopMode,
         });
       }
       return this._peripheral.sendPythonCommand(
@@ -10834,10 +12821,10 @@ continuous_sensor_loop()
             port: port,
             speed: setting.speed * direction,
             degrees: Math.floor(degrees),
-            stop: setting.stopMode,
-            stall: setting.stallDetection,
+            stop_mode: setting.stopMode,
           }
         );
+        if (this._peripheral.protocol === "spike3") return standardCommand;
         const altCommand = () =>
           this._peripheral.sendPythonCommand(
             `import hub; hub.port.${port}.motor.run_for_degrees(${Math.floor(degrees)}, ${setting.speed * direction})`
@@ -10858,10 +12845,10 @@ continuous_sensor_loop()
             port: port,
             speed: setting.speed * direction,
             time: Math.floor(seconds * 1000),
-            stop: setting.stopMode,
-            stall: setting.stallDetection,
+            stop_mode: setting.stopMode,
           }
         );
+        if (this._peripheral.protocol === "spike3") return standardCommand;
         const altCommand = () =>
           this._peripheral.sendPythonCommand(
             `import hub; hub.port.${port}.motor.run_for_time(${Math.floor(seconds * 1000)}, ${setting.speed * direction})`
@@ -10884,10 +12871,10 @@ continuous_sensor_loop()
           {
             port: port,
             speed: setting.speed * direction,
-            stall: setting.stallDetection,
-          },
-          false // needsResponse = false
+            stop_mode: setting.stopMode,
+          }
         );
+        if (this._peripheral.protocol === "spike3") return standardCommand;
         const altCommand = () =>
           this._peripheral.sendPythonCommand(
             // The hub module's speed command (percent, regulated), not pwm():
@@ -10910,13 +12897,16 @@ continuous_sensor_loop()
         "color: #ff4444; font-weight: bold;"
       );
 
-      const promises = ports.map((port) => {
-        // We only send the Python command.
-        // We use pwm(0) then brake() to ensure it truly stops.
-        return this._peripheral.sendPythonCommand(
-          `hub.port.${port}.motor.pwm(0); hub.port.${port}.motor.brake()`
-        );
-      });
+      const promises = ports.map((port) =>
+        this._peripheral.protocol === "spike3"
+          ? this._peripheral.sendCommand("scratch.motor_stop", {
+              port,
+              stop_mode: this._peripheral.motorSettings[port].stopMode,
+            })
+          : this._peripheral.sendPythonCommand(
+              `hub.port.${port}.motor.pwm(0); hub.port.${port}.motor.brake()`
+            )
+      );
 
       return Promise.all(promises);
     }
@@ -10934,7 +12924,11 @@ continuous_sensor_loop()
       if (!port) return;
       const action = Cast.toString(args.ACTION);
       const stopModeMap = { coast: 0, brake: 1, hold: 2 };
-      this._peripheral.motorSettings[port].stopMode = stopModeMap[action] || 1;
+      if (!Object.prototype.hasOwnProperty.call(stopModeMap, action)) {
+        return this._rejectOperation(new Error(t("controllerInvalidStopMode")));
+      }
+      this._peripheral.motorSettings[port].stopMode = stopModeMap[action];
+      if (this._peripheral.protocol === "spike3") return Promise.resolve();
       return this._peripheral.sendPythonCommand(
         `hub.port.${port}.motor.set_stop_action('${action}')`
       );
@@ -10942,34 +12936,44 @@ continuous_sensor_loop()
 
     getPosition(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
-      return this._peripheral.portValues[port]?.position ?? 0;
+      return this._peripheral.portValues[port]?.position ?? "";
     }
 
     getRelativePosition(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
       const altData = this._peripheral._sensors.motorPositions[port];
-      if (altData) return altData.relativePosition;
-      return this._peripheral.portValues[port]?.relativePosition ?? 0;
+      if (typeof altData?.relativePosition === "number")
+        return altData.relativePosition;
+      return this._peripheral.portValues[port]?.relativePosition ?? "";
     }
 
     getAbsolutePosition(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
       const altData = this._peripheral._sensors.motorPositions[port];
-      if (altData) return altData.absolutePosition;
-      return this._peripheral.portValues[port]?.absolutePosition ?? 0;
+      if (typeof altData?.absolutePosition === "number")
+        return altData.absolutePosition;
+      return this._peripheral.portValues[port]?.absolutePosition ?? "";
     }
 
     getSpeed(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
       const altData = this._peripheral._sensors.motorPositions[port];
-      if (altData) return Math.round(altData.speed * 9.3);
-      const speedPercent = this._peripheral.portValues[port]?.speed ?? 0;
-      return Math.round(speedPercent * 9.3);
+      const value = altData || this._peripheral.portValues[port];
+      if (typeof value?.speed !== "number") return "";
+      const maximum = SPIKE3_MOTOR_MAX_VELOCITY[value.motorType];
+      if (!maximum) return "";
+      return Math.round((value.speed * maximum) / 100);
     }
 
     resetMotorPosition(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
       const position = Cast.toNumber(args.POSITION);
+      if (this._peripheral.protocol === "spike3") {
+        return this._peripheral.sendCommand("scratch.motor_reset_position", {
+          port,
+          position,
+        });
+      }
       return this._peripheral.sendPythonCommand(
         `import hub; hub.port.${port}.motor.preset(${position})`
       );
@@ -10982,6 +12986,7 @@ continuous_sensor_loop()
         "scratch.display_text",
         { text: text }
       );
+      if (this._peripheral.protocol === "spike3") return standardCommand;
       const altCommand = () =>
         this._peripheral.sendPythonCommand(
           `import hub; hub.display.show(${pyStringLiteral(text)})`
@@ -10993,8 +12998,12 @@ continuous_sensor_loop()
 
     displayImage(args) {
       const matrix = Cast.toString(args.MATRIX);
-      // Ensure we have exactly 25 digits, defaulting to 0
-      const symbol = (matrix.replace(/\D/g, "") + "0".repeat(25)).slice(0, 25);
+      // The block stores 25 0..9 brightness values. Keep that representation
+      // explicit and scale once to light_matrix's 0..100 input range.
+      const symbol = (matrix.replace(/[^0-9]/g, "") + "0".repeat(25)).slice(
+        0,
+        25
+      );
 
       // SPIKE Prime Python uses 0-9 for brightness.
       // We'll map '1' from Scratch to '9' (Full Bright) for visibility.
@@ -11008,7 +13017,7 @@ continuous_sensor_loop()
 
       if (this._peripheral.protocol === "spike3") {
         return this._peripheral.sendCommand("scratch.display_pattern", {
-          pixels: symbol,
+          pixels: symbol.split("").map((digit) => (digit === "1" ? 100 : 0)),
         });
       }
       return this._peripheral.sendPythonCommand(
@@ -11042,6 +13051,17 @@ continuous_sensor_loop()
     displayPattern(args) {
       const pattern = Cast.toString(args.PATTERN);
       const patternData = DisplayPatterns[pattern];
+      if (patternData && this._peripheral.protocol === "spike3") {
+        const pixels = patternData
+          .replace(/[^0-9a-f]/gi, "0")
+          .padEnd(25, "0")
+          .slice(0, 25)
+          .split("")
+          .map((pixel) => Math.round((parseInt(pixel, 16) / 15) * 100));
+        return this._peripheral.sendCommand("scratch.display_pattern", {
+          pixels,
+        });
+      }
       if (patternData) return this.displayImage({ MATRIX: patternData });
       return Promise.resolve();
     }
@@ -11051,6 +13071,7 @@ continuous_sensor_loop()
         "scratch.display_clear",
         {}
       );
+      if (this._peripheral.protocol === "spike3") return standardCommand;
       const altCommand = () =>
         this._peripheral.sendPythonCommand('import hub; hub.display.show(" ")');
       return standardCommand.catch((error) =>
@@ -11065,8 +13086,13 @@ continuous_sensor_loop()
       if (x < 0 || x > 4 || y < 0 || y > 4) return Promise.resolve();
       const standardCommand = this._peripheral.sendCommand(
         "scratch.display_set_pixel",
-        { x: x, y: y, brightness: Math.round((brightness * 9) / 100) }
+        {
+          x: x,
+          y: y,
+          brightness: Math.round(MathUtil.clamp(brightness, 0, 100)),
+        }
       );
+      if (this._peripheral.protocol === "spike3") return standardCommand;
       const altCommand = () =>
         this._peripheral.sendPythonCommand(
           `import hub; hub.display.pixel(${x}, ${y}, ${Math.round((brightness * 9) / 100)})`
@@ -11078,6 +13104,22 @@ continuous_sensor_loop()
 
     rotateDisplay(args) {
       const angle = Cast.toString(args.ANGLE);
+      if (this._peripheral.protocol === "spike3") {
+        const orientationByAngle = {
+          0: "up",
+          90: "right",
+          180: "down",
+          270: "left",
+        };
+        const orientation = orientationByAngle[angle];
+        if (!orientation)
+          return this._rejectOperation(
+            new Error(t("controllerInvalidDisplayOrientation"))
+          );
+        return this._peripheral.sendCommand("scratch.display_orientation", {
+          orientation,
+        });
+      }
       // Clear first, then rotate
       return this._peripheral.sendPythonCommand(
         `import hub; hub.display.show(" "); hub.display.rotation(${angle})`
@@ -11091,6 +13133,7 @@ continuous_sensor_loop()
         "scratch.center_button_lights",
         { color: colorValue }
       );
+      if (this._peripheral.protocol === "spike3") return standardCommand;
       const altCommand = () =>
         this._peripheral.sendPythonCommand(
           `import hub; hub.led(${colorValue})`
@@ -11103,7 +13146,8 @@ continuous_sensor_loop()
     // IMU & Gyro
     getAngle(args) {
       const axis = Cast.toString(args.AXIS);
-      return this._peripheral.angle[axis] || 0;
+      const value = this._peripheral.angle[axis];
+      return typeof value === "number" && Number.isFinite(value) ? value : "";
     }
     // The AXIS menu names a rotation (yaw, pitch, roll); both hubs report
     // the gyro per sensor axis (x, y, z). Yaw is the turn about z, the axis
@@ -11115,27 +13159,41 @@ continuous_sensor_loop()
       return { yaw: "z", pitch: "y", roll: "x" }[name] || name;
     }
     getGyroRate(args) {
-      return this._peripheral.gyro[this._gyroAxis(args.AXIS)] || 0;
+      const value = this._peripheral.gyro[this._gyroAxis(args.AXIS)];
+      return typeof value === "number" && Number.isFinite(value) ? value : "";
     }
     getFilteredGyroRate(args) {
-      return this._peripheral.gyroFiltered[this._gyroAxis(args.AXIS)] || 0;
+      const value = this._peripheral.gyroFiltered[this._gyroAxis(args.AXIS)];
+      return typeof value === "number" && Number.isFinite(value) ? value : "";
     }
     getAcceleration(args) {
       const axis = Cast.toString(args.AXIS);
-      return this._peripheral.acceleration[axis] || 0;
+      const value = this._peripheral.acceleration[axis];
+      return typeof value === "number" && Number.isFinite(value) ? value : "";
     }
     getFilteredAcceleration(args) {
       const axis = Cast.toString(args.AXIS);
-      return this._peripheral.accelerationFiltered[axis] || 0;
+      const value = this._peripheral.accelerationFiltered[axis];
+      return typeof value === "number" && Number.isFinite(value) ? value : "";
     }
     resetYaw() {
       this._peripheral._timer.start = Date.now();
+      if (this._peripheral.protocol === "spike3") {
+        return this._peripheral.sendCommand("scratch.motion_reset_yaw", {
+          angle: 0,
+        });
+      }
       return this._peripheral.sendPythonCommand(
         "import hub; hub.motion.reset_yaw()"
       );
     }
     presetYaw(args) {
       const angle = Cast.toNumber(args.ANGLE);
+      if (this._peripheral.protocol === "spike3") {
+        return this._peripheral.sendCommand("scratch.motion_reset_yaw", {
+          angle,
+        });
+      }
       return this._peripheral.sendPythonCommand(
         `import hub; hub.motion.preset_yaw(${angle})`
       );
@@ -11147,11 +13205,20 @@ continuous_sensor_loop()
       const pixels = ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9"].map(
         (pixel) => {
           const emoji = Cast.toString(args[pixel]);
-          const colorId = ColorEmojiMap[emoji] || 0;
-          return 5 * 16 + colorId;
+          const colorId = ColorEmojiMap[emoji] ?? 0;
+          return [colorId, colorId === 0 ? 0 : 5];
         }
       );
-      const byteString = pixels
+      if (this._peripheral.protocol === "spike3") {
+        return this._peripheral.sendCommand("scratch.matrix3_show", {
+          port,
+          pixels,
+        });
+      }
+      const packed = pixels.map(
+        ([colorId, intensity]) => intensity * 16 + colorId
+      );
+      const byteString = packed
         .map((b) => `\\x${b.toString(16).padStart(2, "0")}`)
         .join("");
       return this._peripheral.sendPythonCommand(
@@ -11176,47 +13243,58 @@ continuous_sensor_loop()
         w: 10,
       };
       try {
-        const lines = pattern.split(/\n|\|/);
-        const pixels = [];
-        for (const line of lines) {
-          const pixelCodes = line.trim().split(/\s+/);
-          for (const code of pixelCodes) {
-            if (code.length >= 2) {
-              const colorChar = code.charAt(0).toLowerCase();
-              const brightnessStr = code.substring(1);
-              const colorId =
-                colorCodes[colorChar] !== undefined ? colorCodes[colorChar] : 0;
-              const brightness = Math.max(
-                1,
-                Math.min(10, parseInt(brightnessStr) || 1)
-              );
-              pixels.push(brightness * 16 + colorId);
-            }
-          }
+        const tokens = pattern
+          .trim()
+          .split(/[\s,|]+/)
+          .filter(Boolean);
+        if (tokens.length !== 9)
+          throw new Error("3x3 pattern needs nine pixels");
+        const pixels = tokens.map((token) => {
+          const match = token.match(/^([.mvbtngyorw])([0-9]|10)$/i);
+          if (!match) throw new Error(`invalid 3x3 pixel: ${token}`);
+          const colorChar = match[1].toLowerCase();
+          const colorId = colorCodes[colorChar];
+          const intensity =
+            colorChar === "." ? 0 : Math.max(0, Math.min(10, Number(match[2])));
+          return [colorId, intensity];
+        });
+        if (this._peripheral.protocol === "spike3") {
+          return this._peripheral.sendCommand("scratch.matrix3_show", {
+            port,
+            pixels,
+          });
         }
-        while (pixels.length < 9) pixels.push(0x01);
-        pixels.splice(9);
-        const byteString = pixels
+        const packed = pixels.map(
+          ([colorId, intensity]) => intensity * 16 + colorId
+        );
+        const byteString = packed
           .map((b) => `\\x${b.toString(16).padStart(2, "0")}`)
           .join("");
         return this._peripheral.sendPythonCommand(
           `import hub; matrix = hub.port.${port}.device; matrix.mode(2); matrix.mode(2, b"${byteString}")`
         );
       } catch (error) {
-        return this._peripheral.sendPythonCommand(
-          `import hub; matrix = hub.port.${port}.device; matrix.mode(2); matrix.mode(2, b"\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01")`
-        );
+        return this._rejectOperation(error);
       }
     }
 
     setMatrix3x3SolidColor(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
       const colorEmoji = Cast.toString(args.COLOR);
-      const brightness = MathUtil.clamp(Cast.toNumber(args.BRIGHTNESS), 1, 10);
+      const brightness = MathUtil.clamp(Cast.toNumber(args.BRIGHTNESS), 0, 10);
       const colorId = ColorEmojiMap[colorEmoji] || 0;
       const value = brightness * 16 + colorId;
-      const pixels = Array(9).fill(value);
-      const byteString = pixels
+      const pixels = Array(9)
+        .fill(null)
+        .map(() => [colorId, colorId === 0 ? 0 : brightness]);
+      if (this._peripheral.protocol === "spike3") {
+        return this._peripheral.sendCommand("scratch.matrix3_show", {
+          port,
+          pixels,
+        });
+      }
+      const packed = Array(9).fill(value);
+      const byteString = packed
         .map((b) => `\\x${b.toString(16).padStart(2, "0")}`)
         .join("");
       return this._peripheral.sendPythonCommand(
@@ -11226,6 +13304,9 @@ continuous_sensor_loop()
 
     clearMatrix3x3(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
+      if (this._peripheral.protocol === "spike3") {
+        return this._peripheral.sendCommand("scratch.matrix3_clear", { port });
+      }
       return this._peripheral.sendPythonCommand(
         `import hub; matrix = hub.port.${port}.device; matrix.mode(2); matrix.mode(2, b"\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01")`
       );
@@ -11233,6 +13314,10 @@ continuous_sensor_loop()
 
     // Gestures
     whenGesture(args) {
+      if (this._peripheral.protocol === "spike3") {
+        const gesture = Cast.toString(args.GESTURE).toLowerCase();
+        return this._peripheral._consumeSensorEdge(`gesture:${gesture}`);
+      }
       return this.isGesture(args);
     }
     isGesture(args) {
@@ -11247,6 +13332,11 @@ continuous_sensor_loop()
     // Sound
     playHubSound(args) {
       const sound = Cast.toString(args.SOUND);
+      if (this._peripheral.protocol === "spike3") {
+        return this._rejectOperation(
+          new Error(t("controllerHubSoundUnavailable"))
+        );
+      }
       return this._peripheral.sendPythonCommand(
         `import hub; hub.sound.play("/sounds/${sound}")`
       );
@@ -11256,8 +13346,9 @@ continuous_sensor_loop()
       const duration = Cast.toNumber(args.DURATION);
       const standardCommand = this._peripheral.sendCommand(
         "scratch.sound_beep",
-        { frequency: frequency, duration: duration }
+        { frequency, duration, volume: this._peripheral.volume }
       );
+      if (this._peripheral.protocol === "spike3") return standardCommand;
       const altCommand = () =>
         this._peripheral.sendPythonCommand(
           `import hub; hub.sound.beep(${frequency}, ${duration}, hub.sound.SOUND_SIN)`
@@ -11272,6 +13363,13 @@ continuous_sensor_loop()
       const freq = Math.round(this._noteToFrequency(note));
       const ms = Math.round(secs * 1000);
 
+      if (this._peripheral.protocol === "spike3") {
+        return this._peripheral.sendCommand("scratch.sound_beep", {
+          frequency: freq,
+          duration: ms,
+          volume: this._peripheral.volume,
+        });
+      }
       // Use the most compatible 3-parameter syntax
       return this._peripheral.sendPythonCommand(
         `import hub; hub.sound.beep(${freq}, ${ms}, hub.sound.SOUND_SIN)`
@@ -11282,6 +13380,14 @@ continuous_sensor_loop()
       const frequency = Cast.toNumber(args.FREQUENCY);
       const duration = Cast.toNumber(args.DURATION);
       const waveformCode = SoundWaveforms[waveform] || SoundWaveforms.sin;
+      if (this._peripheral.protocol === "spike3") {
+        return this._peripheral.sendCommand("scratch.sound_wave", {
+          frequency,
+          duration,
+          volume: this._peripheral.volume,
+          waveform,
+        });
+      }
       return this._peripheral.sendPythonCommand(
         `import hub; hub.sound.beep(${frequency}, ${duration}, ${waveformCode})`
       );
@@ -11289,6 +13395,11 @@ continuous_sensor_loop()
     setVolume(args) {
       const volume = Cast.toNumber(args.VOLUME);
       this._peripheral._volume = MathUtil.clamp(volume, 0, 100);
+      if (this._peripheral.protocol === "spike3") {
+        return this._peripheral.sendCommand("scratch.sound_volume", {
+          volume: this._peripheral._volume,
+        });
+      }
       return this._peripheral.sendPythonCommand(`hub.sound.volume(${volume})`);
     }
     stopSound() {
@@ -11297,7 +13408,9 @@ continuous_sensor_loop()
 
     // Status & Temperature & Power
     getBatteryLevel() {
-      return this._peripheral.battery || 100;
+      return typeof this._peripheral.battery === "number"
+        ? this._peripheral.battery
+        : "";
     }
     // The `|| 25` here was reporting room temperature for a hub that had
     // never sent one — a fabricated reading is worse than a blank, because it
@@ -11305,20 +13418,28 @@ continuous_sensor_loop()
     // temperature or power channel at all, so on that firmware these are
     // blank rather than plausible.
     getBatteryTemperature() {
-      if (!this._needs("hub-temperature")) return "";
-      return this._peripheral.temperature || 25;
+      if (this._peripheral.protocol === "spike3") return "";
+      return typeof this._peripheral.temperature === "number"
+        ? this._peripheral.temperature
+        : "";
     }
     getHubTemperature() {
       if (!this._needs("hub-temperature")) return "";
-      return this._peripheral.hubTemp || 25;
+      return typeof this._peripheral.hubTemp === "number"
+        ? this._peripheral.hubTemp
+        : "";
     }
     getHubCurrent() {
       if (!this._needs("hub-power")) return "";
-      return this._peripheral.power.current || 0;
+      return typeof this._peripheral.power.current === "number"
+        ? this._peripheral.power.current
+        : "";
     }
     getHubVoltage() {
       if (!this._needs("hub-power")) return "";
-      return this._peripheral.power.voltage || 0;
+      return typeof this._peripheral.power.voltage === "number"
+        ? this._peripheral.power.voltage
+        : "";
     }
 
     // Timer
@@ -11334,8 +13455,13 @@ continuous_sensor_loop()
     getDistance(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
       const portData = this._peripheral.portValues[port];
-      if (portData && portData.type === "distance") return portData.distance;
-      return 0;
+      if (
+        portData?.type === "distance" &&
+        typeof portData.distance === "number"
+      ) {
+        return portData.distance;
+      }
+      return "";
     }
     setDistanceLights(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
@@ -11343,6 +13469,14 @@ continuous_sensor_loop()
       const tr = MathUtil.clamp(Cast.toNumber(args.TR), 0, 9);
       const bl = MathUtil.clamp(Cast.toNumber(args.BL), 0, 9);
       const br = MathUtil.clamp(Cast.toNumber(args.BR), 0, 9);
+      if (this._peripheral.protocol === "spike3") {
+        return this._peripheral.sendCommand("scratch.distance_lights", {
+          port,
+          pixels: [tl, tr, bl, br].map((value) =>
+            Math.round((value / 9) * 100)
+          ),
+        });
+      }
       return this._peripheral.sendPythonCommand(
         `import hub; dist_sensor = hub.port.${port}.device; dist_sensor.mode(5, bytes([${tl}, ${tr}, ${bl}, ${br}]))`
       );
@@ -11372,30 +13506,27 @@ continuous_sensor_loop()
       if (!this._needs("reflection")) return "";
       const port = Cast.toString(args.PORT).trim().toUpperCase();
       const portData = this._peripheral.portValues[port];
-      if (portData && portData.type === "color")
-        return portData.reflection || 0;
-      return 0;
+      return typeof portData?.reflection === "number"
+        ? portData.reflection
+        : "";
     }
     getAmbientLight(args) {
       if (!this._needs("ambient")) return "";
       const port = Cast.toString(args.PORT).trim().toUpperCase();
       const portData = this._peripheral.portValues[port];
-      if (portData && portData.type === "color") return portData.ambient || 0;
-      return 0;
+      return typeof portData?.ambient === "number" ? portData.ambient : "";
     }
     getColorRGB(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
       const channel = Cast.toString(args.CHANNEL).toLowerCase();
-      if (!["red", "green", "blue"].includes(channel)) return 0;
+      if (!["red", "green", "blue"].includes(channel)) return "";
       const portData = this._peripheral.portValues[port];
-      if (portData && portData.type === "color") return portData[channel] || 0;
-      return 0;
+      return typeof portData?.[channel] === "number" ? portData[channel] : "";
     }
     getForce(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
       const portData = this._peripheral.portValues[port];
-      if (portData && portData.type === "force") return portData.force || 0;
-      return 0;
+      return typeof portData?.force === "number" ? portData.force : "";
     }
     isForceSensorPressed(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
@@ -11405,11 +13536,14 @@ continuous_sensor_loop()
       return false;
     }
     whenColor(args) {
-      return this.isColor(args);
+      if (this._peripheral.protocol !== "spike3") return this.isColor(args);
+      const port = Cast.toString(args.PORT).trim().toUpperCase();
+      const color = Cast.toString(args.COLOR).toLowerCase();
+      return this._peripheral._consumeSensorEdge(`color:${port}:${color}`);
     }
     isColor(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
-      const color = Cast.toString(args.COLOR);
+      const color = Cast.toString(args.COLOR).toLowerCase();
       const portData = this._peripheral.portValues[port];
       if (portData && portData.type === "color") {
         const colorNames = [
@@ -11433,6 +13567,11 @@ continuous_sensor_loop()
       const port = Cast.toString(args.PORT).trim().toUpperCase();
       const state = Cast.toString(args.STATE);
       const portData = this._peripheral.portValues[port];
+      if (this._peripheral.protocol === "spike3") {
+        if (!["pressed", "released", "hard pressed"].includes(state))
+          return false;
+        return this._peripheral._consumeSensorEdge(`force:${port}:${state}`);
+      }
       if (portData && portData.type === "force") {
         switch (state) {
           case "pressed":
@@ -11448,52 +13587,192 @@ continuous_sensor_loop()
 
     // Buttons
     isButtonPressed(args) {
-      const button = Cast.toString(args.BUTTON);
+      const button = Cast.toString(args.BUTTON).toLowerCase();
       const buttonIndex = { left: 0, center: 1, right: 2 }[button];
       if (buttonIndex !== undefined) {
-        return this._peripheral._sensors.buttons[buttonIndex] === 1;
+        const value = this._peripheral._sensors.buttons[buttonIndex];
+        return typeof value === "number" ? value === 1 : "";
       }
       return false;
     }
     whenButtonPressed(args) {
+      const name = Cast.toString(args.BUTTON).toLowerCase();
+      if (this._peripheral.protocol === "spike3") {
+        return this._peripheral._consumeSensorEdge(`button:${name}`);
+      }
       return this.isButtonPressed(args);
     }
 
     // File System
+    _normalizeLogFilename(value) {
+      const filename = Cast.toString(value).trim();
+      if (
+        !filename ||
+        filename.length > 40 ||
+        filename === "." ||
+        filename === ".." ||
+        !/^[a-zA-Z0-9._-]+$/.test(filename)
+      ) {
+        throw new Error(t("invalidLogFilename"));
+      }
+      return filename;
+    }
+
+    _utf8Chunks(value, maximumBytes = 192) {
+      const chunks = [];
+      let current = "";
+      let currentBytes = 0;
+      const encoder = new TextEncoder();
+      for (const character of value) {
+        const bytes = encoder.encode(character).length;
+        if (bytes > maximumBytes) throw new Error(t("fileChunkTooLarge"));
+        if (currentBytes + bytes > maximumBytes) {
+          chunks.push(current);
+          current = "";
+          currentBytes = 0;
+        }
+        current += character;
+        currentBytes += bytes;
+      }
+      if (current || chunks.length === 0) chunks.push(current);
+      return chunks;
+    }
+
+    _fileService(operation, filename, values = {}) {
+      return this._peripheral.sendCommand(`scratch.file_${operation}`, {
+        filename,
+        ...values,
+      });
+    }
+
     writeLogFile(args) {
-      const filename = Cast.toString(args.FILENAME).replace(
-        /[^a-zA-Z0-9._-]/g,
-        ""
-      );
-      const text = Cast.toString(args.TEXT).replace(/"/g, '\\"');
-      return this._peripheral.sendPythonCommand(
-        `with open("${filename}", "a") as f: f.write("${text}\\n")`
-      );
+      const text = Cast.toString(args.TEXT) + "\n";
+      if (this._peripheral.protocol !== "spike3") {
+        const filename = Cast.toString(args.FILENAME).replace(
+          /[^a-zA-Z0-9._-]/g,
+          ""
+        );
+        return this._peripheral.sendPythonCommand(
+          `with open(${pyStringLiteral(filename)}, "a") as f: f.write(${pyStringLiteral(text)})`
+        );
+      }
+      let filename;
+      let chunks;
+      try {
+        filename = this._normalizeLogFilename(args.FILENAME);
+        chunks = this._utf8Chunks(text);
+      } catch (error) {
+        return this._rejectOperation(error);
+      }
+      return chunks
+        .reduce(
+          (promise, chunk) =>
+            promise.then(() =>
+              this._fileService("write", filename, { text: chunk })
+            ),
+          Promise.resolve()
+        )
+        .catch((error) => {
+          this._peripheral.active?._recordCommunicationError?.(error);
+          throw error;
+        });
     }
 
     readLogFile(args) {
-      const filename = Cast.toString(args.FILENAME).replace(
-        /[^a-zA-Z0-9._-]/g,
-        ""
-      );
-
-      // We send a direct print command to the REPL
-      return this._peripheral.sendPythonCommand(
-        `with open("${filename}", "r") as f: print(">>> LOG_START\\n" + f.read() + "\\n>>> LOG_END")`
-      );
+      if (this._peripheral.protocol !== "spike3") {
+        const filename = Cast.toString(args.FILENAME).replace(
+          /[^a-zA-Z0-9._-]/g,
+          ""
+        );
+        return this._peripheral.sendPythonCommand(
+          `with open(${pyStringLiteral(filename)}, "r") as f: print(f.read())`
+        );
+      }
+      let filename;
+      try {
+        filename = this._normalizeLogFilename(args.FILENAME);
+      } catch (error) {
+        return this._rejectOperation(error);
+      }
+      const readNext = async (offset, parts) => {
+        const result = await this._fileService("read", filename, {
+          offset,
+          limit: 192,
+        });
+        if (
+          !result ||
+          result.state !== "read" ||
+          typeof result.text !== "string"
+        ) {
+          throw new Error("Hub returned an invalid log-file response");
+        }
+        parts.push(result.text);
+        if (result.eof) return parts.join("");
+        if (
+          !Number.isInteger(result.next_offset) ||
+          result.next_offset <= offset
+        ) {
+          throw new Error("Hub log-file read did not advance its byte offset");
+        }
+        if (result.next_offset > 1048576)
+          throw new Error("Log file exceeds the 1 MiB read limit");
+        return readNext(result.next_offset, parts);
+      };
+      return readNext(0, [])
+        .then((text) => {
+          this._peripheral._replOutput = text;
+          return text;
+        })
+        .catch((error) => {
+          this._peripheral.active?._recordCommunicationError?.(error);
+          throw error;
+        });
     }
 
     deleteLogFile(args) {
-      const filename = Cast.toString(args.FILENAME).replace(
-        /[^a-zA-Z0-9._-]/g,
-        ""
-      );
-      return this._peripheral.sendPythonCommand(
-        `import uos; uos.remove("${filename}")`
-      );
+      if (this._peripheral.protocol !== "spike3") {
+        const filename = Cast.toString(args.FILENAME).replace(
+          /[^a-zA-Z0-9._-]/g,
+          ""
+        );
+        return this._peripheral.sendPythonCommand(
+          `import uos; uos.remove(${pyStringLiteral(filename)})`
+        );
+      }
+      let filename;
+      try {
+        filename = this._normalizeLogFilename(args.FILENAME);
+      } catch (error) {
+        return this._rejectOperation(error);
+      }
+      return this._fileService("delete", filename).catch((error) => {
+        this._peripheral.active?._recordCommunicationError?.(error);
+        throw error;
+      });
     }
 
     listFiles() {
+      if (this._peripheral.protocol === "spike3") {
+        return this._fileService("list", "logs")
+          .then((result) => {
+            if (
+              !result ||
+              result.state !== "listed" ||
+              !Array.isArray(result.files)
+            ) {
+              throw new Error("Hub returned an invalid log-file list");
+            }
+            const files = result.files.map((path) =>
+              path.replace(/^brickwright-log-/, "")
+            );
+            this._peripheral._replOutput = files.join(", ");
+            return files.join(", ");
+          })
+          .catch((error) => {
+            this._peripheral.active?._recordCommunicationError?.(error);
+            throw error;
+          });
+      }
       return this._peripheral.sendReplCommand(
         'import uos; print(", ".join(uos.listdir()))'
       );
@@ -11532,6 +13811,8 @@ continuous_sensor_loop()
       return this._peripheral.sendPythonCommand(pythonCode);
     }
     exitScript() {
+      if (this._peripheral.protocol === "spike3")
+        return this.stopRunningScript();
       return this._peripheral.sendPythonCommand("raise SystemExit");
     }
 
@@ -12058,6 +14339,12 @@ continuous_sensor_loop()
     motorPairMove(args) {
       const steering = MathUtil.clamp(Cast.toNumber(args.STEERING), -100, 100);
       const speed = MathUtil.clamp(Cast.toNumber(args.SPEED), -100, 100);
+      if (this._peripheral.protocol === "spike3") {
+        return this._peripheral.sendCommand("scratch.motor_pair_move", {
+          steering,
+          speed,
+        });
+      }
       const [left, right] = this._peripheral.movementMotors;
       // Steering biases one wheel against the other: at +100 the inner wheel
       // reverses, which is what turns the model on the spot.
@@ -12081,7 +14368,17 @@ continuous_sensor_loop()
 
     /** One of the hub's built-in images, addressed by number. */
     displayShowImage(args) {
-      const image = Math.max(1, Math.round(Cast.toNumber(args.IMAGE)));
+      const image = Math.round(Cast.toNumber(args.IMAGE));
+      if (this._peripheral.protocol === "spike3") {
+        if (image < 1 || image > 67) {
+          return this._rejectOperation(new Error(t("controllerInvalidImage")));
+        }
+        return this._peripheral.sendCommand("scratch.display_image", {
+          image_id: image,
+        });
+      }
+      if (image < 1)
+        return this._rejectOperation(new Error(t("controllerInvalidImage")));
       return this._peripheral.sendPythonCommand(
         `import hub; hub.display.show(hub.Image(hub.Image.ALL_IMAGES[${image - 1}]) ` +
           `if ${image} <= len(hub.Image.ALL_IMAGES) else hub.Image.HAPPY)`
@@ -12094,8 +14391,13 @@ continuous_sensor_loop()
      */
     setLightMatrixPixel(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
-      const x = MathUtil.clamp(Math.round(Cast.toNumber(args.X)), 0, 2);
-      const y = MathUtil.clamp(Math.round(Cast.toNumber(args.Y)), 0, 2);
+      const x = Math.round(Cast.toNumber(args.X)) - 1;
+      const y = Math.round(Cast.toNumber(args.Y)) - 1;
+      if (!this._validatePort(port) || x < 0 || x > 2 || y < 0 || y > 2) {
+        return this._rejectOperation(
+          new Error(t("controllerInvalidMatrixPixel"))
+        );
+      }
       const brightness = MathUtil.clamp(
         Math.round(Cast.toNumber(args.BRIGHTNESS)),
         0,
@@ -12103,6 +14405,14 @@ continuous_sensor_loop()
       );
       const index = y * 3 + x;
       const level = Math.round((brightness / 100) * 10);
+      if (this._peripheral.protocol === "spike3") {
+        return this._peripheral.sendCommand("scratch.matrix3_pixel", {
+          port,
+          x,
+          y,
+          intensity: level,
+        });
+      }
       return this._peripheral.sendPythonCommand(
         `import hub; _m = hub.port.${port}.device; _p = list(_m.get(5) or [0]*9); ` +
           `_p[${index}] = ${level}; _m.mode(5, bytes(_p))`
@@ -12132,8 +14442,13 @@ continuous_sensor_loop()
     getDistanceIn(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
       const portData = this._peripheral.portValues[port];
-      if (!portData || portData.type !== "distance") return 0;
-      const cm = Cast.toNumber(portData.distance);
+      if (
+        !portData ||
+        portData.type !== "distance" ||
+        typeof portData.distance !== "number"
+      )
+        return "";
+      const cm = portData.distance;
       switch (Cast.toString(args.UNIT).trim().toLowerCase()) {
         case "mm":
           // Prefer the figure the 3.x hub actually sent over cm*10, so a
@@ -12171,7 +14486,7 @@ continuous_sensor_loop()
     }
 
     _noteToFrequency(note) {
-      return Math.pow(2, (note - 69 + 12) / 12) * 440;
+      return Math.pow(2, (note - 69) / 12) * 440;
     }
     /**
      * One motor port, A to F, or "" when the argument names none. A block

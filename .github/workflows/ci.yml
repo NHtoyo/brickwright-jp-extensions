@@ -43,6 +43,10 @@ jobs:
       # Movement blocks of the unified SPIKE extension, against a stub hub.
       - name: SPIKE movement tests
         run: node development/test-spikeprime-movement.js
+      # Every SPIKE opcode is exercised through the existing Scratch-to-Python
+      # generator, and generated Python is syntax-parsed without a physical hub.
+      - name: SPIKE Python code generation coverage
+        run: node development/test-spikeprime-codegen.js
       # Diagnostics UI copy/download behavior, using a fake DOM and no hub.
       - name: SPIKE diagnostics dialog tests
         run: node development/test-spikeprime-diagnostics-dialog.js
