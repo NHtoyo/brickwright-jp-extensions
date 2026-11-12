@@ -704,6 +704,7 @@ function attachFakeControllerHub(
           a: "motor.run_to_position",
           l: "matrix.pixel",
           m: "matrix.pattern",
+          w: "matrix.text",
           c: "matrix.clear",
           b: "sound.beep",
           q: "sound.stop",
@@ -1273,15 +1274,7 @@ test("raw Python over TunnelMessage is rejected and sends no bytes", async () =>
   const state = setup();
   await connect(state);
   const hub = state.ext._peripheral._spike3;
-  await assert.rejects(
-    hub.sendCommand("scratch.display_text", { text: "Hello" }),
-    /Text display is unavailable on SPIKE 3.x/
-  );
   const before = state.device.writes.length;
-  await assert.rejects(
-    state.ext.displayText({ TEXT: "Hello" }),
-    /Text display is unavailable on SPIKE 3.x/
-  );
   await assert.rejects(
     hub.sendPythonCommand('import hub; hub.display.show("Hello")'),
     /Raw Python is not executed by TunnelMessage/
@@ -2190,23 +2183,22 @@ test("malformed StartFileUploadResponse aborts transfer before sending chunks", 
   );
 });
 
-test("SPIKE 3.x display text does not auto-send an unverified Python fallback", async () => {
-  const state = setup({ locale: "ja" });
+test("SPIKE 3.x display text uses acknowledged controller command", async () => {
+  const state = setup();
   await connect(state);
-  const writesBefore = state.device.writes.length;
+  const fakeHub = attachFakeControllerHub(state);
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+  await state.ext.installHubController({ SLOT: 2 });
+  await state.ext.displayText({ TEXT: "Hello" });
+  const message = unpackWrittenMessages(state.device.writes)
+    .filter((m) => m[0] === 0x32)
+    .map((m) => JSON.parse(Buffer.from(m.slice(3)).toString()))
+    .find((m) => m.c === "w");
+  assert.equal(message.t, "Hello");
+  assert.ok(fakeHub.actions.some((action) => action.cmd === "matrix.text"));
   await assert.rejects(
-    state.ext.displayText({ TEXT: "Hello" }),
-    /SPIKE 3.xでは文字表示を利用できません/
-  );
-  await tick();
-  assert.equal(
-    state.device.writes.length,
-    writesBefore,
-    "the failed native command and blocked fallback perform no device write"
-  );
-  assert.match(
-    JSON.parse(state.ext.getCommunicationDiagnostics()).lastCommunicationError,
-    /SPIKE 3.xでは文字表示を利用できません/
+    state.ext.displayText({ TEXT: "x".repeat(33) }),
+    /32 UTF-8 bytes/
   );
 });
 

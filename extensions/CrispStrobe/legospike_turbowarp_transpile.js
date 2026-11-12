@@ -1783,6 +1783,7 @@ except Exception as error:
 _queue = []
 _active = False
 _last_heartbeat = None
+_text_job = None
 
 
 def _ticks_diff(new, old):
@@ -1823,7 +1824,7 @@ def _receive(data):
     global _active, _last_heartbeat
     try:
         if not isinstance(data, str):
-            data = data.decode("utf-8")
+            data = bytes(data).decode("utf-8")
         command = json.loads(data.strip())
         if not isinstance(command, dict):
             raise ValueError("command must be an object")
@@ -1835,7 +1836,7 @@ def _receive(data):
             "h", "p", "x",
             "r", "s", "u", "d",
             "t", "a",
-            "l", "m", "c",
+            "l", "m", "c", "w",
             "b", "q",
         ):
             raise ValueError("unsupported command")
@@ -1848,7 +1849,7 @@ def _receive(data):
 
 
 async def _dispatch(command):
-    global _active, _last_heartbeat
+    global _active, _last_heartbeat, _text_job
     request_id = command.get("i")
     name = command.get("c")
     try:
@@ -1927,6 +1928,13 @@ async def _dispatch(command):
         elif name == "c":
             light_matrix.clear()
             _success(request_id, {"state": "cleared"})
+        elif name == "w":
+            text = command.get("t")
+            if not isinstance(text, str) or len(text.encode("utf-8")) > 32:
+                raise ValueError("text must be a string of at most 32 UTF-8 bytes")
+            if _text_job is not None:
+                raise ValueError("text display is busy")
+            _text_job = (request_id, text)
         elif name == "m":
             pixels = command.get("z")
             if not isinstance(pixels, str) or len(pixels) != 25 or not pixels.isdigit():
@@ -1952,6 +1960,29 @@ async def _dispatch(command):
 async def _process_next():
     if _queue:
         await _dispatch(_queue.pop(0))
+
+
+async def _process_text():
+    global _text_job
+    if _text_job is None:
+        return
+    request_id, text = _text_job
+    try:
+        if text:
+            await light_matrix.write(text)
+        else:
+            light_matrix.clear()
+        _success(request_id, {"state": "displayed"})
+    except Exception as error:
+        _error(request_id, "execution_failed", str(error))
+    finally:
+        _text_job = None
+
+
+async def _text_worker():
+    while True:
+        await _process_text()
+        await runloop.sleep_ms(10)
 
 
 async def _check_watchdog(now=None):
@@ -1995,7 +2026,7 @@ try:
     # A transferred Hub program is already the program entry point. Invoke the
     # run loop unconditionally so startup does not depend on the runtime's
     # __name__ binding (LEGO's own uploaded example follows this pattern).
-    runloop.run(_main())
+    runloop.run(_main(), _text_worker())
 except Exception as error:
     print("BWCTRL:fatal:" + type(error).__name__ + ":" + str(error))
     raise
@@ -4146,10 +4177,17 @@ continuous_sensor_loop()
           return this._sendTunnelJSON({ cmd: "matrix.pattern", pixels });
         }
         case "scratch.display_text": {
-          const error = new Error(t("displayTextUnsupported"));
-          error.code = "ERR_UNSUPPORTED_HUB_COMMAND";
-          this._recordCommunicationError(error);
-          return Promise.reject(error);
+          if (
+            typeof p.text !== "string" ||
+            new TextEncoder().encode(p.text).length > 32
+          ) {
+            return Promise.reject(
+              this._unsupportedError(
+                "text must be a string of at most 32 UTF-8 bytes"
+              )
+            );
+          }
+          return this._sendTunnelJSON({ cmd: "matrix.text", text: p.text });
         }
         case "scratch.sound_beep":
           return this._sendTunnelJSON({
@@ -4240,16 +4278,19 @@ continuous_sensor_loop()
         requestId
       );
       return new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          if (!this._pendingControllerCommands.has(requestId)) return;
-          this._pendingControllerCommands.delete(requestId);
-          const error = new Error(t("controllerTimeout"));
-          error.code = "ERR_CONTROLLER_TIMEOUT";
-          this._controllerReady = false;
-          this._diagnostics.controllerStatus = "timeout";
-          this._recordCommunicationError(error);
-          reject(error);
-        }, 4000);
+        const timeout = setTimeout(
+          () => {
+            if (!this._pendingControllerCommands.has(requestId)) return;
+            this._pendingControllerCommands.delete(requestId);
+            const error = new Error(t("controllerTimeout"));
+            error.code = "ERR_CONTROLLER_TIMEOUT";
+            this._controllerReady = false;
+            this._diagnostics.controllerStatus = "timeout";
+            this._recordCommunicationError(error);
+            reject(error);
+          },
+          commandName === "matrix.text" ? 60000 : 4000
+        );
         this._pendingControllerCommands.set(requestId, {
           resolve,
           reject,
@@ -4280,6 +4321,7 @@ continuous_sensor_loop()
         "motor.run_to_position": "a",
         "matrix.pixel": "l",
         "matrix.pattern": "m",
+        "matrix.text": "w",
         "matrix.clear": "c",
         "sound.beep": "b",
         "sound.stop": "q",
@@ -10437,12 +10479,6 @@ continuous_sensor_loop()
 
     // Display implementations
     displayText(args) {
-      if (this._peripheral.protocol === "spike3") {
-        const error = new Error(t("displayTextUnsupported"));
-        error.code = "ERR_UNSUPPORTED_HUB_COMMAND";
-        this._peripheral.active._recordCommunicationError(error);
-        return Promise.reject(error);
-      }
       const text = Cast.toString(args.TEXT);
       const standardCommand = this._peripheral.sendCommand(
         "scratch.display_text",

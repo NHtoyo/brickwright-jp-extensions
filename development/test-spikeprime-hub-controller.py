@@ -67,8 +67,10 @@ class FakeRunloop:
         if len(self.sleep_calls) >= self.stop_after_sleeps:
             raise FakeRunloopStop()
 
-    def run(self, coroutine):
+    def run(self, coroutine, *others):
         self.run_calls += 1
+        for other in others:
+            other.close()
         asyncio.run(coroutine)
 
 
@@ -109,6 +111,9 @@ class FakeMatrix:
 
     def clear(self):
         self.calls.append(("clear",))
+
+    async def write(self, text):
+        self.calls.append(("write", text))
 
 
 class FakeSound:
@@ -190,13 +195,13 @@ COMMAND_CODES = {
     "controller.hello": "h", "controller.ping": "p", "controller.stop_all": "x",
     "motor.run": "r", "motor.stop": "s", "motor.power": "u", "motor.run_degrees": "d",
     "motor.run_time": "t", "motor.run_to_position": "a",
-    "matrix.pixel": "l", "matrix.pattern": "m", "matrix.clear": "c",
+    "matrix.pixel": "l", "matrix.pattern": "m", "matrix.clear": "c", "matrix.text": "w",
     "sound.beep": "b", "sound.stop": "q",
 }
 FIELD_CODES = {
     "port": "p", "velocity": "v", "degrees": "d", "duration_ms": "t", "power": "u",
     "position": "g", "x": "x", "y": "y", "brightness": "b",
-    "pixels": "z", "frequency": "f",
+    "pixels": "z", "frequency": "f", "text": "t",
 }
 
 
@@ -377,13 +382,46 @@ class SpikeControllerFakeHubTests(unittest.TestCase):
         self.assertEqual(self.tunnel.events[-1]["error"], "invalid_command")
         self.assertEqual(self.motor.calls, [])
 
-    def test_unverified_matrix_text_is_rejected(self):
+    def test_matrix_text_is_acknowledged_after_display_and_validated(self):
         self.controller["_initialize"]()
-        self.tunnel.callback_handler(
-            json.dumps({"i": "text", "c": "w", "t": "Hello"}).encode("utf-8")
-        )
-        self.assertEqual(self.tunnel.events[-1]["error"], "invalid_command")
-        self.assertEqual(self.matrix.calls, [])
+        self.tunnel.callback_handler(memoryview(b'{"i":1,"c":"w","t":"Hello"}'))
+        asyncio.run(self.controller["_process_next"]())
+        self.assertEqual(self.tunnel.events, [])
+        asyncio.run(self.controller["_process_text"]())
+        self.assertEqual(self.matrix.calls[-1], ("write", "Hello"))
+        self.assertEqual(self.tunnel.events[-1]["i"], 1)
+        self.assertTrue(self.tunnel.events[-1]["ok"])
+        self.dispatch({"cmd": "matrix.text", "text": "", "request_id": 2})
+        asyncio.run(self.controller["_process_text"]())
+        self.assertEqual(self.matrix.calls[-1], ("clear",))
+        for bad in (42, "x" * 33):
+            self.dispatch({"cmd": "matrix.text", "text": bad, "request_id": 3})
+            self.assertEqual(self.tunnel.events[-1]["error"], "execution_failed")
+
+    def test_heartbeat_is_processed_during_long_text_display(self):
+        async def scenario():
+            started = asyncio.Event()
+            finish = asyncio.Event()
+            async def delayed_write(text):
+                started.set()
+                await finish.wait()
+            self.matrix.write = delayed_write
+            self.controller["_initialize"]()
+            self.tunnel.callback_handler(b'{"i":1,"c":"w","t":"Hello"}')
+            await self.controller["_process_next"]()
+            task = asyncio.create_task(self.controller["_process_text"]())
+            await started.wait()
+            self.clock.now = 5000
+            self.tunnel.callback_handler(b'{"c":"p"}')
+            await self.controller["_process_next"]()
+            self.assertEqual(self.tunnel.events[-1]["c"], "o")
+            self.assertFalse(await self.controller["_check_watchdog"]())
+            self.assertFalse(any(event.get("i") == 1 for event in self.tunnel.events))
+            finish.set()
+            await task
+            self.assertTrue(self.tunnel.events[-1]["ok"])
+            self.assertEqual(self.tunnel.events[-1]["i"], 1)
+        asyncio.run(scenario())
 
     def test_ranges_and_ports_are_validated(self):
         self.dispatch({"cmd": "motor.run", "port": "__import__", "velocity": 100, "request_id": "p"})
@@ -403,6 +441,18 @@ class SpikeControllerFakeHubTests(unittest.TestCase):
         self.assertTrue(all(call[0] == "stop" for call in self.motor.calls))
         self.assertEqual(self.sound.calls, [("stop",)])
         self.assertFalse(self.controller["_active"])
+
+    def test_tunnel_receive_accepts_text_and_bytes_like_values(self):
+        self.controller["_initialize"]()
+        receive = self.tunnel.callback_handler
+        raw = b'{"i":42,"c":"h"}'
+        for payload in (raw.decode("utf-8"), raw, bytearray(raw), memoryview(raw)):
+            with self.subTest(payload_type=type(payload).__name__):
+                receive(payload)
+                asyncio.run(self.controller["_process_next"]())
+                self.assertEqual(self.tunnel.events[-1]["i"], 42)
+                self.assertTrue(self.tunnel.events[-1]["ok"])
+                self.assertEqual(self.tunnel.events[-1]["result"], "bw-spike-1")
 
     def test_tunnel_receive_queue_is_ordered_and_bounded(self):
         self.controller["_initialize"]()
