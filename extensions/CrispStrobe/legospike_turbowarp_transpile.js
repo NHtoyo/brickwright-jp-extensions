@@ -109,7 +109,7 @@
       startupProbe01Label: "Probe 01 — public API imports",
       startupProbe02Label: "Probe 02 — module_tunnel callback",
       startupProbeConfirmOverwrite:
-        "This will clear and replace hub slot {0} with {1} ({2}), file {3}. Brickwright cannot inspect or restore the program currently in that slot. Check in the SPIKE app that this slot is safe to overwrite. The probe sends no motor, LED, or sound commands. Brickwright waits up to 7 seconds for a start notification; if received, it observes the probe for 3 seconds and requests it to stop. If start is not reported, the result is indeterminate and Brickwright attempts a stop request to this slot. Continue?",
+        "This will clear and replace hub slot {0} with {1} ({2}), file {3}. Brickwright cannot inspect or restore the program currently in that slot. Check in the SPIKE app that this slot is safe to overwrite. The probe sends no motor, LED, or sound commands. Brickwright waits up to 7 seconds for a start notification. Probe 00 normally ends after its 2-second wait; probes that are still running after observation receive a stop request. If start is not reported, the result is indeterminate and Brickwright attempts a stop request to this slot. Continue?",
       startupProbeInvalid: "Unknown startup probe or invalid slot.",
       startupProbeFinished:
         "Probe {0}: {1}. Open Communication diagnostics (JSON) for transfer responses, notifications, elapsed time, and console output.",
@@ -447,7 +447,7 @@
       startupProbe01Label: "プローブ01 — 公開APIのimport",
       startupProbe02Label: "プローブ02 — module_tunnelの登録",
       startupProbeConfirmOverwrite:
-        "ハブのスロット{0}を消去し、{1}（{2}、ファイル名 {3}）で置き換えます。Brickwrightから現在のスロット内容を確認・復元することはできません。SPIKEアプリで上書きしてよいスロットか確認してください。このプローブはモーター・LED・音を操作しません。起動通知を最大7秒待ち、通知が届いた場合は3秒間観測して停止要求を送ります。起動通知が届かない場合は判定不能と記録し、同じスロットへ停止要求を試みます。続けますか？",
+        "ハブのスロット{0}を消去し、{1}（{2}、ファイル名 {3}）で置き換えます。Brickwrightから現在のスロット内容を確認・復元することはできません。SPIKEアプリで上書きしてよいスロットか確認してください。このプローブはモーター・LED・音を操作しません。起動通知を最大7秒待ちます。プローブ00は通常2秒の待機後に終了します。観測後も動作中のプローブには停止要求を送ります。起動通知が届かない場合は判定不能と記録し、指定スロットへ停止要求を試みます。続けますか？",
       startupProbeInvalid: "プローブまたはスロット番号が正しくありません。",
       startupProbeFinished:
         "プローブ{0}の判定: {1}。転送応答・通知・経過時間・コンソール出力は「通信診断（JSON）」で確認できます。",
@@ -2012,18 +2012,41 @@ else:
     "00": {
       labelKey: "startupProbe00Label",
       fileName: "brickwright-probe-00.py",
+      pythonStages: [
+        { id: "top-level", marker: "BWPROBE00:__RUN_ID__:TOP_LEVEL" },
+        {
+          id: "runloop-imported",
+          marker: "BWPROBE00:__RUN_ID__:RUNLOOP_IMPORTED",
+        },
+        {
+          id: "main-started",
+          marker: "BWPROBE00:__RUN_ID__:MAIN_STARTED",
+        },
+        {
+          id: "sleep-completed",
+          marker: "BWPROBE00:__RUN_ID__:SLEEP_COMPLETED",
+        },
+        {
+          id: "main-completed",
+          marker: "BWPROBE00:__RUN_ID__:MAIN_COMPLETED",
+        },
+      ],
       source: String.raw`"""No-hardware SPIKE startup probe: runloop only.
 
-Do not transfer or start this program without the user's explicit approval.
-It does not import hub APIs, access module_tunnel, print, or control hardware.
+This probe prints unique stage markers but does not import hub APIs, access
+module_tunnel, or control hardware. The uploader embeds a per-run marker ID.
 """
 
+print("BWPROBE00:__RUN_ID__:TOP_LEVEL")
 import runloop
+print("BWPROBE00:__RUN_ID__:RUNLOOP_IMPORTED")
 
 
 async def main():
-    while True:
-        await runloop.sleep_ms(1000)
+    print("BWPROBE00:__RUN_ID__:MAIN_STARTED")
+    await runloop.sleep_ms(2000)
+    print("BWPROBE00:__RUN_ID__:SLEEP_COMPLETED")
+    print("BWPROBE00:__RUN_ID__:MAIN_COMPLETED")
 
 
 runloop.run(main())
@@ -3527,7 +3550,19 @@ continuous_sensor_loop()
           ].includes(previousInstallStage)
       );
       this._diagnostics = {
+        infoRequest: {
+          requestedAt: null,
+          requestMessageHex: null,
+          requestFrameHex: null,
+          requestPacketLengths: [],
+          writeAttemptedAt: null,
+          writeCompletedAt: null,
+          status: "not-requested",
+        },
         infoResponseReceivedAt: null,
+        infoResponseMessageHex: null,
+        infoResponseFrameHex: null,
+        infoResponseStatus: null,
         notificationRequest: {
           enabled: false,
           intervalMs: 0,
@@ -3535,6 +3570,13 @@ continuous_sensor_loop()
           requestedAt: null,
           responseAt: null,
           responseCode: null,
+          requestMessageHex: null,
+          requestFrameHex: null,
+          requestPacketLengths: [],
+          writeAttemptedAt: null,
+          writeCompletedAt: null,
+          responseMessageHex: null,
+          responseFrameHex: null,
         },
         lastImuReceivedAt: null,
         imuNotificationCount: 0,
@@ -3595,6 +3637,12 @@ continuous_sensor_loop()
       const events = this._diagnostics.recentEvents;
       events.push({ timestamp: Date.now(), type, ...details });
       if (events.length > 50) events.splice(0, events.length - 50);
+    }
+
+    _protocolMessageHex(data) {
+      return Array.from(data || [], (byte) =>
+        byte.toString(16).padStart(2, "0")
+      ).join("");
     }
 
     _recordTransportError(error, messageContext = null) {
@@ -4369,7 +4417,12 @@ continuous_sensor_loop()
       }, 1000);
     }
 
-    _requestHubResponse(message, responseType, timeoutMs = 5000) {
+    _requestHubResponse(
+      message,
+      responseType,
+      timeoutMs = 5000,
+      diagnosticRecord = null
+    ) {
       if (!this.isConnected()) return Promise.reject(this._notConnectedError());
       if (this._pendingProtocolResponses.has(responseType)) {
         return Promise.reject(
@@ -4392,8 +4445,9 @@ continuous_sensor_loop()
           resolve,
           reject,
           timeout,
+          diagnosticRecord,
         });
-        this._send(message, true).catch((error) => {
+        this._send(message, true, diagnosticRecord).catch((error) => {
           const pending = this._pendingProtocolResponses.get(responseType);
           if (!pending) return;
           this._pendingProtocolResponses.delete(responseType);
@@ -4403,11 +4457,19 @@ continuous_sensor_loop()
       });
     }
 
-    _handleProtocolResponse(data) {
+    _handleProtocolResponse(data, wireFrame = null) {
       const pending = this._pendingProtocolResponses.get(data[0]);
       if (!pending) return false;
       this._pendingProtocolResponses.delete(data[0]);
       clearTimeout(pending.timeout);
+      if (pending.diagnosticRecord) {
+        pending.diagnosticRecord.responseMessageHex =
+          this._protocolMessageHex(data);
+        pending.diagnosticRecord.responseFrameHex = wireFrame
+          ? this._protocolMessageHex(wireFrame)
+          : null;
+        pending.diagnosticRecord.responseAt = Date.now();
+      }
       if (data.length !== 2) {
         const error = new Error(
           `invalid protocol response length for 0x${data[0].toString(16)}: expected 2, received ${data.length}`
@@ -4426,7 +4488,18 @@ continuous_sensor_loop()
             true
           );
         }
-        pending.resolve({ ok: data[1] === 0, status: data[1] });
+        pending.resolve({
+          ok: data[1] === 0,
+          status: data[1],
+          receivedAt: Date.now(),
+          protocolMessageHex: this._protocolMessageHex(data),
+          wireFrameHex: wireFrame ? this._protocolMessageHex(wireFrame) : null,
+        });
+        if (pending.diagnosticRecord) {
+          pending.diagnosticRecord.responseFrameHex = wireFrame
+            ? this._protocolMessageHex(wireFrame)
+            : null;
+        }
       }
       return true;
     }
@@ -4806,13 +4879,69 @@ continuous_sensor_loop()
     _finishStartupProbeRun(run, outcome, reason) {
       run.outcome = outcome;
       run.reason = reason;
+      run.finalStage = run.stage;
       run.finishedAt = Date.now();
+      run.transferResponses.infoRequest = JSON.parse(
+        JSON.stringify(this._diagnostics.infoRequest)
+      );
+      run.transferResponses.notificationRequest = JSON.parse(
+        JSON.stringify(this._diagnostics.notificationRequest)
+      );
       run.runtimeMs = run.finishedAt - run.startedAt;
+      const stageMarkers = run.pythonExecution.stageMarkers;
+      const allPythonStagesObserved =
+        stageMarkers.length > 0 &&
+        run.pythonExecution.stageOrderValid &&
+        stageMarkers.every((stage) => stage.receivedAt !== null);
+      run.pythonExecution.status =
+        stageMarkers.length === 0
+          ? "not-instrumented"
+          : !run.pythonExecution.stageOrderValid
+            ? "out-of-order"
+            : allPythonStagesObserved
+              ? "completed"
+              : run.executionStartedAt !== null
+                ? "started"
+                : stageMarkers.some((stage) => stage.receivedAt !== null)
+                  ? "partial"
+                  : "not-observed";
+      run.pythonExecution.allStagesObserved = allPythonStagesObserved;
+      const observedStageCount = stageMarkers.filter(
+        (stage) => stage.receivedAt !== null
+      ).length;
+      run.consoleObservation = {
+        status:
+          observedStageCount > 0
+            ? "probe-markers-observed"
+            : run.consoleOutput.length > 0
+              ? "notifications-without-probe-markers"
+              : "no-console-notifications",
+        notificationCount: run.consoleOutput.length,
+        probeMarkerCount: observedStageCount,
+        interpretation:
+          observedStageCount > 0
+            ? "At least one per-run Python marker arrived over ConsoleNotification."
+            : run.consoleOutput.length > 0
+              ? "ConsoleNotification arrived, but no marker for this probe was found. This does not show whether the Python markers were emitted."
+              : "No ConsoleNotification was observed. Python execution and console delivery cannot be distinguished from this alone.",
+      };
       run.executionDurationMs =
-        run.executionStartedAt === null
-          ? null
-          : (run.executionFinishedAt || run.finishedAt) -
-            run.executionStartedAt;
+        run.executionStartedAt !== null && run.executionFinishedAt !== null
+          ? run.executionFinishedAt - run.executionStartedAt
+          : null;
+      run.flowNotificationOrder =
+        !run.notifications.start || !run.notifications.stop
+          ? "incomplete"
+          : run.notifications.stop.timestamp >=
+              run.notifications.start.timestamp
+            ? "start-then-stop"
+            : "stop-before-start";
+      run.programFlowDurationMs =
+        run.flowNotificationOrder === "start-then-stop"
+          ? run.notifications.stop.timestamp - run.notifications.start.timestamp
+          : null;
+      run.runtimeMsMeaning =
+        "Total diagnostic duration from request start through final result; includes info wait, slot clear, transfer, and observation.";
       run.stage = "finished";
       this._recordDiagnosticEvent("startup-probe-finished", {
         probeId: run.probeId,
@@ -4858,24 +4987,69 @@ continuous_sensor_loop()
       stopTimeoutMs = boundedDuration(stopTimeoutMs, 3000, 30000);
 
       const startedAt = Date.now();
+      const runId = String(startedAt);
+      const source = probe.source.replaceAll("__RUN_ID__", runId);
+      const program = new TextEncoder().encode(source);
+      const stageMarkers = (probe.pythonStages || []).map((stage) => ({
+        id: stage.id,
+        marker: stage.marker.replaceAll("__RUN_ID__", runId),
+        receivedAt: null,
+        characterOffset: null,
+      }));
       const run = {
         probeId: String(probeId),
+        runId,
         label: t(probe.labelKey),
         slot,
         fileName: probe.fileName,
-        sourceBytes: new TextEncoder().encode(probe.source).length,
+        source: {
+          text: source,
+          encoding: "UTF-8",
+          byteLength: program.length,
+          lineEndings: source.includes("\r\n") ? "CRLF" : "LF",
+          hasTrailingNewline: source.endsWith("\n"),
+          crc32: `0x${this._crc32(program).toString(16).padStart(8, "0")}`,
+        },
+        sourceBytes: program.length,
         outcome: "running",
         reason: "",
         stage: "waiting-info-response",
+        finalStage: null,
         startedAt,
         finishedAt: null,
         runtimeMs: null,
+        runtimeMsMeaning:
+          "Total diagnostic duration from request start through final result; includes info wait, slot clear, transfer, and observation.",
         executionStartedAt: null,
         executionFinishedAt: null,
         executionDurationMs: null,
+        programFlowStartedAt: null,
+        programFlowDurationMs: null,
+        terminationStatus: "not-started",
+        pythonExecution: {
+          status: stageMarkers.length ? "not-observed" : "not-instrumented",
+          stageOrderValid: true,
+          stageMarkers,
+          allStagesObserved: false,
+          markerAbsenceMeaning:
+            "No marker is not proof that Python did not run; ConsoleNotification delivery may be absent or incomplete.",
+        },
+        flowCorrelation: {
+          notificationType: "ProgramFlowNotification (0x20)",
+          notificationContainsSlot: false,
+          basis:
+            "time-window after ProgramFlowRequest; slot attribution is not guaranteed by the protocol",
+          previousNotification: this._diagnostics.lastProgramFlowNotification,
+        },
         transferredBytes: 0,
         transferResponses: {
+          infoRequest: JSON.parse(
+            JSON.stringify(this._diagnostics.infoRequest)
+          ),
           infoResponse: null,
+          notificationRequest: JSON.parse(
+            JSON.stringify(this._diagnostics.notificationRequest)
+          ),
           clearSlot: null,
           startFileUpload: null,
           transferChunks: [],
@@ -4888,6 +5062,13 @@ continuous_sensor_loop()
           stop: null,
         },
         consoleOutput: [],
+        consoleObservation: {
+          status: "not-observed",
+          notificationCount: 0,
+          probeMarkerCount: 0,
+          interpretation:
+            "No ConsoleNotification evidence has been collected yet.",
+        },
         flowWaiters: {},
         disconnect: null,
         error: null,
@@ -4902,9 +5083,11 @@ continuous_sensor_loop()
       }
       this._recordDiagnosticEvent("startup-probe-started", {
         probeId: run.probeId,
+        runId: run.runId,
         slot,
         fileName: probe.fileName,
         sourceBytes: run.sourceBytes,
+        sourceCrc32: run.source.crc32,
       });
 
       const request = async (key, message, responseType, record) => {
@@ -4913,23 +5096,33 @@ continuous_sensor_loop()
           step: key,
           requestAt,
           messageType: message[0],
+          protocolMessageHex: this._protocolMessageHex(message),
+          requestFrameHex: null,
+          requestPacketLengths: [],
+          writeAttemptedAt: null,
+          writeCompletedAt: null,
+          responseFrameHex: null,
           status: "pending",
         });
         try {
           const response = await this._requestHubResponse(
             message,
-            responseType
+            responseType,
+            5000,
+            record
           );
           Object.assign(record, {
-            responseAt: Date.now(),
+            responseAt: record.responseAt || Date.now(),
             ok: response.ok,
             responseStatus: response.status,
+            responseMessageHex: response.protocolMessageHex,
+            responseFrameHex: response.wireFrameHex,
             status: response.ok ? "acknowledged" : "rejected",
           });
           return response;
         } catch (error) {
           Object.assign(record, {
-            responseAt: Date.now(),
+            errorAt: Date.now(),
             status: "error",
             error: {
               name: error?.name || "Error",
@@ -4941,12 +5134,21 @@ continuous_sensor_loop()
         }
       };
 
+      const allPythonStagesObserved = () =>
+        run.pythonExecution.stageMarkers.length > 0 &&
+        run.pythonExecution.stageOrderValid &&
+        run.pythonExecution.stageMarkers.every(
+          (stage) => stage.receivedAt !== null
+        );
+
       try {
         await this._waitForInfoResponse();
         run.transferResponses.infoResponse = {
           receivedAt: this._diagnostics.infoResponseReceivedAt,
           firmwareVersion: this._firmware,
           rpcVersion: this._rpcVersion,
+          protocolMessageHex: this._diagnostics.infoResponseMessageHex,
+          wireFrameHex: this._diagnostics.infoResponseFrameHex,
         };
 
         run.stage = "clearing-slot";
@@ -4961,7 +5163,6 @@ continuous_sensor_loop()
           clearRecord
         );
 
-        const program = new TextEncoder().encode(probe.source);
         run.stage = "starting-file-upload";
         const uploadRecord = {};
         run.transferResponses.startFileUpload = uploadRecord;
@@ -5007,6 +5208,7 @@ continuous_sensor_loop()
         );
         if (!startResponse.ok)
           throw new Error("Hub rejected ProgramFlowRequest");
+        run.terminationStatus = "start-request-accepted";
 
         run.stage = "waiting-for-start-notification";
         const start = await this._waitForStartupProbeNotification(
@@ -5015,23 +5217,40 @@ continuous_sensor_loop()
           startTimeoutMs,
           startRecord.requestAt
         );
-        if (start) run.executionStartedAt = start.timestamp;
+        if (start) run.programFlowStartedAt = start.timestamp;
         if (run.prematureStopNotification) {
-          run.executionFinishedAt = run.prematureStopNotification.timestamp;
+          run.terminationStatus = start
+            ? "stop-before-diagnostic-stop-request"
+            : "stop-without-start-notification";
+          const allStagesObserved = allPythonStagesObserved();
+          const orderedFlowNotifications =
+            run.notifications.start &&
+            run.notifications.stop &&
+            run.notifications.stop.timestamp >=
+              run.notifications.start.timestamp;
+          if (start && allStagesObserved && orderedFlowNotifications) {
+            return this._finishStartupProbeRun(
+              run,
+              "success",
+              "The start notification, all Python stage markers, and the natural stop notification were observed."
+            );
+          }
           return this._finishStartupProbeRun(
             run,
-            "failure",
-            run.notifications.start
-              ? "The program stopped during the observation window before Brickwright requested the diagnostic stop."
-              : "The program stopped before a start notification was received."
+            "indeterminate",
+            start
+              ? "A stop notification arrived before the expected Python completion marker. The notification has no slot field, and missing console markers do not prove Python did not run."
+              : "A stop notification arrived after the start request, but no start notification was received and the stop notification has no slot field; the program and slot could not be attributed."
           );
         }
         if (!start) {
           run.stage = "start-notification-missing";
+          run.terminationStatus = "start-notification-missing";
           if (this.isConnected()) {
             const stopRecord = {};
             run.transferResponses.programFlowStop = stopRecord;
             run.stopRequestAt = Date.now();
+            run.terminationStatus = "cleanup-stop-requested";
             try {
               const stopResponse = await request(
                 "programFlowStop",
@@ -5040,28 +5259,41 @@ continuous_sensor_loop()
                 stopRecord
               );
               if (stopResponse.ok) {
-                await this._waitForStartupProbeNotification(
+                const cleanupStop = await this._waitForStartupProbeNotification(
                   run,
                   "stop",
                   stopTimeoutMs,
                   run.stopRequestAt
                 );
+                run.terminationStatus = cleanupStop
+                  ? "cleanup-stop-notification-received"
+                  : "cleanup-stop-notification-missing";
+              } else {
+                run.terminationStatus = "cleanup-stop-request-rejected";
               }
             } catch (cleanupError) {
+              run.terminationStatus = "cleanup-stop-request-error";
               run.cleanupError = {
                 name: cleanupError?.name || "Error",
                 message: cleanupError?.message || String(cleanupError),
               };
             }
+          } else {
+            run.terminationStatus = "cleanup-skipped-disconnected";
           }
           return this._finishStartupProbeRun(
             run,
             "indeterminate",
-            "The hub accepted the start request but no start notification arrived; execution could not be verified."
+            run.pythonExecution.stageMarkers.some(
+              (stage) => stage.receivedAt !== null
+            )
+              ? "Python stage markers were received, but the start notification was missing; protocol lifecycle could not be verified."
+              : "The hub accepted the start request but no start notification arrived; no Python execution stage was observed. Marker absence does not prove that Python did not run."
           );
         }
 
         run.stage = "observing-running-program";
+        run.programFlowStartedAt = start.timestamp;
         const spontaneousStop = await this._waitForStartupProbeNotification(
           run,
           "stop",
@@ -5069,11 +5301,24 @@ continuous_sensor_loop()
           start.timestamp
         );
         if (spontaneousStop) {
-          run.executionFinishedAt = spontaneousStop.timestamp;
+          run.terminationStatus = "stop-before-diagnostic-stop-request";
+          const allStagesObserved = allPythonStagesObserved();
+          const orderedFlowNotifications =
+            run.notifications.start &&
+            run.notifications.stop &&
+            run.notifications.stop.timestamp >=
+              run.notifications.start.timestamp;
+          if (allStagesObserved && orderedFlowNotifications) {
+            return this._finishStartupProbeRun(
+              run,
+              "success",
+              "The start notification, all Python stage markers, and the natural stop notification were observed."
+            );
+          }
           return this._finishStartupProbeRun(
             run,
-            "failure",
-            "The program stopped before Brickwright requested the diagnostic stop."
+            "indeterminate",
+            "A stop notification arrived before all expected Python stage markers. Its slot cannot be determined from ProgramFlowNotification alone."
           );
         }
 
@@ -5088,6 +5333,7 @@ continuous_sensor_loop()
           stopRecord
         );
         if (!stopResponse.ok) {
+          run.terminationStatus = "diagnostic-stop-request-rejected";
           return this._finishStartupProbeRun(
             run,
             "indeterminate",
@@ -5102,13 +5348,24 @@ continuous_sensor_loop()
           run.stopRequestAt
         );
         if (!stop) {
+          run.terminationStatus = "diagnostic-stop-notification-missing";
           return this._finishStartupProbeRun(
             run,
             "indeterminate",
             "The hub acknowledged the stop request but no stop notification arrived."
           );
         }
-        run.executionFinishedAt = stop.timestamp;
+        run.terminationStatus = "stopped-after-diagnostic-request";
+        if (
+          run.pythonExecution.stageMarkers.length > 0 &&
+          !allPythonStagesObserved()
+        ) {
+          return this._finishStartupProbeRun(
+            run,
+            "indeterminate",
+            "The hub acknowledged the diagnostic stop, but not all expected Python stage markers arrived; execution completion is unverified."
+          );
+        }
         return this._finishStartupProbeRun(
           run,
           "success",
@@ -5127,6 +5384,11 @@ continuous_sensor_loop()
           executionWasRejected || !executionWasRequested
             ? "failure"
             : "indeterminate";
+        run.terminationStatus = executionWasRejected
+          ? "start-request-rejected"
+          : executionWasRequested
+            ? "communication-error-after-start-request"
+            : "not-started";
         return this._finishStartupProbeRun(
           run,
           outcome,
@@ -5162,16 +5424,29 @@ continuous_sensor_loop()
       return this.sendPythonCommand(pythonCode);
     }
 
-    _send(message, useLimiter = false) {
+    _send(message, useLimiter = false, diagnosticRecord = null) {
       if (!this.isConnected()) return Promise.reject(this._notConnectedError());
       if (useLimiter) {
         return whenSlot(
           this._rateLimiter,
           () => this.isConnected(),
-          () => this._send(message, false)
+          () => this._send(message, false, diagnosticRecord)
         );
       }
       const packed = COBS.pack(message);
+      if (diagnosticRecord) {
+        const packetSize =
+          this._link instanceof WebBLELink
+            ? this._link._maxPacketSize
+            : this._maxPacketSize;
+        diagnosticRecord.requestFrameHex = this._protocolMessageHex(packed);
+        diagnosticRecord.requestPacketLengths = [];
+        for (let offset = 0; offset < packed.length; offset += packetSize) {
+          diagnosticRecord.requestPacketLengths.push(
+            Math.min(packetSize, packed.length - offset)
+          );
+        }
+      }
       const messageNames = {
         [SPIKE3.INFO_REQUEST]: "InfoRequest",
         [SPIKE3.CLEAR_SLOT_REQUEST]: "ClearSlotRequest",
@@ -5182,6 +5457,7 @@ continuous_sensor_loop()
         [SPIKE3.TUNNEL]: "TunnelMessage",
       };
       const attemptedAt = Date.now();
+      if (diagnosticRecord) diagnosticRecord.writeAttemptedAt = attemptedAt;
       const messageContext = {
         attemptedAt,
         messageType: message[0],
@@ -5217,6 +5493,9 @@ continuous_sensor_loop()
               "base64"
             );
       return Promise.resolve(write).then(() => {
+        if (diagnosticRecord) {
+          diagnosticRecord.writeCompletedAt = Date.now();
+        }
         if (this._diagnostics.lastWrite === messageContext) {
           this._diagnostics.lastWrite = {
             ...messageContext,
@@ -5253,9 +5532,25 @@ continuous_sensor_loop()
       // before it arrives means sending at the wrong MTU. Both BLE extensions
       // used a 500 ms timer instead, which was slower when the hub was quick
       // and still too early when it was not.
-      this._send(Uint8Array.from([SPIKE3.INFO_REQUEST]), false).catch((error) =>
-        this._recordTransportError(error)
-      );
+      const infoRequest = this._diagnostics.infoRequest;
+      const infoMessage = Uint8Array.from([SPIKE3.INFO_REQUEST]);
+      infoRequest.requestedAt = Date.now();
+      infoRequest.requestMessageHex = this._protocolMessageHex(infoMessage);
+      infoRequest.status = "pending";
+      this._send(infoMessage, false, infoRequest)
+        .then(() => {
+          infoRequest.status = "write-completed";
+          infoRequest.writeCompletedAt = Date.now();
+        })
+        .catch((error) => {
+          infoRequest.status = "write-failed";
+          infoRequest.error = {
+            name: error?.name || "Error",
+            message: error?.message || String(error),
+            stack: error?.stack || "",
+          };
+          this._recordTransportError(error);
+        });
       // A hub that never answers still gets asked, so a missing InfoResponse
       // costs the packet size rather than every sensor reading.
       this._streamingFallback = setTimeout(
@@ -5300,10 +5595,18 @@ continuous_sensor_loop()
       this._clearNotificationResponseTimeout();
       request.enabled = this._streaming;
       request.intervalMs = interval;
+      request.requestMessageHex = this._protocolMessageHex(message);
+      request.requestFrameHex = null;
+      request.requestPacketLengths = [];
+      request.writeAttemptedAt = null;
+      request.writeCompletedAt = null;
+      request.responseFrameHex = null;
+      request.responseMessageHex = null;
       request.status = this.isConnected() ? "pending" : "not-connected";
       request.requestedAt = Date.now();
       request.responseAt = null;
       request.responseCode = null;
+      request.responseMessageHex = null;
       if (request.status === "not-connected") {
         return Promise.reject(new Error("not connected to SPIKE hub"));
       }
@@ -5328,7 +5631,7 @@ continuous_sensor_loop()
         }, SPIKE3.NOTIFICATION_RESPONSE_TIMEOUT_MS);
       }
       const writePromise = Promise.resolve().then(() =>
-        this._send(message, false)
+        this._send(message, false, request)
       );
       return Promise.all([writePromise, responsePromise])
         .then(([, responseCode]) => responseCode)
@@ -5374,7 +5677,7 @@ continuous_sensor_loop()
             this._recordCommunicationError(`COBS decode failed: ${e.message}`);
           }
           if (data && data.length) {
-            this._handleMessage(data);
+            this._handleMessage(data, frame);
           } else if (data) {
             this._diagnostics.malformedMessageCount++;
             this._recordCommunicationError(
@@ -5385,26 +5688,26 @@ continuous_sensor_loop()
       }
     }
 
-    _handleMessage(data) {
-      if (this._handleProtocolResponse(data)) return;
+    _handleMessage(data, wireFrame = null) {
+      if (this._handleProtocolResponse(data, wireFrame)) return;
       switch (data[0]) {
         case SPIKE3.INFO_RESPONSE:
-          this._handleInfoResponse(data);
+          this._handleInfoResponse(data, wireFrame);
           break;
         case SPIKE3.DEVICE_NOTIFICATION:
           this._handleDeviceNotification(data);
           break;
         case SPIKE3.DEVICE_NOTIFICATION_RESPONSE:
-          this._handleDeviceNotificationResponse(data);
+          this._handleDeviceNotificationResponse(data, wireFrame);
           break;
         case SPIKE3.PROGRAM_FLOW_NOTIFICATION:
-          this._handleProgramFlowNotification(data);
+          this._handleProgramFlowNotification(data, wireFrame);
           break;
         case SPIKE3.START_FILE_UPLOAD_RESPONSE:
         case SPIKE3.TRANSFER_CHUNK_RESPONSE:
         case SPIKE3.CLEAR_SLOT_RESPONSE:
         case SPIKE3.PROGRAM_FLOW_RESPONSE:
-          this._handleProtocolResponse(data);
+          this._handleProtocolResponse(data, wireFrame);
           break;
         case SPIKE3.TUNNEL:
           this._handleTunnelMessage(data);
@@ -5424,12 +5727,54 @@ continuous_sensor_loop()
             probeRun.consoleOutput.push({
               timestamp: notification.timestamp,
               text: text.slice(0, 4096),
+              decodedProtocolMessageHex: this._protocolMessageHex(data),
+              wireFrameHex: wireFrame
+                ? this._protocolMessageHex(wireFrame)
+                : null,
             });
             if (probeRun.consoleOutput.length > 80) {
               probeRun.consoleOutput.splice(
                 0,
                 probeRun.consoleOutput.length - 80
               );
+            }
+            const combinedConsole = probeRun.consoleOutput
+              .map((item) => item.text)
+              .join("");
+            for (const stage of probeRun.pythonExecution.stageMarkers) {
+              const markerOffset = combinedConsole.indexOf(stage.marker);
+              if (stage.receivedAt === null && markerOffset !== -1) {
+                stage.receivedAt = notification.timestamp;
+                stage.characterOffset = markerOffset;
+                probeRun.pythonExecution.lastStage = stage.id;
+                if (stage.id === "top-level") {
+                  probeRun.executionStartedAt = notification.timestamp;
+                } else if (stage.id === "main-completed") {
+                  probeRun.executionFinishedAt = notification.timestamp;
+                }
+                this._recordDiagnosticEvent("startup-probe-python-stage", {
+                  probeId: probeRun.probeId,
+                  runId: probeRun.runId,
+                  stage: stage.id,
+                  marker: stage.marker,
+                });
+              }
+            }
+            let previousMarkerOffset = -1;
+            for (const stage of probeRun.pythonExecution.stageMarkers) {
+              if (stage.characterOffset === null) continue;
+              if (stage.characterOffset <= previousMarkerOffset) {
+                probeRun.pythonExecution.stageOrderValid = false;
+                probeRun.pythonExecution.orderViolation = {
+                  previousStage: probeRun.pythonExecution.stageMarkers.find(
+                    (candidate) =>
+                      candidate.characterOffset === previousMarkerOffset
+                  )?.id,
+                  stage: stage.id,
+                };
+                break;
+              }
+              previousMarkerOffset = stage.characterOffset;
             }
           }
           if (this._diagnostics.recentConsoleNotifications.length > 20) {
@@ -5448,7 +5793,7 @@ continuous_sensor_loop()
       }
     }
 
-    _handleProgramFlowNotification(data) {
+    _handleProgramFlowNotification(data, wireFrame = null) {
       if (data.length !== 2) {
         this._diagnostics.malformedMessageCount++;
         this._recordCommunicationError(
@@ -5469,6 +5814,8 @@ continuous_sensor_loop()
         timestamp,
         action: action === 0 ? "start" : "stop",
         actionValue: action,
+        decodedProtocolMessageHex: this._protocolMessageHex(data),
+        wireFrameHex: wireFrame ? this._protocolMessageHex(wireFrame) : null,
       };
       this._diagnostics.lastProgramFlowNotification = notification;
       this._recordDiagnosticEvent("program-flow-notification", notification);
@@ -5572,7 +5919,7 @@ continuous_sensor_loop()
       }
     }
 
-    _handleDeviceNotificationResponse(data) {
+    _handleDeviceNotificationResponse(data, wireFrame = null) {
       if (data.length < 2) {
         this._diagnostics.malformedMessageCount++;
         const error = new Error("truncated device notification response");
@@ -5588,6 +5935,10 @@ continuous_sensor_loop()
       this._clearNotificationResponseTimeout();
       request.responseAt = Date.now();
       request.responseCode = data[1];
+      request.responseMessageHex = this._protocolMessageHex(data);
+      request.responseFrameHex = wireFrame
+        ? this._protocolMessageHex(wireFrame)
+        : null;
       if (data[1] === 0) {
         request.status = "acknowledged";
         this._settleNotificationRequest(null, data[1]);
@@ -5612,7 +5963,7 @@ continuous_sensor_loop()
      * firmware version is what tells a Robot Inventor hub from a SPIKE Prime
      * one running the same protocol, so it is kept.
      */
-    _handleInfoResponse(data) {
+    _handleInfoResponse(data, wireFrame = null) {
       if (data.length < 17) {
         this._diagnostics.malformedMessageCount++;
         this._recordCommunicationError("truncated InfoResponse");
@@ -5623,6 +5974,18 @@ continuous_sensor_loop()
       this._firmware = `${data[5]}.${data[6]}.${view.getUint16(7, true)}`;
       this._diagnostics.lastFirmwareVersion = this._firmware;
       this._diagnostics.infoResponseReceivedAt = Date.now();
+      this._diagnostics.infoResponseMessageHex = this._protocolMessageHex(data);
+      this._diagnostics.infoResponseFrameHex = wireFrame
+        ? this._protocolMessageHex(wireFrame)
+        : null;
+      this._diagnostics.infoResponseStatus = "received";
+      this._diagnostics.infoRequest.responseAt =
+        this._diagnostics.infoResponseReceivedAt;
+      this._diagnostics.infoRequest.responseMessageHex =
+        this._diagnostics.infoResponseMessageHex;
+      this._diagnostics.infoRequest.responseFrameHex =
+        this._diagnostics.infoResponseFrameHex;
+      this._diagnostics.infoRequest.responseStatus = "received";
       this._maxPacketSize = view.getUint16(9, true) || 20;
       this._maxMessageSize = view.getUint16(11, true) || 100;
       this._maxChunkSize = view.getUint16(13, true) || 100;

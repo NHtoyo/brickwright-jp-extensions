@@ -251,6 +251,13 @@ function unpackWrittenMessages(writes) {
   return messages;
 }
 
+function bytesFromHex(hex) {
+  assert.equal(hex.length % 2, 0, "hex data contains complete bytes");
+  return Uint8Array.from(hex.match(/.{2}/g) || [], (byte) =>
+    Number.parseInt(byte, 16)
+  );
+}
+
 function infoResponse() {
   // InfoResponse fields per messages.html: RPC 2.42, firmware 1.6.62,
   // packet size 64, message size 100, chunk size 50, SPIKE Prime product 0.
@@ -766,6 +773,8 @@ function attachFakeStartupProbeHub(
     emitStopNotification = true,
     stopImmediatelyAfterStart = false,
     consoleOutput = "",
+    emitProbeMarkers = false,
+    naturalCompletion = false,
   } = {}
 ) {
   const { device } = state;
@@ -774,6 +783,7 @@ function attachFakeStartupProbeHub(
     slots,
     upload: null,
     running: false,
+    programSource: null,
     chunkIndex: 0,
     flowStarts: 0,
     flowStops: 0,
@@ -846,17 +856,35 @@ function attachFakeStartupProbeHub(
         }
         fake.slots.set(fake.upload.slot, program);
         fake.running = true;
+        fake.programSource = program.toString("utf8");
         status(0x1f, true);
-        if (consoleOutput) {
+        const emitConsole = (text) => {
           emit(
-            Uint8Array.from([
-              0x21,
-              ...new TextEncoder().encode(`${consoleOutput}\0`),
-            ])
+            Uint8Array.from([0x21, ...new TextEncoder().encode(`${text}\0`)])
           );
+        };
+        if (consoleOutput) {
+          emitConsole(consoleOutput);
+        }
+        const runId = fake.programSource.match(
+          /BWPROBE00:(\d+):TOP_LEVEL/
+        )?.[1];
+        const emitProbeStage = (stage) =>
+          emitConsole(`BWPROBE00:${runId}:${stage}`);
+        if (emitProbeMarkers && runId) {
+          emitProbeStage("TOP_LEVEL");
+          emitProbeStage("RUNLOOP_IMPORTED");
+          emitProbeStage("MAIN_STARTED");
         }
         if (emitStartNotification) emit(Uint8Array.from([0x20, 0]));
-        if (stopImmediatelyAfterStart) {
+        if (naturalCompletion && emitProbeMarkers && runId) {
+          state.clock.setTimeout(() => {
+            emitProbeStage("SLEEP_COMPLETED");
+            emitProbeStage("MAIN_COMPLETED");
+            fake.running = false;
+            if (emitStopNotification) emit(Uint8Array.from([0x20, 1]));
+          }, 2000);
+        } else if (stopImmediatelyAfterStart) {
           fake.running = false;
           emit(Uint8Array.from([0x20, 1]));
         }
@@ -889,6 +917,8 @@ test("Web Bluetooth requests notifications and records the hub acknowledgement",
   const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
   assert.equal(diagnostics.notificationRequest.status, "acknowledged");
   assert.equal(diagnostics.notificationRequest.responseCode, 0);
+  assert.equal(diagnostics.notificationRequest.requestMessageHex, "286400");
+  assert.equal(diagnostics.notificationRequest.responseMessageHex, "2900");
 
   const rejectedRequest =
     state.ext._peripheral._spike3.setDeviceNotifications(true);
@@ -1393,11 +1423,12 @@ test("startup probe overwrite confirmation names the slot and cancellation sends
   );
 });
 
-test("selected probe 00 transfers only its fixture and records verified start and stop", async () => {
+test("fake-device records probe 00 bytes, Python markers, and a simulated flow lifecycle", async () => {
   const state = setup({ developerMode: true, locale: "ja" });
   await connect(state);
   const fakeHub = attachFakeStartupProbeHub(state, {
-    consoleOutput: "simulated console line",
+    emitProbeMarkers: true,
+    naturalCompletion: true,
   });
   state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
   const confirmations = [];
@@ -1413,7 +1444,7 @@ test("selected probe 00 transfers only its fixture and records verified start an
         ?.stage === "observing-running-program",
     "probe 00 reaches the observation window"
   );
-  state.clock.advance(3000);
+  state.clock.advance(2000);
   const result = await resultPromise;
 
   assert.equal(result.probeId, "00");
@@ -1427,10 +1458,116 @@ test("selected probe 00 transfers only its fixture and records verified start an
     result.transferResponses.transferChunks.every((chunk) => chunk.ok === true)
   );
   assert.equal(result.transferResponses.programFlowStart.ok, true);
-  assert.equal(result.transferResponses.programFlowStop.ok, true);
+  assert.equal(result.transferResponses.programFlowStop, null);
   assert.ok(result.runtimeMs >= 0);
-  assert.ok(result.executionDurationMs >= 0);
-  assert.equal(result.consoleOutput[0].text, "simulated console line");
+  assert.equal(result.pythonExecution.status, "completed");
+  assert.equal(result.pythonExecution.allStagesObserved, true);
+  assert.equal(result.consoleObservation.status, "probe-markers-observed");
+  assert.equal(result.consoleObservation.notificationCount, 5);
+  assert.equal(result.consoleObservation.probeMarkerCount, 5);
+  assert.equal(result.finalStage, "observing-running-program");
+  assert.equal(
+    result.executionStartedAt,
+    result.pythonExecution.stageMarkers[0].receivedAt
+  );
+  assert.equal(
+    result.executionFinishedAt,
+    result.pythonExecution.stageMarkers.at(-1).receivedAt
+  );
+  assert.equal(
+    result.executionDurationMs,
+    result.executionFinishedAt - result.executionStartedAt
+  );
+  assert.deepEqual(
+    Array.from(result.pythonExecution.stageMarkers, (stage) => stage.id),
+    [
+      "top-level",
+      "runloop-imported",
+      "main-started",
+      "sleep-completed",
+      "main-completed",
+    ]
+  );
+  assert.equal(result.consoleOutput.length, 5);
+  assert.ok(
+    result.consoleOutput.every((item) => item.decodedProtocolMessageHex)
+  );
+  assert.equal(result.flowCorrelation.notificationContainsSlot, false);
+  assert.match(
+    result.runtimeMsMeaning,
+    /includes info wait, slot clear, transfer/i
+  );
+  assert.equal(result.source.encoding, "UTF-8");
+  assert.equal(result.source.hasTrailingNewline, true);
+  assert.equal(result.source.lineEndings, "LF");
+  assert.equal(result.source.byteLength, result.transferredBytes);
+  assert.equal(result.transferResponses.infoRequest.requestMessageHex, "00");
+  assert.deepEqual(
+    bytesFromHex(result.transferResponses.infoRequest.requestFrameHex),
+    packMessage([0x00])
+  );
+  assert.equal(
+    result.transferResponses.infoRequest.responseMessageHex,
+    "0102002a0001063e004000640032000000"
+  );
+  assert.equal(
+    result.transferResponses.notificationRequest.status,
+    "acknowledged"
+  );
+  assert.equal(
+    result.transferResponses.notificationRequest.requestMessageHex,
+    "286400"
+  );
+  assert.equal(
+    result.transferResponses.notificationRequest.responseMessageHex,
+    "2900"
+  );
+  assert.equal(fakeHub.programSource, result.source.text);
+  assert.equal(
+    Number.parseInt(result.source.crc32.slice(2), 16),
+    fakeHub.upload.expectedCrc
+  );
+  assert.equal(
+    result.transferResponses.programFlowStart.protocolMessageHex,
+    "1e0007"
+  );
+  assert.equal(
+    result.transferResponses.programFlowStart.responseMessageHex,
+    "1f00"
+  );
+  assert.deepEqual(
+    bytesFromHex(result.transferResponses.programFlowStart.requestFrameHex),
+    packMessage([0x1e, 0x00, 0x07])
+  );
+  assert.deepEqual(
+    bytesFromHex(result.transferResponses.programFlowStart.responseFrameHex),
+    packMessage([0x1f, 0x00])
+  );
+  assert.equal(
+    result.transferResponses.programFlowStart.requestPacketLengths.reduce(
+      (sum, length) => sum + length,
+      0
+    ),
+    bytesFromHex(result.transferResponses.programFlowStart.requestFrameHex)
+      .length
+  );
+  assert.equal(result.notifications.start.decodedProtocolMessageHex, "2000");
+  assert.equal(result.notifications.stop.decodedProtocolMessageHex, "2001");
+  assert.deepEqual(
+    bytesFromHex(result.notifications.start.wireFrameHex),
+    packMessage([0x20, 0x00])
+  );
+  assert.deepEqual(
+    bytesFromHex(result.notifications.stop.wireFrameHex),
+    packMessage([0x20, 0x01])
+  );
+  assert.ok(
+    result.consoleOutput.every(
+      (item) =>
+        bytesFromHex(item.wireFrameHex).length >
+        bytesFromHex(item.decodedProtocolMessageHex).length
+    )
+  );
   assert.match(confirmations[0], /スロット7/);
 
   const fixture = fs
@@ -1438,11 +1575,12 @@ test("selected probe 00 transfers only its fixture and records verified start an
       path.join(here, "fixtures/spikeprime-startup-00-runloop.py"),
       "utf8"
     )
-    .replace(/\r\n/g, "\n");
+    .replace(/\r\n/g, "\n")
+    .replaceAll("__RUN_ID__", result.runId);
   assert.equal(fakeHub.upload.fileName, "brickwright-probe-00.py");
   assert.equal(fakeHub.slots.get(7).toString("utf8"), fixture);
   assert.equal(fakeHub.flowStarts, 1, "only the selected probe is started");
-  assert.equal(fakeHub.flowStops, 1, "the selected probe is stopped once");
+  assert.equal(fakeHub.flowStops, 0, "probe 00 reaches its natural completion");
   const writtenMessages = unpackWrittenMessages(state.device.writes);
   assert.equal(
     writtenMessages.some((message) => message[0] === 0x32),
@@ -1513,6 +1651,42 @@ test("missing probe start notification is indeterminate even if stop cleanup res
   assert.equal(result.transferResponses.programFlowStart.ok, true);
   assert.equal(result.transferResponses.programFlowStop.ok, true);
   assert.equal(result.notifications.stop.action, "stop");
+  assert.equal(result.terminationStatus, "cleanup-stop-notification-received");
+});
+
+test("Python completion markers do not make an uncorrelated stop notification a protocol success", async () => {
+  const state = setup({ developerMode: true });
+  await connect(state);
+  attachFakeStartupProbeHub(state, {
+    emitStartNotification: false,
+    emitProbeMarkers: true,
+    naturalCompletion: true,
+  });
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  const runPromise = hub.runStartupProbe("00", 7, {
+    observationMs: 0,
+    startTimeoutMs: 5000,
+    stopTimeoutMs: 20,
+  });
+  await waitUntil(
+    () =>
+      JSON.parse(state.ext.getCommunicationDiagnostics()).startupProbeRuns[0]
+        ?.stage === "waiting-for-start-notification",
+    "probe waits for the missing start notification"
+  );
+  state.clock.advance(2000);
+  const result = await runPromise;
+  assert.equal(result.outcome, "indeterminate");
+  assert.equal(result.pythonExecution.status, "completed");
+  assert.equal(result.notifications.start, null);
+  assert.equal(result.notifications.stop.action, "stop");
+  assert.equal(result.terminationStatus, "stop-without-start-notification");
+  assert.equal(
+    result.executionDurationMs,
+    result.executionFinishedAt - result.executionStartedAt
+  );
+  assert.equal(result.transferResponses.programFlowStop, null);
 });
 
 test("missing probe stop notification is indeterminate", async () => {
@@ -1545,9 +1719,13 @@ test("missing probe stop notification is indeterminate", async () => {
   assert.equal(result.notifications.start.action, "start");
   assert.equal(result.notifications.stop, null);
   assert.equal(result.transferResponses.programFlowStop.ok, true);
+  assert.equal(
+    result.terminationStatus,
+    "diagnostic-stop-notification-missing"
+  );
 });
 
-test("a probe that stops before the host stop request is classified as failure", async () => {
+test("an uncorrelated early stop without Python markers is indeterminate", async () => {
   const state = setup({ developerMode: true });
   await connect(state);
   attachFakeStartupProbeHub(state, { stopImmediatelyAfterStart: true });
@@ -1558,10 +1736,20 @@ test("a probe that stops before the host stop request is classified as failure",
     startTimeoutMs: 20,
     stopTimeoutMs: 20,
   });
-  assert.equal(result.outcome, "failure");
-  assert.match(result.reason, /stopped during the observation window/i);
+  assert.equal(result.outcome, "indeterminate");
+  assert.match(result.reason, /notification has no slot field/i);
+  assert.equal(result.pythonExecution.status, "not-observed");
+  assert.equal(result.consoleObservation.status, "no-console-notifications");
+  assert.equal(result.finalStage, "waiting-for-start-notification");
+  assert.equal(
+    result.executionFinishedAt,
+    null,
+    "a stop notification is not a Python completion timestamp"
+  );
   assert.equal(result.notifications.start.action, "start");
   assert.equal(result.notifications.stop.action, "stop");
+  assert.equal(result.terminationStatus, "stop-before-diagnostic-stop-request");
+  assert.equal(result.notifications.stop.decodedProtocolMessageHex, "2001");
   assert.equal(result.transferResponses.programFlowStop, null);
 });
 
