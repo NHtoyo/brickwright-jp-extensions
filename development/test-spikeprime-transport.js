@@ -514,6 +514,8 @@ function attachFakeControllerHub(
     disconnectAfterProgramFlowResponse = false,
     startupConsoleError = null,
     helloResponseDelayMs = 0,
+    suppressReadyMarker = false,
+    ignoreFirstHellos = 0,
   } = {}
 ) {
   const { device } = state;
@@ -663,7 +665,19 @@ function attachFakeControllerHub(
           break;
         }
         if (!suppressStartNotification) {
-          const notifyStarted = () => emit(Uint8Array.from([0x20, 0]));
+          const notifyStarted = () => {
+            emit(Uint8Array.from([0x20, 0]));
+            if (!suppressReadyMarker) {
+              emit(
+                Uint8Array.from([
+                  0x21,
+                  ...new TextEncoder().encode(
+                    "BWCTRL:boot:tunnel-callback-registered\n"
+                  ),
+                ])
+              );
+            }
+          };
           if (startNotificationDelayMs > 0) {
             state.clock.setTimeout(notifyStarted, startNotificationDelayMs);
           } else {
@@ -726,6 +740,7 @@ function attachFakeControllerHub(
         }
         if (request.c === "h") {
           controller.helloCount++;
+          if (controller.helloCount <= ignoreFirstHellos) break;
           const acknowledge = () =>
             emitTunnel({ i: request.i, ok: true, result: "bw-spike-1" });
           if (helloResponseDelayMs > 0) {
@@ -1899,6 +1914,61 @@ test("delayed program-start and hello notifications wait for readiness before re
     JSON.parse(state.ext.getCommunicationDiagnostics()).controllerStatus,
     "ready"
   );
+});
+
+test("missing readiness console and lost first hello are recovered by bounded retry", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state, {
+    suppressReadyMarker: true,
+    ignoreFirstHellos: 1,
+  });
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  const install = state.ext.installHubController({ SLOT: 2 });
+  await waitUntil(
+    () =>
+      JSON.parse(state.ext.getCommunicationDiagnostics())
+        .lastSuccessfulControllerStage?.stage === "program-start-notified",
+    "start notification"
+  );
+  assert.equal(fakeHub.helloCount, 0);
+  state.clock.advance(1000);
+  await waitUntil(() => fakeHub.helloCount === 1, "first hello");
+  state.clock.advance(4000);
+  await waitUntil(() => fakeHub.helloCount === 2, "second hello");
+  assert.equal((await install).version, 1);
+  assert.equal(hub._pendingControllerCommands.size, 0);
+  const ids = unpackWrittenMessages(state.device.writes)
+    .filter((m) => m[0] === 0x32)
+    .map((m) => JSON.parse(Buffer.from(m.slice(3)).toString()).i);
+  assert.notEqual(ids[0], ids[1]);
+});
+
+test("late hello response cannot resolve the next attempt", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state, {
+    helloResponseDelayMs: 5000,
+  });
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  const install = state.ext.installHubController({ SLOT: 2 });
+  await waitUntil(() => fakeHub.helloCount === 1, "first hello");
+  state.clock.advance(4000);
+  await waitUntil(() => fakeHub.helloCount === 2, "second hello");
+  state.clock.advance(1000);
+  await tick();
+  assert.equal(hub._controllerReady, false);
+  assert.equal(hub._pendingControllerCommands.size, 1);
+  state.clock.advance(3000);
+  await waitUntil(() => fakeHub.helloCount === 3, "third hello");
+  state.clock.advance(1000);
+  await tick();
+  assert.equal(hub._controllerReady, false);
+  state.clock.advance(3000);
+  await assert.rejects(install, /did not acknowledge the command in time/i);
+  assert.equal(hub._pendingControllerCommands.size, 0);
 });
 
 test("manual controller check can verify an already-running program without clearing or retransferring", async () => {

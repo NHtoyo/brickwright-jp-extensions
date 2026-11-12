@@ -4691,6 +4691,53 @@ continuous_sensor_loop()
         });
     }
 
+    async _handshakeStartedController(attempt) {
+      const marker = "BWCTRL:boot:tunnel-callback-registered";
+      const observed = () =>
+        this._diagnostics.recentConsoleNotifications
+          .filter((entry) => entry.timestamp >= attempt.startedAt)
+          .map((entry) => entry.text)
+          .join("")
+          .includes(marker);
+      if (!observed()) {
+        await new Promise((resolve) => {
+          const timer = setTimeout(() => {
+            attempt.callbackReadyWaiter = null;
+            resolve();
+          }, 1000);
+          attempt.callbackReadyWaiter = () => {
+            if (!observed()) return;
+            clearTimeout(timer);
+            attempt.callbackReadyWaiter = null;
+            resolve();
+          };
+        });
+      }
+      attempt.callbackReadyObserved = observed();
+      for (let number = 1; number <= 3; number++) {
+        if (
+          attempt.programFlowStoppedAt ||
+          attempt.outcome === "startup-error"
+        ) {
+          throw Object.assign(new Error(t("controllerStoppedBeforeReady")), {
+            code: "ERR_CONTROLLER_STOPPED_BEFORE_READY",
+          });
+        }
+        if (!this.isConnected()) throw this._notConnectedError();
+        this._recordDiagnosticEvent("controller-hello-attempt", {
+          number,
+          callbackReadyObserved: attempt.callbackReadyObserved,
+        });
+        try {
+          return await this.probeController();
+        } catch (error) {
+          if (error?.code !== "ERR_CONTROLLER_TIMEOUT" || number === 3) {
+            throw error;
+          }
+        }
+      }
+    }
+
     async installController(slot) {
       if (!this.isConnected()) throw this._notConnectedError();
       if (!Number.isInteger(slot) || slot < 0 || slot > 19) {
@@ -4821,7 +4868,7 @@ continuous_sensor_loop()
             }
           );
         }
-        return await this.probeController();
+        return await this._handshakeStartedController(attempt);
       } catch (error) {
         this._controllerReady = false;
         if (attempt.outcome === "in-progress") {
@@ -5785,6 +5832,7 @@ continuous_sensor_loop()
               .map((item) => item.text)
               .join("")
               .slice(-4096);
+          this._diagnostics.controllerInstallAttempt?.callbackReadyWaiter?.();
           this._recordDiagnosticEvent("console-notification", { text });
           break;
         }
