@@ -544,6 +544,8 @@ function attachFakeControllerHub(
     motorPorts = [0, 1, 2, 3, 4, 5],
     malformedResponseType = null,
     startNotificationDelayMs = 0,
+    stopNotificationDelayMs = 0,
+    unattributedStopAfterStartDelayMs = null,
     suppressStartNotification = false,
     suppressStopNotification = false,
     failProgramFlowStop = false,
@@ -552,6 +554,7 @@ function attachFakeControllerHub(
     helloResponseDelayMs = 0,
     suppressReadyMarker = false,
     ignoreFirstHellos = 0,
+    failProgramFlowStart = false,
   } = {}
 ) {
   const { device } = state;
@@ -562,17 +565,23 @@ function attachFakeControllerHub(
     slots,
     actions: [],
     receivedCommands: [],
+    events: [],
     currentUpload: null,
     running: false,
     maxChunkSize: 50,
     chunkIndex: 0,
+    failChunkIndex,
+    startCount: 0,
+    startNotificationDelayMs,
+    stopNotificationDelayMs,
+    unattributedStopAfterStartDelayMs,
     ignoreCommands: new Set(),
     rejectCommands: new Set(),
     helloCount: 0,
-    startNotificationDelayMs,
     helloResponseDelayMs,
     suppressStopNotification,
     failProgramFlowStop,
+    failProgramFlowStart,
   };
   const emit = (message) => device.tx.emit(packMessage(message));
   const status = (type, ok) =>
@@ -605,6 +614,7 @@ function attachFakeControllerHub(
           "ClearSlotRequest is exactly two bytes"
         );
         const existed = slots.delete(message[1]);
+        controller.events.push({ type: "clear", slot: message[1] });
         status(0x47, existed);
         break;
       }
@@ -629,6 +639,11 @@ function attachFakeControllerHub(
           chunks: [],
           rollingCrc: 0,
         };
+        controller.events.push({
+          type: "upload-start",
+          slot,
+          name,
+        });
         controller.chunkIndex = 0;
         status(0x0d, true);
         break;
@@ -643,7 +658,7 @@ function attachFakeControllerHub(
         const runningCrc = view.getUint32(1, true);
         const size = view.getUint16(5, true);
         const chunk = Buffer.from(message.slice(7));
-        if (controller.chunkIndex === failChunkIndex) {
+        if (controller.chunkIndex === controller.failChunkIndex) {
           status(0x11, false);
           break;
         }
@@ -663,6 +678,13 @@ function attachFakeControllerHub(
         upload.rollingCrc = runningCrc;
         upload.chunks.push(chunk);
         controller.chunkIndex++;
+        controller.events.push({
+          type: "chunk-acknowledged",
+          offset: upload.chunks
+            .slice(0, -1)
+            .reduce((size, previous) => size + previous.length, 0),
+          length: chunk.length,
+        });
         status(0x11, true);
         break;
       }
@@ -678,15 +700,35 @@ function attachFakeControllerHub(
           break;
         }
         if (message[1] === 1) {
-          if (!controller.running || failProgramFlowStop) {
+          controller.events.push({
+            type: "stop-request",
+            slot: message[2],
+          });
+          if (!controller.running || controller.failProgramFlowStop) {
             status(0x1f, false);
             break;
           }
           status(0x1f, true);
           controller.running = false;
           if (!suppressStopNotification) {
-            emit(Uint8Array.from([0x20, 1]));
+            const notifyStopped = () => emit(Uint8Array.from([0x20, 1]));
+            if (controller.stopNotificationDelayMs > 0) {
+              state.clock.setTimeout(
+                notifyStopped,
+                controller.stopNotificationDelayMs
+              );
+            } else {
+              notifyStopped();
+            }
           }
+          break;
+        }
+        controller.events.push({
+          type: "start-request",
+          slot: message[2],
+        });
+        if (controller.failProgramFlowStart) {
+          status(0x1f, false);
           break;
         }
         const program = Buffer.concat(upload.chunks);
@@ -703,6 +745,7 @@ function attachFakeControllerHub(
         assert.doesNotMatch(sourceText, /\b(?:eval|exec)\s*\(/);
         slots.set(upload.slot, program);
         controller.running = true;
+        controller.startCount++;
         status(0x1f, true);
         if (disconnectAfterProgramFlowResponse) {
           device.gatt.disconnect();
@@ -729,11 +772,20 @@ function attachFakeControllerHub(
               );
             }
           };
-          if (startNotificationDelayMs > 0) {
-            state.clock.setTimeout(notifyStarted, startNotificationDelayMs);
+          if (controller.startNotificationDelayMs > 0) {
+            state.clock.setTimeout(
+              notifyStarted,
+              controller.startNotificationDelayMs
+            );
           } else {
             notifyStarted();
           }
+        }
+        if (controller.unattributedStopAfterStartDelayMs !== null) {
+          state.clock.setTimeout(
+            () => emit(Uint8Array.from([0x20, 1])),
+            controller.unattributedStopAfterStartDelayMs
+          );
         }
         break;
       }
@@ -1424,6 +1476,308 @@ test("controller installation is non-modal, CRC-checked, transferred, started, a
   assert.equal(diagnostics.lastProgramFlowNotification.action, "start");
 });
 
+test("reinstall stops the running controller before clearing and replacing the same slot", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  await state.ext.installHubController({ SLOT: 6 });
+  fakeHub.events.length = 0;
+  const writesBeforeReinstall = state.device.writes.length;
+
+  const result = await state.ext.installHubController({ SLOT: 6 });
+  const stopIndex = fakeHub.events.findIndex(
+    (event) => event.type === "stop-request"
+  );
+  const clearIndex = fakeHub.events.findIndex(
+    (event) => event.type === "clear" && event.slot === 6
+  );
+  const uploadIndex = fakeHub.events.findIndex(
+    (event) => event.type === "upload-start" && event.slot === 6
+  );
+  const startIndex = fakeHub.events.findIndex(
+    (event) => event.type === "start-request" && event.slot === 6
+  );
+  assert.ok(stopIndex >= 0);
+  assert.ok(stopIndex < clearIndex);
+  assert.ok(clearIndex < uploadIndex);
+  assert.ok(uploadIndex < startIndex);
+  const messages = unpackWrittenMessages(
+    state.device.writes.slice(writesBeforeReinstall)
+  );
+  const tunnelStopIndex = messages.findIndex(
+    (message) =>
+      message[0] === 0x32 &&
+      JSON.parse(Buffer.from(message.slice(3)).toString()).c === "x"
+  );
+  const programStopIndex = messages.findIndex(
+    (message) => message[0] === 0x1e && message[1] === 1
+  );
+  const clearMessageIndex = messages.findIndex(
+    (message) => message[0] === 0x46
+  );
+  const startMessageIndex = messages.findIndex(
+    (message) => message[0] === 0x1e && message[1] === 0
+  );
+  assert.ok(tunnelStopIndex >= 0);
+  assert.ok(tunnelStopIndex < programStopIndex);
+  assert.ok(programStopIndex < clearMessageIndex);
+  assert.ok(clearMessageIndex < startMessageIndex);
+  assert.equal(fakeHub.events[stopIndex].slot, 6);
+  assert.ok(fakeHub.receivedCommands.includes("controller.stop_all"));
+  assert.equal(result.version, 1);
+  assert.equal(fakeHub.running, true);
+  assert.equal(hub._runningControllerSlot, 6);
+  await state.ext.setPixel({ X: 1, Y: 1, BRIGHTNESS: 100 });
+  assert.ok(fakeHub.actions.some((action) => action.cmd === "matrix.pixel"));
+  assert.equal(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).controllerStatus,
+    "ready"
+  );
+  assert.deepEqual(state.confirmationCalls, []);
+  assert.deepEqual(state.alertCalls, []);
+});
+
+test("reinstall waits for the old stop notification before clearing the requested slot", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  await hub.installController(4);
+  fakeHub.stopNotificationDelayMs = 250;
+  fakeHub.events.length = 0;
+
+  const reinstall = hub.installController(4);
+  await waitUntil(
+    () => fakeHub.events.some((event) => event.type === "stop-request"),
+    "reinstall should first ask the active program to stop"
+  );
+  assert.equal(
+    fakeHub.events.some((event) => event.type === "clear"),
+    false,
+    "the slot must not be cleared while the old program is still stopping"
+  );
+  state.clock.advance(249);
+  await tick();
+  assert.equal(
+    fakeHub.events.some((event) => event.type === "clear"),
+    false,
+    "the transfer must wait for stop confirmation"
+  );
+  state.clock.advance(1);
+  await reinstall;
+  assert.ok(
+    fakeHub.events.findIndex((event) => event.type === "stop-request") <
+      fakeHub.events.findIndex((event) => event.type === "clear")
+  );
+});
+
+test("an uncorrelated old stop notification during restart does not fail the new start", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  await hub.installController(5);
+  fakeHub.startNotificationDelayMs = 1400;
+  fakeHub.unattributedStopAfterStartDelayMs = 2;
+
+  let settled = false;
+  const reinstall = hub.installController(5).finally(() => {
+    settled = true;
+  });
+  await waitUntil(
+    () => fakeHub.startCount === 2,
+    "the replacement ProgramFlow start request should be sent"
+  );
+  state.clock.advance(2);
+  await tick();
+
+  const duringRestart = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(settled, false);
+  assert.equal(duringRestart.controllerInstallAttempt.outcome, "in-progress");
+  assert.equal(
+    duringRestart.controllerInstallAttempt.programFlowStoppedAt,
+    null
+  );
+  assert.equal(
+    duringRestart.controllerInstallAttempt.unattributedStopNotifications.length,
+    1
+  );
+
+  state.clock.advance(1398);
+  await reinstall;
+  const finished = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(finished.controllerStatus, "ready");
+  assert.equal(finished.controllerInstallAttempt.outcome, "ready");
+  assert.equal(fakeHub.running, true);
+});
+
+test("switching controller slots stops the old slot before uploading the new one", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  await hub.installController(8);
+  fakeHub.events.length = 0;
+
+  await hub.installController(9);
+  const stop = fakeHub.events.find((event) => event.type === "stop-request");
+  const clear = fakeHub.events.find((event) => event.type === "clear");
+  const upload = fakeHub.events.find((event) => event.type === "upload-start");
+  const start = fakeHub.events.find((event) => event.type === "start-request");
+  assert.equal(stop.slot, 8);
+  assert.equal(clear.slot, 9);
+  assert.equal(upload.slot, 9);
+  assert.equal(start.slot, 9);
+  assert.ok(fakeHub.events.indexOf(stop) < fakeHub.events.indexOf(clear));
+  assert.equal(hub._runningControllerSlot, 9);
+  assert.equal(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).controllerStatus,
+    "ready"
+  );
+});
+
+test("failed old-program stop aborts reinstall before clearing or transferring", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  await hub.installController(10);
+  const clearCount = fakeHub.events.filter(
+    (event) => event.type === "clear"
+  ).length;
+  const startCount = fakeHub.startCount;
+  fakeHub.failProgramFlowStop = true;
+
+  const reinstall = hub.installController(10);
+  const rejected = assert.rejects(reinstall, /stop was not fully confirmed/i);
+  await waitUntil(
+    () => fakeHub.events.some((event) => event.type === "stop-request"),
+    "the old program stop should be attempted"
+  );
+  state.clock.advance(3000);
+  await rejected;
+
+  assert.equal(
+    fakeHub.events.filter((event) => event.type === "clear").length,
+    clearCount,
+    "failed stop confirmation must prevent slot clearing"
+  );
+  assert.equal(fakeHub.startCount, startCount);
+  assert.equal(fakeHub.running, true);
+});
+
+test("concurrent controller installs run serially and each explicit request completes", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+
+  const results = await Promise.all([
+    hub.installController(11),
+    hub.installController(12),
+  ]);
+  const starts = fakeHub.events.filter(
+    (event) => event.type === "start-request"
+  );
+  const clears = fakeHub.events.filter((event) => event.type === "clear");
+  assert.equal(results.length, 2);
+  assert.equal(starts.length, 2);
+  assert.deepEqual(
+    starts.map((event) => event.slot),
+    [11, 12]
+  );
+  assert.deepEqual(
+    clears.map((event) => event.slot),
+    [11, 12]
+  );
+  assert.equal(hub._runningControllerSlot, 12);
+  assert.equal(fakeHub.running, true);
+  assert.equal(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).controllerStatus,
+    "ready"
+  );
+});
+
+test("a transfer failure after confirmed stop never starts the replacement program", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  await hub.installController(13);
+  const startCount = fakeHub.startCount;
+  fakeHub.failChunkIndex = 0;
+
+  await assert.rejects(hub.installController(13), /chunk at byte 0/);
+  assert.equal(fakeHub.startCount, startCount);
+  assert.equal(fakeHub.running, false);
+  assert.equal(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).controllerStatus,
+    "error"
+  );
+  assert.ok(fakeHub.events.some((event) => event.type === "stop-request"));
+});
+
+test("a ProgramFlow start failure after reinstall is returned and not treated as ready", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  await hub.installController(14);
+  fakeHub.failProgramFlowStart = true;
+
+  await assert.rejects(
+    hub.installController(14),
+    /Hub rejected ProgramFlowRequest/
+  );
+  const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(fakeHub.running, false);
+  assert.equal(fakeHub.helloCount, 1, "only the first install may handshake");
+  assert.equal(diagnostics.controllerStatus, "error");
+  assert.equal(diagnostics.controllerInstallAttempt.outcome, "failed");
+});
+
+test("PROJECT_STOP_ALL cancels queued reinstall requests before they can restart the controller", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  await hub.installController(15);
+  const clearsBefore = fakeHub.events.filter(
+    (event) => event.type === "clear"
+  ).length;
+
+  const queuedOne = hub.installController(16);
+  const queuedTwo = hub.installController(17);
+  state.runtime.emit("PROJECT_STOP_ALL");
+  await hub._projectStopPromise;
+  const outcomes = await Promise.allSettled([queuedOne, queuedTwo]);
+  assert.ok(outcomes.every((outcome) => outcome.status === "rejected"));
+  assert.ok(
+    outcomes.every(
+      (outcome) =>
+        outcome.reason.code === "ERR_CONTROLLER_INSTALL_CANCELLED_BY_STOP"
+    )
+  );
+  assert.equal(
+    fakeHub.events.filter((event) => event.type === "clear").length,
+    clearsBefore,
+    "queued installs must not clear a slot after emergency stop"
+  );
+  assert.equal(fakeHub.running, false);
+  assert.equal(hub._controllerReady, false);
+  assert.equal(state.ext.isConnected(), true);
+});
+
 test("transpilation errors reject instead of being swallowed after console logging", async () => {
   const state = setup();
   state.ext._transpiler.transpileProject = () => {
@@ -2102,8 +2456,10 @@ test("PROJECT_STOP_ALL preempts queued commands, stops hardware and Python, then
   fakeHub.ignoreCommands.clear();
   await state.ext.installHubController({ SLOT: 6 });
   await state.ext.motorStart({ PORT: "A", DIRECTION: 1 });
+  await state.ext.setPixel({ X: 2, Y: 2, BRIGHTNESS: 100 });
   assert.equal(fakeHub.running, true, "a new install starts after the stop");
   assert.ok(fakeHub.actions.some((action) => action.cmd === "motor.run"));
+  assert.ok(fakeHub.actions.some((action) => action.cmd === "matrix.pixel"));
   assert.deepEqual(state.alertCalls, []);
 });
 

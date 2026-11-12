@@ -4043,6 +4043,8 @@ continuous_sensor_loop()
       this._controllerCommandId = 0;
       this._controllerCommandQueue = Promise.resolve();
       this._controllerCommandGeneration = 0;
+      this._controllerInstallQueue = Promise.resolve();
+      this._controllerInstallGeneration = 0;
       this._controllerStopping = false;
       this._controllerStopPromise = null;
       this._controllerStopWaiter = null;
@@ -4075,7 +4077,7 @@ continuous_sensor_loop()
       this._onMessage = this._onMessage.bind(this);
       this._onProjectStopAll = () => {
         if (!this._link) return;
-        const stopPromise = this.stopAll();
+        const stopPromise = this.stopAll({ cancelQueuedInstalls: true });
         this._projectStopPromise = stopPromise;
         // PROJECT_STOP_ALL is an event; the VM does not await its listeners.
         // Keep the rejection visible in diagnostics without creating an
@@ -4575,6 +4577,7 @@ continuous_sensor_loop()
         waiter.reject(this._notConnectedError());
       }
       this._controllerCommandGeneration++;
+      this._controllerInstallGeneration++;
       this._controllerStopping = false;
       this._runningControllerSlot = null;
       this._controllerCommandQueue = Promise.resolve();
@@ -4658,7 +4661,8 @@ continuous_sensor_loop()
       this._rpcVersion = null;
     }
 
-    stopAll() {
+    stopAll({ cancelQueuedInstalls = true, skipControllerStop = false } = {}) {
+      if (cancelQueuedInstalls) this._controllerInstallGeneration++;
       if (!this.isConnected()) {
         const error = this._notConnectedError();
         this._recordCommunicationError(error);
@@ -4700,7 +4704,9 @@ continuous_sensor_loop()
         finishedAt: null,
         outcome: "in-progress",
         slot,
-        controllerStop: { status: "pending" },
+        controllerStop: {
+          status: skipControllerStop ? "not-required" : "pending",
+        },
         programFlowStop: {
           status: slot === null ? "not-sent-no-known-slot" : "pending",
         },
@@ -4753,28 +4759,28 @@ continuous_sensor_loop()
         };
       }
 
-      const stopHardware = this._sendControllerCommand(
-        "controller.stop_all",
-        {},
-        true,
-        { priority: true, timeoutMs: 1500 }
-      ).then(
-        (result) => {
-          stopAttempt.controllerStop = {
-            status: "acknowledged",
-            responseAt: Date.now(),
-          };
-          return result;
-        },
-        (error) => {
-          stopAttempt.controllerStop = {
-            status: isStopLinkActive() ? "failed" : "not-reached",
-            error: error.message,
-          };
-          this._recordCommunicationError(error);
-          throw error;
-        }
-      );
+      const stopHardware = skipControllerStop
+        ? Promise.resolve({ skipped: true })
+        : this._sendControllerCommand("controller.stop_all", {}, true, {
+            priority: true,
+            timeoutMs: 1500,
+          }).then(
+            (result) => {
+              stopAttempt.controllerStop = {
+                status: "acknowledged",
+                responseAt: Date.now(),
+              };
+              return result;
+            },
+            (error) => {
+              stopAttempt.controllerStop = {
+                status: isStopLinkActive() ? "failed" : "not-reached",
+                error: error.message,
+              };
+              this._recordCommunicationError(error);
+              throw error;
+            }
+          );
 
       const previousProgramFlow = this._pendingProtocolResponses.get(
         SPIKE3.PROGRAM_FLOW_RESPONSE
@@ -4802,6 +4808,7 @@ continuous_sensor_loop()
             "Cannot send ProgramFlow stop because the active controller slot is unknown"
           );
         }
+        stopAttempt.programFlowStop.requestPending = true;
         stopAttempt.programFlowStopRequestSentAt = Date.now();
         const stoppedNotification = this._waitForControllerProgramStop(
           stopAttempt,
@@ -4830,6 +4837,7 @@ continuous_sensor_loop()
           stopAttempt.programFlowStop.responseAt = Date.now();
         } finally {
           stopAttempt.programFlowStop.notification = await stoppedNotification;
+          stopAttempt.programFlowStop.requestPending = false;
           if (this._controllerStopWaiter) {
             clearTimeout(this._controllerStopWaiter.timeout);
             this._controllerStopWaiter = null;
@@ -4855,7 +4863,8 @@ continuous_sensor_loop()
       const stopPromise = Promise.allSettled([stopHardware, stopProgram]).then(
         (results) => {
           stopAttempt.finishedAt = Date.now();
-          const controllerStopped = results[0].status === "fulfilled";
+          const controllerStopped =
+            skipControllerStop || results[0].status === "fulfilled";
           const programStopped = results[1].status === "fulfilled";
           stopAttempt.outcome =
             controllerStopped && programStopped
@@ -5920,6 +5929,7 @@ continuous_sensor_loop()
             "controller-hello-acknowledged",
             true
           );
+          attempt.programFlowPhase = "controller-ready";
           attempt.outcome = "ready";
           attempt.finishedAt = Date.now();
         }
@@ -6468,10 +6478,69 @@ continuous_sensor_loop()
       }
     }
 
-    async installController(slot) {
-      if (this._controllerStopPromise) {
-        await this._controllerStopPromise.catch(() => {});
+    _controllerInstallCancelledError() {
+      return Object.assign(
+        new Error("SPIKE controller installation was cancelled by stop"),
+        { code: "ERR_CONTROLLER_INSTALL_CANCELLED_BY_STOP" }
+      );
+    }
+
+    _assertControllerInstallGeneration(generation) {
+      if (generation !== this._controllerInstallGeneration) {
+        if (!this.isConnected()) throw this._notConnectedError();
+        throw this._controllerInstallCancelledError();
       }
+    }
+
+    _getActiveProgramForControllerInstall() {
+      const status = this._diagnostics.controllerStatus;
+      const attempt = this._diagnostics.controllerInstallAttempt;
+      const statusMayBeRunning = new Set([
+        "ready",
+        "starting",
+        "starting-user-program",
+        "not-verified",
+        "stop-unconfirmed",
+        "stop-partial",
+      ]).has(status);
+      const slot =
+        this._runningControllerSlot ??
+        (statusMayBeRunning && Number.isInteger(attempt?.slot)
+          ? attempt.slot
+          : null);
+      const active = this._controllerReady || slot !== null;
+      if (!active) return { active: false, slot: null, controllerReady: false };
+      if (!Number.isInteger(slot)) {
+        throw Object.assign(
+          new Error(
+            "A running SPIKE program was detected, but its slot is unknown; refusing to clear or transfer a slot"
+          ),
+          { code: "ERR_CONTROLLER_ACTIVE_SLOT_UNKNOWN" }
+        );
+      }
+      return {
+        active: true,
+        slot,
+        controllerReady:
+          this._controllerReady ||
+          (status === "ready" && attempt?.outcome === "ready"),
+      };
+    }
+
+    installController(slot) {
+      const installGeneration = this._controllerInstallGeneration;
+      const runInstall = async () => {
+        this._assertControllerInstallGeneration(installGeneration);
+        if (this._controllerStopPromise) await this._controllerStopPromise;
+        this._assertControllerInstallGeneration(installGeneration);
+        return this._installControllerNow(slot, installGeneration);
+      };
+      const queued = this._controllerInstallQueue.then(runInstall, runInstall);
+      this._controllerInstallQueue = queued.catch(() => {});
+      return queued;
+    }
+
+    async _installControllerNow(slot, installGeneration) {
       if (!this.isConnected()) throw this._notConnectedError();
       if (!Number.isInteger(slot) || slot < 0 || slot > 19) {
         throw this._unsupportedError(
@@ -6483,6 +6552,27 @@ continuous_sensor_loop()
           "controller installation requires BLE GATT"
         );
       }
+
+      const previousProgram = this._getActiveProgramForControllerInstall();
+      if (previousProgram.active) {
+        this._recordDiagnosticEvent("controller-reinstall-stop-requested", {
+          previousSlot: previousProgram.slot,
+          nextSlot: slot,
+          controllerStopRequired: previousProgram.controllerReady,
+        });
+        await this.stopAll({
+          cancelQueuedInstalls: false,
+          skipControllerStop: !previousProgram.controllerReady,
+        });
+        this._assertControllerInstallGeneration(installGeneration);
+        this._recordDiagnosticEvent("controller-reinstall-stop-confirmed", {
+          previousSlot: previousProgram.slot,
+          nextSlot: slot,
+          stopAttempt: this._diagnostics.lastStopAttempt,
+        });
+      }
+
+      this._assertControllerInstallGeneration(installGeneration);
       this._controllerCommandGeneration++;
       const generation = this._controllerCommandGeneration;
       this._controllerStopping = false;
@@ -6501,12 +6591,17 @@ continuous_sensor_loop()
         transferredBytes: 0,
         startNotificationTimeoutMs:
           SPIKE3.CONTROLLER_START_NOTIFICATION_TIMEOUT_MS,
+        unattributedStopNotifications: [],
+        programFlowPhase: null,
+        consoleOutput: "",
       };
       this._diagnostics.controllerInstallAttempt = attempt;
       this._recordControllerInstallStage("waiting-info-response");
       try {
+        this._assertControllerInstallGeneration(installGeneration);
         this._assertControllerGeneration(generation);
         await this._waitForInfoResponse();
+        this._assertControllerInstallGeneration(installGeneration);
         this._assertControllerGeneration(generation);
         this._recordControllerInstallStage("info-response-received", true);
         const program = new TextEncoder().encode(SPIKE3_CONTROLLER_SOURCE);
@@ -6515,6 +6610,7 @@ continuous_sensor_loop()
           this._buildClearSlotRequest(slot),
           SPIKE3.CLEAR_SLOT_RESPONSE
         );
+        this._assertControllerInstallGeneration(installGeneration);
         this._assertControllerGeneration(generation);
         // The official example permits a non-acknowledged clear because the
         // slot may already be empty. The user has confirmed this exact slot.
@@ -6554,6 +6650,7 @@ continuous_sensor_loop()
             request,
             SPIKE3.TRANSFER_CHUNK_RESPONSE
           );
+          this._assertControllerInstallGeneration(installGeneration);
           this._assertControllerGeneration(generation);
           if (!response.ok) {
             throw new Error(`Hub rejected program chunk at byte ${offset}`);
@@ -6576,12 +6673,13 @@ continuous_sensor_loop()
 
         this._assertControllerGeneration(generation);
         this._runningControllerSlot = slot;
+        attempt.programFlowPhase = "start-request-pending";
         const started = await this._requestHubResponse(
           this._buildProgramFlowRequest(false, slot),
           SPIKE3.PROGRAM_FLOW_RESPONSE
         );
-        this._assertControllerGeneration(generation);
         if (!started.ok) throw new Error("Hub rejected ProgramFlowRequest");
+        attempt.programFlowPhase = "awaiting-start-notification";
         this._diagnostics.controllerStatus = "starting";
         if (attempt.lastSuccessfulStage !== "program-flow-response-accepted") {
           this._recordControllerInstallStage(
@@ -6589,10 +6687,28 @@ continuous_sensor_loop()
             true
           );
         }
+        if (!this.isConnected()) {
+          const origin = this._diagnostics.lastDisconnect?.origin || "unknown";
+          throw Object.assign(
+            new Error(
+              t(
+                "hubDisconnectedBeforeControllerStart",
+                t(`diag.disconnectOrigin.${origin}`)
+              )
+            ),
+            {
+              code: "ERR_HUB_DISCONNECTED_BEFORE_CONTROLLER_START",
+              disconnectOrigin: origin,
+            }
+          );
+        }
+        this._assertControllerInstallGeneration(installGeneration);
+        this._assertControllerGeneration(generation);
         await this._waitForControllerStart(
           attempt,
           SPIKE3.CONTROLLER_START_NOTIFICATION_TIMEOUT_MS
         );
+        this._assertControllerInstallGeneration(installGeneration);
         this._assertControllerGeneration(generation);
         if (
           attempt.outcome === "startup-error" ||
@@ -6618,6 +6734,7 @@ continuous_sensor_loop()
           );
         }
         const handshake = await this._handshakeStartedController(attempt);
+        this._assertControllerInstallGeneration(installGeneration);
         this._assertControllerGeneration(generation);
         return handshake;
       } catch (error) {
@@ -7287,6 +7404,7 @@ continuous_sensor_loop()
         attempt.programFlowRequestSentAt = attemptedAt;
         attempt.programFlowStartedAt = null;
         attempt.programFlowStoppedAt = null;
+        attempt.programFlowPhase = "start-request-sent";
         this._recordControllerInstallStage("program-flow-request-sent", false);
       }
       const write =
@@ -7528,6 +7646,11 @@ continuous_sensor_loop()
           const text = new TextDecoder()
             .decode(data.slice(1))
             .replace(/\0+$/, "");
+          const installAttempt = this._diagnostics.controllerInstallAttempt;
+          if (installAttempt?.outcome === "in-progress") {
+            installAttempt.consoleOutput =
+              `${installAttempt.consoleOutput || ""}${text}`.slice(-4096);
+          }
           this._replOutput += text;
           if (this._replOutput.length > 4096) {
             this._replOutput = this._replOutput.slice(-4096);
@@ -7685,9 +7808,7 @@ continuous_sensor_loop()
       if (
         action === 1 &&
         this._controllerStopping &&
-        stopAttempt?.programFlowStopRequestSentAt !== null &&
-        stopAttempt?.programFlowStopRequestSentAt !== undefined &&
-        timestamp >= stopAttempt.programFlowStopRequestSentAt
+        stopAttempt?.programFlowStop?.requestPending === true
       ) {
         stopAttempt.programFlowStoppedAt = timestamp;
         stopAttempt.programFlowStop.notificationAt = timestamp;
@@ -7711,28 +7832,28 @@ continuous_sensor_loop()
       }
 
       const attempt = this._diagnostics.controllerInstallAttempt;
-      if (
-        attempt?.outcome === "in-progress" &&
-        attempt.programFlowRequestSentAt !== undefined &&
-        timestamp >= attempt.programFlowRequestSentAt
-      ) {
+      if (attempt?.outcome === "in-progress" && attempt.programFlowPhase) {
         if (action === 0) {
           attempt.programFlowStartedAt = timestamp;
+          attempt.programFlowPhase = "start-notified";
           this._runningControllerSlot = attempt.slot;
           const waiter = [...this._controllerStartWaiters].find(
             (candidate) => candidate.attempt === attempt
           );
           if (waiter) waiter.resolve(notification);
         } else {
-          attempt.programFlowStoppedAt = timestamp;
-          if (!this._controllerReady) {
-            const consoleOutput = this._diagnostics.recentConsoleOutput;
+          const consoleOutput = attempt.consoleOutput || "";
+          const hasPythonStartupError =
+            /Traceback\b|(?:^|\n)[A-Za-z_][\w.]*Error:/m.test(consoleOutput);
+          if (hasPythonStartupError) {
             const error = Object.assign(
               new Error(
-                `${t("controllerStoppedBeforeReady")}${consoleOutput ? `: ${consoleOutput}` : ""}`
+                `${t("controllerStoppedBeforeReady")}: ${consoleOutput.slice(-1024)}`
               ),
               { code: "ERR_CONTROLLER_STOPPED_BEFORE_READY" }
             );
+            attempt.programFlowStoppedAt = timestamp;
+            attempt.programFlowPhase = "stopped-with-python-startup-error";
             attempt.outcome = "startup-error";
             attempt.finishedAt = timestamp;
             attempt.stage = "program-stopped-before-handshake";
@@ -7740,8 +7861,8 @@ continuous_sensor_loop()
             this._diagnostics.controllerStatus = "startup-error";
             this._recordDiagnosticEvent("controller-start-failed", {
               slot: attempt.slot,
-              reason: "program-stopped-before-handshake",
-              consoleOutput,
+              reason: "python-startup-error-before-ready",
+              consoleOutput: consoleOutput.slice(-1024),
             });
             const waiter = [...this._controllerStartWaiters].find(
               (candidate) => candidate.attempt === attempt
@@ -7754,7 +7875,23 @@ continuous_sensor_loop()
               clearTimeout(pending.timeout);
               pending.reject(error);
             }
+            return;
           }
+          attempt.unattributedStopNotifications ||= [];
+          attempt.unattributedStopNotifications.push(notification);
+          if (attempt.unattributedStopNotifications.length > 20) {
+            attempt.unattributedStopNotifications.shift();
+          }
+          this._recordDiagnosticEvent(
+            "program-flow-stop-unattributed-during-controller-start",
+            {
+              slot: attempt.slot,
+              phase: attempt.programFlowPhase,
+              notificationAt: timestamp,
+              reason:
+                "ProgramFlowNotification has no slot or request identifier; install waits for start and hello evidence",
+            }
+          );
         }
         return;
       }
