@@ -12399,29 +12399,35 @@ continuous_sensor_loop()
       } catch (error) {
         return this._rejectOperation(error);
       }
-      if (this._peripheral.protocol !== "spike3") {
-        return this._peripheral.sendPythonCommand(
-          `import uos; uos.remove(${pyStringLiteral(filename)})`
-        );
-      }
-      const slots = this._readProgramSlots();
-      const slot = slots.get(filename);
-      if (!Number.isInteger(slot)) {
-        return this._rejectOperation(
-          new Error(t("programNotUploaded", filename))
-        );
-      }
-      return this._peripheral.active
-        .clearProgramSlot(slot)
-        .then((result) => {
-          slots.delete(filename);
-          this._writeProgramSlots(slots);
-          return result;
-        })
-        .catch((error) => {
-          this._peripheral.active?._recordCommunicationError?.(error);
-          throw error;
-        });
+      // Deleting a hub program is destructive. Keep this confirmation separate
+      // from routine success messages so Scratch scripts can still run without
+      // modal interruptions during normal operations.
+      return askYesNo(t("confirmDelete", filename)).then((confirmed) => {
+        if (!confirmed) return undefined;
+        if (this._peripheral.protocol !== "spike3") {
+          return this._peripheral.sendPythonCommand(
+            `import uos; uos.remove(${pyStringLiteral(filename)})`
+          );
+        }
+        const slots = this._readProgramSlots();
+        const slot = slots.get(filename);
+        if (!Number.isInteger(slot)) {
+          return this._rejectOperation(
+            new Error(t("programNotUploaded", filename))
+          );
+        }
+        return this._peripheral.active
+          .clearProgramSlot(slot)
+          .then((result) => {
+            slots.delete(filename);
+            this._writeProgramSlots(slots);
+            return result;
+          })
+          .catch((error) => {
+            this._peripheral.active?._recordCommunicationError?.(error);
+            throw error;
+          });
+      });
     }
 
     listScriptsOnHub() {
