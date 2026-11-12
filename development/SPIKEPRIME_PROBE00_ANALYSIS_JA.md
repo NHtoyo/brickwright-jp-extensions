@@ -27,7 +27,7 @@
 
 接続は維持され、IMU通知はその後も継続しています。COBS解析失敗・不正メッセージ・未対応レコードはいずれも0です。`programFlowStop`要求は記録されていません。このため、診断側がstopを送って停止させた結果ではありません。
 
-`runtimeMs=1009`は診断開始から結果確定までの合計です。情報応答待ち、slot消去、転送、起動応答待ちを含み、Pythonの実行時間ではありません。stop通知はProgramFlowRequestの約686 ms後で、ProgramFlowResponseの約3 ms後です。
+`runtimeMs=1009`は診断開始から結果確定までの合計です。情報応答待ち、slot消去、転送、起動応答待ちを含み、Pythonの実行時間ではありません。stop通知はProgramFlowRequestから689 ms後、ProgramFlowResponseから3 ms後です。
 
 旧JSONでは`executionFinishedAt`がstop通知と同じ`1794459622872`になっていますが、`executionStartedAt`は`null`です。これは旧コードがプログラムフローのstop通知をPython実行終了時刻として代入していたためで、Python完了の証拠ではありません。今回の修正では開始・終了時刻をPythonの固有段階マーカーからだけ記録し、stop通知だけでは`executionFinishedAt`を埋めません。
 
