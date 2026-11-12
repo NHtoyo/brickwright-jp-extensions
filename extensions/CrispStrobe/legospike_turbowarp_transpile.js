@@ -2011,7 +2011,7 @@ else:
   const SPIKE_STARTUP_PROBES = {
     "00": {
       labelKey: "startupProbe00Label",
-      fileName: "brickwright-probe-00.py",
+      fileName: "program.py",
       pythonStages: [
         { id: "top-level", marker: "BWPROBE00:__RUN_ID__:TOP_LEVEL" },
         {
@@ -2054,7 +2054,7 @@ runloop.run(main())
     },
     "01": {
       labelKey: "startupProbe01Label",
-      fileName: "brickwright-probe-01.py",
+      fileName: "program.py",
       source: String.raw`"""No-hardware SPIKE startup probe: public API imports plus runloop.
 
 Do not transfer or start this program without the user's explicit approval.
@@ -2086,7 +2086,7 @@ runloop.run(main())
     },
     "02": {
       labelKey: "startupProbe02Label",
-      fileName: "brickwright-probe-02.py",
+      fileName: "program.py",
       source: String.raw`"""No-hardware SPIKE startup probe: module_tunnel lookup and callback.
 
 Do not transfer or start this program without the user's explicit approval.
@@ -4738,7 +4738,7 @@ continuous_sensor_loop()
           }
         );
         const upload = this._buildStartFileUploadRequest(
-          "brickwright.py",
+          "program.py",
           slot,
           this._crc32(program)
         );

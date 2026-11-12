@@ -1299,7 +1299,7 @@ test("controller installation is confirmed, CRC-checked, transferred, started, a
   assert.equal(result.version, 1);
   assert.ok(confirmations.some((message) => message.includes("スロット19")));
   assert.equal(fakeHub.running, true);
-  assert.equal(fakeHub.currentUpload.name, "brickwright.py");
+  assert.equal(fakeHub.currentUpload.name, "program.py");
   assert.ok(state.device.writes.every((packet) => packet.length <= 64));
   const uploadedMessages = unpackWrittenMessages(state.device.writes);
   const clearRequest = uploadedMessages.find((message) => message[0] === 0x46);
@@ -1314,14 +1314,14 @@ test("controller installation is confirmed, CRC-checked, transferred, started, a
     Buffer.from(clearRequest).toString("hex"),
     officialTransferVectors.messages.clear_slot_19.hex
   );
-  assert.equal(uploadRequest.length, 21);
+  assert.equal(uploadRequest.length, 17);
   assert.equal(
-    Buffer.from(uploadRequest.slice(1, 16)).toString("utf8"),
-    "brickwright.py\0"
+    Buffer.from(uploadRequest.slice(1, 12)).toString("utf8"),
+    "program.py\0"
   );
-  assert.equal(uploadRequest[16], 19);
+  assert.equal(uploadRequest[12], 19);
   assert.equal(
-    new DataView(Uint8Array.from(uploadRequest).buffer).getUint32(17, true),
+    new DataView(Uint8Array.from(uploadRequest).buffer).getUint32(13, true),
     crc32Aligned(fakeHub.slots.get(19))
   );
   assert.ok(uploadedMessages.some((message) => message[0] === 0x10));
@@ -1414,7 +1414,7 @@ test("startup probe overwrite confirmation names the slot and cancellation sends
   assert.equal(result, undefined);
   assert.match(confirmation, /プローブ00/);
   assert.match(confirmation, /スロット7/);
-  assert.match(confirmation, /brickwright-probe-00\.py/);
+  assert.match(confirmation, /program\.py/);
   assert.match(confirmation, /SPIKEアプリで上書きしてよいスロットか確認/);
   assert.equal(state.device.writes.length, before);
   assert.deepEqual(
@@ -1577,7 +1577,7 @@ test("fake-device records probe 00 bytes, Python markers, and a simulated flow l
     )
     .replace(/\r\n/g, "\n")
     .replaceAll("__RUN_ID__", result.runId);
-  assert.equal(fakeHub.upload.fileName, "brickwright-probe-00.py");
+  assert.equal(fakeHub.upload.fileName, "program.py");
   assert.equal(fakeHub.slots.get(7).toString("utf8"), fixture);
   assert.equal(fakeHub.flowStarts, 1, "only the selected probe is started");
   assert.equal(fakeHub.flowStops, 0, "probe 00 reaches its natural completion");
@@ -1621,6 +1621,7 @@ for (const probeId of ["01", "02"]) {
       )
       .replace(/\r\n/g, "\n");
     assert.equal(result.outcome, "success");
+    assert.equal(fakeHub.upload.fileName, "program.py");
     assert.equal(fakeHub.slots.get(7).toString("utf8"), fixture);
     assert.equal(fakeHub.flowStarts, 1);
     assert.equal(fakeHub.flowStops, 1);
