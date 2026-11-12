@@ -4277,6 +4277,9 @@ continuous_sensor_loop()
         fields,
         requestId
       );
+      if (commandName === "matrix.text") {
+        this._recordDiagnosticEvent("controller-text-request", { requestId });
+      }
       return new Promise((resolve, reject) => {
         const timeout = setTimeout(
           () => {
@@ -4410,6 +4413,12 @@ continuous_sensor_loop()
         error.code =
           response.error?.code || response.error || "ERR_CONTROLLER_COMMAND";
         this._recordCommunicationError(`${error.message} (${detail})`);
+        if (pending.commandName === "matrix.text") {
+          this._recordDiagnosticEvent("controller-text-failed", {
+            requestId,
+            error: error.code,
+          });
+        }
         pending.reject(error);
         return;
       }
@@ -4444,6 +4453,9 @@ continuous_sensor_loop()
         }
       }
       this._diagnostics.lastControllerResponseAt = Date.now();
+      if (pending.commandName === "matrix.text") {
+        this._recordDiagnosticEvent("controller-text-completed", { requestId });
+      }
       pending.resolve(result);
     }
 

@@ -2196,6 +2196,23 @@ test("SPIKE 3.x display text uses acknowledged controller command", async () => 
     .find((m) => m.c === "w");
   assert.equal(message.t, "Hello");
   assert.ok(fakeHub.actions.some((action) => action.cmd === "matrix.text"));
+  const events = JSON.parse(
+    state.ext.getCommunicationDiagnostics()
+  ).recentEvents;
+  assert.ok(
+    events.some(
+      (event) =>
+        event.type === "controller-text-request" &&
+        event.requestId === message.i
+    )
+  );
+  assert.ok(
+    events.some(
+      (event) =>
+        event.type === "controller-text-completed" &&
+        event.requestId === message.i
+    )
+  );
   await assert.rejects(
     state.ext.displayText({ TEXT: "x".repeat(33) }),
     /32 UTF-8 bytes/
