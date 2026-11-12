@@ -335,6 +335,8 @@ function setup({
       return Promise.resolve(device);
     },
   };
+  const confirmationCalls = [];
+  const alertCalls = [];
   const rxWrite = device.rx.writeValueWithoutResponse.bind(device.rx);
   let incomingFrame = [];
   device.rx.writeValueWithoutResponse = async (packet) => {
@@ -370,7 +372,10 @@ function setup({
         unsandboxed: true,
         register: (extension) => (context.extension = extension),
       },
-      BWConfirm: () => true,
+      BWConfirm: (message) => {
+        confirmationCalls.push(message);
+        return true;
+      },
       ArgumentType: new Proxy({}, { get: (_target, key) => String(key) }),
       BlockType: new Proxy({}, { get: (_target, key) => String(key) }),
       Cast: {
@@ -395,7 +400,9 @@ function setup({
     clearTimeout: clock.clearTimeout.bind(clock),
     setInterval: () => 0,
     clearInterval: () => {},
-    alert() {},
+    alert(...args) {
+      alertCalls.push(args);
+    },
     TextEncoder,
     TextDecoder,
     DataView,
@@ -409,7 +416,17 @@ function setup({
   assert.ok(context.extension, "extension registered");
   const ext = context.extension;
   ext._peripheral.setMode("web-ble");
-  return { clock, runtime, device, bluetooth, ext, context, failRequestWrite };
+  return {
+    clock,
+    runtime,
+    device,
+    bluetooth,
+    ext,
+    context,
+    failRequestWrite,
+    confirmationCalls,
+    alertCalls,
+  };
 }
 
 async function connect(setupResult) {
@@ -438,6 +455,22 @@ async function connect(setupResult) {
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
+
+test("SPIKE gallery sources contain no blocking alert calls", () => {
+  for (const file of [
+    "legospike_turbowarp_transpile.js",
+    "legospikeprime_btc_scratchlink.js",
+    "legospike_ble.js",
+    "legospike_bridge.js",
+    "legospikeprime_ble.js",
+  ]) {
+    const extensionSource = fs.readFileSync(
+      path.join(here, `../extensions/CrispStrobe/${file}`),
+      "utf8"
+    );
+    assert.doesNotMatch(extensionSource, /\balert\s*\(/, `${file} is modal`);
+  }
+});
 
 test("transfer message builders match byte vectors from the LEGO upstream serializer", () => {
   const hub = setup().ext._peripheral._spike3;
@@ -511,6 +544,8 @@ function attachFakeControllerHub(
     malformedResponseType = null,
     startNotificationDelayMs = 0,
     suppressStartNotification = false,
+    suppressStopNotification = false,
+    failProgramFlowStop = false,
     disconnectAfterProgramFlowResponse = false,
     startupConsoleError = null,
     helloResponseDelayMs = 0,
@@ -525,6 +560,7 @@ function attachFakeControllerHub(
   const controller = {
     slots,
     actions: [],
+    receivedCommands: [],
     currentUpload: null,
     running: false,
     maxChunkSize: 50,
@@ -534,6 +570,8 @@ function attachFakeControllerHub(
     helloCount: 0,
     startNotificationDelayMs,
     helloResponseDelayMs,
+    suppressStopNotification,
+    failProgramFlowStop,
   };
   const emit = (message) => device.tx.emit(packMessage(message));
   const status = (type, ok) =>
@@ -632,10 +670,22 @@ function attachFakeControllerHub(
         if (
           message.length !== 3 ||
           !upload ||
-          message[1] !== 0 ||
+          ![0, 1].includes(message[1]) ||
           message[2] !== upload.slot
         ) {
           status(0x1f, false);
+          break;
+        }
+        if (message[1] === 1) {
+          if (!controller.running || failProgramFlowStop) {
+            status(0x1f, false);
+            break;
+          }
+          status(0x1f, true);
+          controller.running = false;
+          if (!suppressStopNotification) {
+            emit(Uint8Array.from([0x20, 1]));
+          }
           break;
         }
         const program = Buffer.concat(upload.chunks);
@@ -723,6 +773,7 @@ function attachFakeControllerHub(
           f: "frequency",
         };
         const action = { cmd: names[request.c] };
+        controller.receivedCommands.push(action.cmd);
         for (const [key, value] of Object.entries(request)) {
           if (key in fieldNames) action[fieldNames[key]] = value;
         }
@@ -1282,30 +1333,17 @@ test("raw Python over TunnelMessage is rejected and sends no bytes", async () =>
   assert.equal(state.device.writes.length, before);
 });
 
-test("controller installation is confirmed, CRC-checked, transferred, started, and version-probed", async () => {
+test("controller installation is non-modal, CRC-checked, transferred, started, and version-probed", async () => {
   const state = setup({ locale: "ja" });
   await connect(state);
   const fakeHub = attachFakeControllerHub(state);
   state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
   const original = Buffer.from(fakeHub.slots.get(19));
-  const confirmations = [];
-  state.context.Scratch.BWConfirm = (message) => {
-    confirmations.push(message);
-    return false;
-  };
-  const writesBeforeCancel = state.device.writes.length;
-  await state.ext.installHubController({ SLOT: 19 });
-  assert.equal(state.device.writes.length, writesBeforeCancel);
-  assert.deepEqual(fakeHub.slots.get(19), original);
-
-  state.context.Scratch.BWConfirm = (message) => {
-    confirmations.push(message);
-    return true;
-  };
   const result = await state.ext.installHubController({ SLOT: 19 });
   assert.equal(result.protocol, "brickwright-spike-controller");
   assert.equal(result.version, 1);
-  assert.ok(confirmations.some((message) => message.includes("スロット19")));
+  assert.deepEqual(state.confirmationCalls, []);
+  assert.deepEqual(state.alertCalls, []);
   assert.equal(fakeHub.running, true);
   assert.equal(fakeHub.currentUpload.name, "program.py");
   assert.ok(state.device.writes.every((packet) => packet.length <= 64));
@@ -1375,6 +1413,19 @@ test("controller installation is confirmed, CRC-checked, transferred, started, a
     "controller-hello-acknowledged"
   );
   assert.equal(diagnostics.lastProgramFlowNotification.action, "start");
+});
+
+test("transpilation errors reject instead of being swallowed after console logging", async () => {
+  const state = setup();
+  state.ext._transpiler.transpileProject = () => {
+    throw new Error("simulated transpilation failure");
+  };
+
+  await assert.rejects(
+    Promise.resolve().then(() => state.ext.transpileProject()),
+    /simulated transpilation failure/
+  );
+  assert.deepEqual(state.alertCalls, []);
 });
 
 test("startup probe block and menu are hidden unless developer mode is opted in", () => {
@@ -1815,8 +1866,11 @@ test("a Python startup failure is recorded from ConsoleNotification and stop not
   });
   state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
 
+  const chainedMotor = state.ext
+    .installHubController({ SLOT: 8 })
+    .then(() => state.ext.motorStart({ PORT: "A", DIRECTION: 1 }));
   await assert.rejects(
-    state.ext.installHubController({ SLOT: 8 }),
+    chainedMotor,
     /stopped before it completed its startup handshake.*KeyError: module_tunnel/i
   );
 
@@ -1830,6 +1884,11 @@ test("a Python startup failure is recorded from ConsoleNotification and stop not
     "program-flow-response-accepted"
   );
   assert.equal(fakeHub.helloCount, 0);
+  assert.equal(
+    fakeHub.actions.some((action) => action.cmd === "motor.run"),
+    false,
+    "a failed installation must not continue into the next Scratch block"
+  );
 });
 
 test("a failed ProgramFlow BLE write records its exception and is not labeled a GATT event", async () => {
@@ -1863,7 +1922,7 @@ test("a failed ProgramFlow BLE write records its exception and is not labeled a 
   );
 });
 
-test("delayed program-start and hello notifications wait for readiness before reporting success", async () => {
+test("chained blocks wait for hello readiness and continue immediately without popups", async () => {
   const state = setup();
   await connect(state);
   const fakeHub = attachFakeControllerHub(state, {
@@ -1872,7 +1931,14 @@ test("delayed program-start and hello notifications wait for readiness before re
   });
   state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
 
+  let nextBlockStarted = false;
+  let installResult;
   const install = state.ext.installHubController({ SLOT: 10 });
+  const chained = install.then((result) => {
+    installResult = result;
+    nextBlockStarted = true;
+    return state.ext.motorStart({ PORT: "A", DIRECTION: 1 });
+  });
   await waitUntil(
     () =>
       JSON.parse(state.ext.getCommunicationDiagnostics())
@@ -1881,9 +1947,15 @@ test("delayed program-start and hello notifications wait for readiness before re
     "ProgramFlowResponse should be acknowledged before waiting for start"
   );
   assert.equal(fakeHub.helloCount, 0);
+  assert.equal(nextBlockStarted, false);
+  assert.equal(
+    fakeHub.actions.some((action) => action.cmd === "motor.run"),
+    false
+  );
   state.clock.advance(299);
   await tick();
   assert.equal(fakeHub.helloCount, 0);
+  assert.equal(nextBlockStarted, false);
 
   state.clock.advance(1);
   await waitUntil(
@@ -1894,18 +1966,269 @@ test("delayed program-start and hello notifications wait for readiness before re
     JSON.parse(state.ext.getCommunicationDiagnostics()).controllerStatus,
     "checking"
   );
+  assert.equal(nextBlockStarted, false);
   state.clock.advance(499);
   await tick();
   assert.equal(
     JSON.parse(state.ext.getCommunicationDiagnostics()).controllerStatus,
     "checking"
   );
+  assert.equal(nextBlockStarted, false);
   state.clock.advance(1);
-  const result = await install;
-  assert.equal(result.version, 1);
+  await chained;
+  assert.equal(installResult.version, 1);
+  assert.equal(nextBlockStarted, true);
   assert.equal(
     JSON.parse(state.ext.getCommunicationDiagnostics()).controllerStatus,
     "ready"
+  );
+  assert.ok(fakeHub.actions.some((action) => action.cmd === "motor.run"));
+  assert.deepEqual(state.confirmationCalls, []);
+  assert.deepEqual(state.alertCalls, []);
+});
+
+test("PROJECT_STOP_ALL preempts queued commands, stops hardware and Python, then permits restart", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+  await state.ext.installHubController({ SLOT: 6 });
+  assert.equal(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).controllerStatus,
+    "ready"
+  );
+
+  fakeHub.ignoreCommands.add("motor.run");
+  const activeMotor = state.ext.motorStart({ PORT: "A", DIRECTION: 1 });
+  const activeMotorRejected = assert.rejects(
+    activeMotor,
+    /stopped the pending SPIKE controller command/i
+  );
+  await waitUntil(
+    () => fakeHub.receivedCommands.includes("motor.run"),
+    "the active motor command should reach the fake controller"
+  );
+  const queuedMotor = state.ext.motorStart({ PORT: "B", DIRECTION: 1 });
+  const queuedMotorRejected = assert.rejects(
+    queuedMotor,
+    /stopped the pending SPIKE controller command/i
+  );
+  const writesBeforeStop = state.device.writes.length;
+  state.runtime.emit("PROJECT_STOP_ALL");
+  await state.ext._peripheral._spike3._projectStopPromise;
+  await Promise.all([activeMotorRejected, queuedMotorRejected]);
+
+  const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.controllerStatus, "stopped");
+  assert.equal(diagnostics.lastStopAttempt.outcome, "success");
+  assert.equal(diagnostics.lastStopAttempt.slot, 6);
+  assert.equal(
+    diagnostics.lastStopAttempt.controllerStop.status,
+    "acknowledged"
+  );
+  assert.equal(
+    diagnostics.lastStopAttempt.programFlowStop.status,
+    "acknowledged"
+  );
+  assert.ok(diagnostics.lastStopAttempt.programFlowStoppedAt);
+  assert.equal(state.ext._peripheral._spike3._controllerReady, false);
+  assert.equal(state.ext._peripheral._spike3._controllerHeartbeatTimer, null);
+  assert.equal(
+    state.ext.isConnected(),
+    true,
+    "stop must preserve BLE connection"
+  );
+
+  const stopMessages = unpackWrittenMessages(
+    state.device.writes.slice(writesBeforeStop)
+  );
+  const stopTunnelIndex = stopMessages.findIndex((message) => {
+    if (message[0] !== 0x32) return false;
+    return JSON.parse(Buffer.from(message.slice(3)).toString()).c === "x";
+  });
+  const stopFlowIndex = stopMessages.findIndex(
+    (message) => message[0] === 0x1e && message[1] === 1
+  );
+  assert.ok(stopTunnelIndex >= 0, "controller.stop_all TunnelMessage sent");
+  assert.ok(
+    stopFlowIndex > stopTunnelIndex,
+    "ProgramFlow stop follows hardware stop"
+  );
+  assert.equal(
+    fakeHub.receivedCommands.includes("motor.run"),
+    true,
+    "only the already in-flight motor command reaches the hub"
+  );
+  assert.equal(
+    fakeHub.actions.some(
+      (action) => action.cmd === "motor.run" && action.port === "B"
+    ),
+    false,
+    "queued motor command is cancelled"
+  );
+
+  const afterStop = state.device.writes.length;
+  state.runtime.emit("PROJECT_STOP_ALL");
+  await tick();
+  assert.equal(
+    state.device.writes.length,
+    afterStop,
+    "repeated stop is idempotent"
+  );
+  await assert.rejects(
+    state.ext.motorStart({ PORT: "C", DIRECTION: 1 }),
+    /controller command/i
+  );
+  assert.equal(
+    state.device.writes.length,
+    afterStop,
+    "late old scripts cannot send"
+  );
+
+  fakeHub.ignoreCommands.clear();
+  await state.ext.installHubController({ SLOT: 6 });
+  await state.ext.motorStart({ PORT: "A", DIRECTION: 1 });
+  assert.equal(fakeHub.running, true, "a new install starts after the stop");
+  assert.ok(fakeHub.actions.some((action) => action.cmd === "motor.run"));
+  assert.deepEqual(state.alertCalls, []);
+});
+
+test("a timed out controller motor stop still sends ProgramFlow stop and reports partial failure", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+  await state.ext.installHubController({ SLOT: 7 });
+  fakeHub.ignoreCommands.add("controller.stop_all");
+
+  state.runtime.emit("PROJECT_STOP_ALL");
+  const stopPromise = state.ext._peripheral._spike3._projectStopPromise;
+  const rejected = assert.rejects(stopPromise, /stop was not fully confirmed/i);
+  await waitUntil(
+    () => fakeHub.receivedCommands.includes("controller.stop_all"),
+    "the controller should receive the first, priority stop command"
+  );
+  assert.equal(
+    unpackWrittenMessages(state.device.writes).some(
+      (message) => message[0] === 0x1e && message[1] === 1
+    ),
+    false,
+    "ProgramFlow stop waits for the controller stop acknowledgement or timeout"
+  );
+  state.clock.advance(1500);
+  await waitUntil(
+    () => state.device.writes.length > 0 && !fakeHub.running,
+    "ProgramFlow stop should still stop Python after the motor-stop error"
+  );
+  await rejected;
+
+  const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.lastStopAttempt.controllerStop.status, "failed");
+  assert.equal(
+    diagnostics.lastStopAttempt.programFlowStop.status,
+    "acknowledged"
+  );
+  assert.equal(diagnostics.lastStopAttempt.outcome, "partial-failure");
+  assert.equal(diagnostics.controllerStatus, "stop-partial");
+  assert.match(diagnostics.lastCommunicationError, /stop/i);
+  assert.deepEqual(state.alertCalls, []);
+});
+
+test("a failed ProgramFlow stop is not reported as success", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state, {
+    failProgramFlowStop: true,
+    suppressStopNotification: true,
+  });
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+  await state.ext.installHubController({ SLOT: 8 });
+
+  state.runtime.emit("PROJECT_STOP_ALL");
+  const stopPromise = state.ext._peripheral._spike3._projectStopPromise;
+  const rejected = assert.rejects(stopPromise, /stop was not fully confirmed/i);
+  await tick();
+  state.clock.advance(3000);
+  await rejected;
+
+  const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(fakeHub.running, true);
+  assert.equal(
+    diagnostics.lastStopAttempt.controllerStop.status,
+    "acknowledged"
+  );
+  assert.equal(diagnostics.lastStopAttempt.programFlowStop.status, "failed");
+  assert.equal(diagnostics.lastStopAttempt.programFlowStoppedAt, null);
+  assert.equal(diagnostics.lastStopAttempt.outcome, "failure");
+  assert.equal(diagnostics.controllerStatus, "stop-unconfirmed");
+});
+
+test("a disconnected hub is recorded as an unconfirmed stop, never as success", async () => {
+  const state = setup();
+  await connect(state);
+  attachFakeControllerHub(state);
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+  await state.ext.installHubController({ SLOT: 9 });
+  state.device.gatt.disconnect();
+
+  state.runtime.emit("PROJECT_STOP_ALL");
+  await assert.rejects(
+    state.ext._peripheral._spike3._projectStopPromise,
+    /not connected/i
+  );
+  const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.lastStopAttempt.outcome, "failure");
+  assert.equal(diagnostics.lastStopAttempt.controllerStop.status, "not-sent");
+  assert.equal(diagnostics.controllerStatus, "disconnected");
+});
+
+test("an emergency stop never targets a replacement hub after reconnect", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  await state.ext.installHubController({ SLOT: 10 });
+  fakeHub.ignoreCommands.add("controller.stop_all");
+
+  state.runtime.emit("PROJECT_STOP_ALL");
+  const stopPromise = hub._projectStopPromise;
+  const rejected = assert.rejects(stopPromise, /stop was not fully confirmed/i);
+  await waitUntil(
+    () => fakeHub.receivedCommands.includes("controller.stop_all"),
+    "the original hub should receive the priority stop request"
+  );
+
+  const replacementWrites = [];
+  const replacementLink = {
+    kind: "gatt",
+    isConnected: () => true,
+    startNotifications: () => Promise.resolve(),
+    write: (_service, _characteristic, data) => {
+      replacementWrites.push(Buffer.from(data, "base64"));
+      return Promise.resolve();
+    },
+  };
+  hub.attach(replacementLink);
+  hub._onConnect();
+  await tick();
+  state.clock.advance(1500);
+  await rejected;
+
+  const messages = replacementWrites.flatMap((frame) => [unpackMessage(frame)]);
+  assert.ok(messages.some((message) => message[0] === 0x00));
+  assert.equal(
+    messages.some((message) => message[0] === 0x32 || message[0] === 0x1e),
+    false,
+    "neither controller nor ProgramFlow stop is sent to the replacement hub"
+  );
+  const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.lastStopAttempt.connectionChanged, true);
+  assert.equal(diagnostics.lastStopAttempt.outcome, "failure");
+  assert.equal(
+    diagnostics.controllerStatus,
+    "not-verified",
+    "the old stop attempt must not overwrite the replacement connection state"
   );
 });
 
@@ -1995,6 +2318,7 @@ test("manual controller check can verify an already-running program without clea
   const result = await state.ext.checkHubController();
   assert.equal(result.version, 1);
   assert.equal(fakeHub.helloCount, 1);
+  assert.deepEqual(state.alertCalls, []);
   const afterCheck = unpackWrittenMessages(state.device.writes);
   assert.equal(
     afterCheck.filter((message) => message[0] === 0x46).length,

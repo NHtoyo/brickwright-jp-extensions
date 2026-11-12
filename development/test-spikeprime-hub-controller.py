@@ -469,6 +469,37 @@ class SpikeControllerFakeHubTests(unittest.TestCase):
         self.assertEqual(self.tunnel.events[-1]["error"], "queue_full")
         self.assertEqual(len(self.controller["_queue"]), self.controller["MAX_QUEUE"])
 
+    def test_emergency_stop_bypasses_and_clears_the_command_queue(self):
+        self.controller["_initialize"]()
+        receive = self.tunnel.callback_handler
+        self.controller["_queue"].append(
+            {"c": "r", "i": "queued-motor", "p": "A", "v": 100}
+        )
+        self.controller["_queue"].append(
+            {"c": "b", "i": "queued-sound", "f": 440, "t": 1000}
+        )
+        self.controller["_active"] = True
+        self.controller["_last_heartbeat"] = 1000
+
+        receive(self.message({"cmd": "controller.stop_all", "request_id": 9}))
+
+        self.assertEqual(self.controller["_queue"], [])
+        self.assertEqual(len(self.motor.calls), 6)
+        self.assertTrue(all(call[0] == "stop" for call in self.motor.calls))
+        self.assertEqual(self.sound.calls, [("stop",)])
+        self.assertFalse(self.controller["_active"])
+        self.assertIsNone(self.controller["_last_heartbeat"])
+        self.assertEqual(
+            self.tunnel.events[-1],
+            {"i": 9, "ok": True, "result": {"state": "stopped"}},
+        )
+
+        receive(self.message({"cmd": "motor.run", "port": "A", "velocity": 100, "request_id": "late"}))
+        self.assertEqual(self.controller["_queue"], [])
+        self.assertEqual(self.tunnel.events[-1]["i"], "late")
+        self.assertEqual(self.tunnel.events[-1]["error"], "controller_stopped")
+        self.assertEqual(len(self.motor.calls), 6)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

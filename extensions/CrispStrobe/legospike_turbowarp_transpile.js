@@ -162,6 +162,9 @@
       "diag.controllerStatus.checking": "checking",
       "diag.controllerStatus.startup-error": "program stopped during startup",
       "diag.controllerStatus.stopped": "program stopped",
+      "diag.controllerStatus.stopping": "stopping controller and program",
+      "diag.controllerStatus.stop-partial": "stop partially confirmed",
+      "diag.controllerStatus.stop-unconfirmed": "stop not confirmed",
       "diag.controllerOutcome.in-progress": "in progress",
       "diag.controllerOutcome.interrupted": "interrupted",
       "diag.controllerOutcome.startup-error": "startup error",
@@ -194,6 +197,12 @@
         "program stopped before controller response",
       "diag.lastControllerStage": "Controller installation stage",
       "diag.lastSuccessfulControllerStage": "Last successful stage",
+      "diag.lastStopAttempt": "Last emergency stop",
+      "diag.stopOutcome.success": "fully confirmed",
+      "diag.stopOutcome.partial-failure":
+        "program stopped; motor or sound stop failed",
+      "diag.stopOutcome.failure": "not confirmed",
+      "diag.stopOutcome.in-progress": "in progress",
       "diag.lastDisconnectOrigin": "Last disconnect origin",
       "diag.lastWrite": "Last BLE write",
       "diag.lastConsoleOutput": "Recent hub console output",
@@ -499,6 +508,9 @@
       "diag.controllerStatus.checking": "応答確認中",
       "diag.controllerStatus.startup-error": "起動中にプログラムが停止",
       "diag.controllerStatus.stopped": "プログラム停止",
+      "diag.controllerStatus.stopping": "制御プログラムとPythonを停止中",
+      "diag.controllerStatus.stop-partial": "一部の停止だけを確認",
+      "diag.controllerStatus.stop-unconfirmed": "停止を確認できません",
       "diag.controllerOutcome.in-progress": "処理中",
       "diag.controllerOutcome.interrupted": "中断",
       "diag.controllerOutcome.startup-error": "起動エラー",
@@ -527,6 +539,12 @@
         "応答前にプログラムが停止",
       "diag.lastControllerStage": "制御プログラムの起動段階",
       "diag.lastSuccessfulControllerStage": "最後に成功した段階",
+      "diag.lastStopAttempt": "最後の緊急停止",
+      "diag.stopOutcome.success": "停止を確認済み",
+      "diag.stopOutcome.partial-failure":
+        "Python停止済み・モーターまたは音の停止に失敗",
+      "diag.stopOutcome.failure": "停止を確認できません",
+      "diag.stopOutcome.in-progress": "処理中",
       "diag.lastDisconnectOrigin": "最後の切断元",
       "diag.lastWrite": "最後のBLE書き込み",
       "diag.lastConsoleOutput": "ハブの直近のコンソール出力",
@@ -1782,6 +1800,7 @@ except Exception as error:
     _tunnel_error = error
 _queue = []
 _active = False
+_emergency_stopped = False
 _last_heartbeat = None
 _text_job = None
 
@@ -1821,7 +1840,7 @@ def _stop_all_motors():
 
 
 def _receive(data):
-    global _active, _last_heartbeat
+    global _active, _emergency_stopped, _last_heartbeat, _text_job
     try:
         if not isinstance(data, str):
             data = bytes(data).decode("utf-8")
@@ -1829,9 +1848,6 @@ def _receive(data):
         if not isinstance(command, dict):
             raise ValueError("command must be an object")
         name = command.get("c")
-        if name in ("h", "p"):
-            _active = True
-            _last_heartbeat = time.ticks_ms()
         if name not in (
             "h", "p", "x",
             "r", "s", "u", "d",
@@ -1840,6 +1856,24 @@ def _receive(data):
             "b", "q",
         ):
             raise ValueError("unsupported command")
+        if name == "x":
+            # Emergency stop bypasses the normal dispatcher queue so it can
+            # interrupt an awaited sound or any commands waiting behind it.
+            _queue.clear()
+            _emergency_stopped = True
+            _active = False
+            _last_heartbeat = None
+            _text_job = None
+            _stop_all_motors()
+            sound.stop()
+            _success(command.get("i"), {"state": "stopped"})
+            return
+        if _emergency_stopped:
+            _error(command.get("i"), "controller_stopped", "controller is stopped")
+            return
+        if name in ("h", "p"):
+            _active = True
+            _last_heartbeat = time.ticks_ms()
         if len(_queue) >= MAX_QUEUE:
             _error(command.get("i"), "queue_full", "command queue is full")
             return
@@ -3504,6 +3538,11 @@ continuous_sensor_loop()
       this._controllerStartWaiters = new Set();
       this._controllerCommandId = 0;
       this._controllerCommandQueue = Promise.resolve();
+      this._controllerCommandGeneration = 0;
+      this._controllerStopping = false;
+      this._controllerStopPromise = null;
+      this._controllerStopWaiter = null;
+      this._runningControllerSlot = null;
       this._controllerReady = false;
       this._controllerVersion = null;
       this._controllerHeartbeatTimer = null;
@@ -3530,6 +3569,18 @@ continuous_sensor_loop()
       this.reset = this.reset.bind(this);
       this._onConnect = this._onConnect.bind(this);
       this._onMessage = this._onMessage.bind(this);
+      this._onProjectStopAll = () => {
+        if (!this._link) return;
+        const stopPromise = this.stopAll();
+        this._projectStopPromise = stopPromise;
+        // PROJECT_STOP_ALL is an event; the VM does not await its listeners.
+        // Keep the rejection visible in diagnostics without creating an
+        // unhandled rejection when the stop button is pressed.
+        stopPromise.catch((error) => this._recordCommunicationError(error));
+      };
+      if (this._runtime && typeof this._runtime.on === "function") {
+        this._runtime.on("PROJECT_STOP_ALL", this._onProjectStopAll);
+      }
 
       this._timerInterval = setInterval(() => {
         this._timer.current = (Date.now() - this._timer.start) / 1000;
@@ -3630,6 +3681,7 @@ continuous_sensor_loop()
           : [],
         lastSuccessfulControllerStage:
           previous?.lastSuccessfulControllerStage || null,
+        lastStopAttempt: previous?.lastStopAttempt || null,
         lastProgramFlowNotification:
           previous?.lastProgramFlowNotification || null,
         lastDisconnect: previous?.lastDisconnect || null,
@@ -3791,6 +3843,8 @@ continuous_sensor_loop()
           this._diagnostics.malformedNotificationCount,
         unsupportedRecordCount: this._diagnostics.unsupportedRecordCount,
         controllerStatus: this._diagnostics.controllerStatus,
+        controllerReady: this._controllerReady,
+        controllerStopping: this._controllerStopping,
         controllerVersion: this._diagnostics.controllerVersion,
         lastKnownControllerVersion:
           this._diagnostics.lastKnownControllerVersion,
@@ -3802,6 +3856,9 @@ continuous_sensor_loop()
           : null,
         lastSuccessfulControllerStage:
           this._diagnostics.lastSuccessfulControllerStage,
+        lastStopAttempt: this._diagnostics.lastStopAttempt
+          ? JSON.parse(JSON.stringify(this._diagnostics.lastStopAttempt))
+          : null,
         lastProgramFlowNotification:
           this._diagnostics.lastProgramFlowNotification,
         lastDisconnect: this._diagnostics.lastDisconnect,
@@ -3992,6 +4049,15 @@ continuous_sensor_loop()
         );
       }
       this._controllerStartWaiters.clear();
+      this._controllerCommandGeneration++;
+      this._controllerStopping = false;
+      this._runningControllerSlot = null;
+      this._controllerCommandQueue = Promise.resolve();
+      if (this._controllerStopWaiter) {
+        clearTimeout(this._controllerStopWaiter.timeout);
+        this._controllerStopWaiter.reject(this._notConnectedError());
+        this._controllerStopWaiter = null;
+      }
       for (const waiter of this._infoResponseWaiters || []) {
         waiter.reject?.(
           new Error(
@@ -4069,9 +4135,303 @@ continuous_sensor_loop()
 
     stopAll() {
       if (!this.isConnected()) {
-        return Promise.reject(this._notConnectedError());
+        const error = this._notConnectedError();
+        this._recordCommunicationError(error);
+        this._diagnostics.lastStopAttempt = {
+          startedAt: Date.now(),
+          finishedAt: Date.now(),
+          outcome: "failure",
+          error: error.message,
+          controllerStop: { status: "not-sent" },
+          programFlowStop: { status: "not-sent" },
+        };
+        return Promise.reject(error);
       }
-      return this._sendControllerCommand("controller.stop_all");
+      const stopLink = this._link;
+      const isStopLinkActive = () =>
+        this._link === stopLink && Boolean(stopLink?.isConnected());
+      if (this._controllerStopPromise) return this._controllerStopPromise;
+      if (
+        !this._controllerReady &&
+        !this._runningControllerSlot &&
+        this._diagnostics.controllerStatus === "stopped"
+      ) {
+        return Promise.resolve({ stopped: true, alreadyStopped: true });
+      }
+
+      const attempt = this._diagnostics.controllerInstallAttempt;
+      const attemptCanIdentifySlot = [
+        "in-progress",
+        "not-verified",
+        "ready",
+      ].includes(attempt?.outcome);
+      const slot =
+        this._runningControllerSlot ??
+        (attemptCanIdentifySlot ? attempt.slot : null) ??
+        this._diagnostics.lastSuccessfulControllerStage?.slot ??
+        null;
+      const stopAttempt = {
+        startedAt: Date.now(),
+        finishedAt: null,
+        outcome: "in-progress",
+        slot,
+        controllerStop: { status: "pending" },
+        programFlowStop: {
+          status: slot === null ? "not-sent-no-known-slot" : "pending",
+        },
+        programFlowStopRequestSentAt: null,
+        programFlowStoppedAt: null,
+      };
+      this._diagnostics.lastStopAttempt = stopAttempt;
+      this._controllerStopping = true;
+      this._controllerCommandGeneration++;
+      this._controllerCommandQueue = Promise.resolve();
+      this._controllerReady = false;
+      this._diagnostics.controllerStatus = "stopping";
+      if (this._controllerHeartbeatTimer !== null) {
+        clearInterval(this._controllerHeartbeatTimer);
+        this._controllerHeartbeatTimer = null;
+      }
+      this._recordDiagnosticEvent("controller-stop-started", { slot });
+
+      const cancellation = this._controllerCommandCancelledError();
+      for (const [requestId, pending] of this._pendingControllerCommands) {
+        this._pendingControllerCommands.delete(requestId);
+        clearTimeout(pending.timeout);
+        pending.reject(cancellation);
+      }
+      for (const [responseType, pending] of this._pendingProtocolResponses) {
+        if (responseType === SPIKE3.PROGRAM_FLOW_RESPONSE) continue;
+        this._pendingProtocolResponses.delete(responseType);
+        clearTimeout(pending.timeout);
+        pending.reject(cancellation);
+      }
+      for (const waiter of this._infoResponseWaiters || []) {
+        waiter.reject?.(cancellation);
+      }
+      this._infoResponseWaiters = [];
+      for (const waiter of this._controllerStartWaiters) {
+        waiter.reject(cancellation);
+      }
+      this._controllerStartWaiters.clear();
+      if (attempt?.outcome === "in-progress") {
+        attempt.outcome = "cancelled-by-stop";
+        attempt.finishedAt = Date.now();
+        attempt.stage = "cancelled-by-stop";
+        attempt.updatedAt = attempt.finishedAt;
+        attempt.error = {
+          message: cancellation.message,
+          code: cancellation.code,
+        };
+      }
+
+      const stopHardware = this._sendControllerCommand(
+        "controller.stop_all",
+        {},
+        true,
+        { priority: true, timeoutMs: 1500 }
+      ).then(
+        (result) => {
+          stopAttempt.controllerStop = {
+            status: "acknowledged",
+            responseAt: Date.now(),
+          };
+          return result;
+        },
+        (error) => {
+          stopAttempt.controllerStop = {
+            status: isStopLinkActive() ? "failed" : "not-reached",
+            error: error.message,
+          };
+          this._recordCommunicationError(error);
+          throw error;
+        }
+      );
+
+      const previousProgramFlow = this._pendingProtocolResponses.get(
+        SPIKE3.PROGRAM_FLOW_RESPONSE
+      );
+      const stopProgram = (async () => {
+        // Preserve the requested stop order. A failed or timed out hardware
+        // stop is swallowed here only so ProgramFlow stop is still attempted.
+        await stopHardware.catch(() => {});
+        // A ProgramFlow response has no request ID. If installation already
+        // has one outstanding, let that response settle before issuing stop
+        // so it cannot be mistaken for the response to the stop request.
+        if (previousProgramFlow?.promise) {
+          await previousProgramFlow.promise.catch(() => {});
+        }
+        if (!isStopLinkActive()) {
+          throw Object.assign(
+            new Error(
+              "SPIKE hub connection changed during emergency stop; the replacement connection was not sent a stop request"
+            ),
+            { code: "ERR_SPIKE_STOP_CONNECTION_CHANGED" }
+          );
+        }
+        if (slot === null) {
+          throw new Error(
+            "Cannot send ProgramFlow stop because the active controller slot is unknown"
+          );
+        }
+        stopAttempt.programFlowStopRequestSentAt = Date.now();
+        const stoppedNotification = this._waitForControllerProgramStop(
+          stopAttempt,
+          3000
+        );
+        try {
+          const response = await this._requestHubResponse(
+            this._buildProgramFlowRequest(true, slot),
+            SPIKE3.PROGRAM_FLOW_RESPONSE,
+            5000,
+            stopAttempt.programFlowStop,
+            false
+          );
+          if (!response.ok) {
+            throw new Error("Hub rejected ProgramFlowRequest(stop)");
+          }
+          if (!isStopLinkActive()) {
+            throw Object.assign(
+              new Error(
+                "SPIKE hub connection changed while waiting for the emergency stop response"
+              ),
+              { code: "ERR_SPIKE_STOP_CONNECTION_CHANGED" }
+            );
+          }
+          stopAttempt.programFlowStop.status = "acknowledged";
+          stopAttempt.programFlowStop.responseAt = Date.now();
+        } finally {
+          stopAttempt.programFlowStop.notification = await stoppedNotification;
+          if (this._controllerStopWaiter) {
+            clearTimeout(this._controllerStopWaiter.timeout);
+            this._controllerStopWaiter = null;
+          }
+        }
+        if (!stopAttempt.programFlowStoppedAt) {
+          throw new Error(
+            "ProgramFlow stop was accepted but the hub did not report the program stopped"
+          );
+        }
+      })().catch((error) => {
+        if (stopAttempt.programFlowStop.status === "pending") {
+          stopAttempt.programFlowStop.status = isStopLinkActive()
+            ? "failed"
+            : "not-reached";
+        }
+        stopAttempt.programFlowStop.error = error.message;
+        if (!isStopLinkActive()) stopAttempt.connectionChanged = true;
+        this._recordCommunicationError(error);
+        throw error;
+      });
+
+      const stopPromise = Promise.allSettled([stopHardware, stopProgram]).then(
+        (results) => {
+          stopAttempt.finishedAt = Date.now();
+          const controllerStopped = results[0].status === "fulfilled";
+          const programStopped = results[1].status === "fulfilled";
+          stopAttempt.outcome =
+            controllerStopped && programStopped
+              ? "success"
+              : stopAttempt.programFlowStoppedAt && programStopped
+                ? "partial-failure"
+                : "failure";
+          if (isStopLinkActive()) {
+            if (stopAttempt.programFlowStoppedAt) {
+              this._diagnostics.controllerStatus =
+                controllerStopped && programStopped
+                  ? "stopped"
+                  : "stop-partial";
+            } else {
+              this._diagnostics.controllerStatus = "stop-unconfirmed";
+            }
+            this._controllerReady = false;
+            this._controllerVersion = null;
+            if (this._controllerHeartbeatTimer !== null) {
+              clearInterval(this._controllerHeartbeatTimer);
+              this._controllerHeartbeatTimer = null;
+            }
+          } else {
+            stopAttempt.connectionChanged = true;
+          }
+          this._recordDiagnosticEvent("controller-stop-finished", {
+            outcome: stopAttempt.outcome,
+            slot,
+            connectionChanged: Boolean(stopAttempt.connectionChanged),
+          });
+          if (stopAttempt.outcome !== "success") {
+            const failures = results
+              .filter((result) => result.status === "rejected")
+              .map((result) => result.reason?.message || String(result.reason));
+            const error = new Error(
+              `SPIKE stop was not fully confirmed: ${failures.join("; ") || "stop notification missing"}`
+            );
+            error.code = "ERR_SPIKE_STOP_NOT_CONFIRMED";
+            this._recordCommunicationError(error);
+            throw error;
+          }
+          return { stopped: true, slot };
+        }
+      );
+      this._controllerStopPromise = stopPromise.finally(() => {
+        this._controllerStopPromise = null;
+      });
+      return this._controllerStopPromise;
+    }
+
+    _controllerCommandCancelledError() {
+      return Object.assign(
+        new Error("Scratch stopped the pending SPIKE controller command"),
+        { code: "ERR_CONTROLLER_COMMAND_CANCELLED_BY_STOP" }
+      );
+    }
+
+    _assertControllerGeneration(generation) {
+      if (this._controllerStopping) {
+        throw this._controllerCommandCancelledError();
+      }
+      if (generation !== this._controllerCommandGeneration) {
+        if (this.isConnected()) {
+          throw this._controllerCommandCancelledError();
+        }
+        const origin = this._diagnostics.lastDisconnect?.origin || "unknown";
+        throw Object.assign(
+          new Error(
+            t(
+              "hubDisconnectedBeforeControllerStart",
+              t(`diag.disconnectOrigin.${origin}`)
+            )
+          ),
+          {
+            code: "ERR_HUB_DISCONNECTED_BEFORE_CONTROLLER_START",
+            disconnectOrigin: origin,
+          }
+        );
+      }
+    }
+
+    _waitForControllerProgramStop(stopAttempt, timeoutMs) {
+      if (stopAttempt.programFlowStoppedAt) {
+        return Promise.resolve(stopAttempt.programFlowStoppedAt);
+      }
+      return new Promise((resolve) => {
+        const waiter = {
+          resolve: (timestamp) => {
+            clearTimeout(waiter.timeout);
+            resolve(timestamp);
+          },
+          reject: () => {
+            clearTimeout(waiter.timeout);
+            resolve(null);
+          },
+          timeout: setTimeout(() => {
+            if (this._controllerStopWaiter === waiter) {
+              this._controllerStopWaiter = null;
+            }
+            resolve(null);
+          }, timeoutMs),
+        };
+        this._controllerStopWaiter = waiter;
+      });
     }
 
     stopSound() {
@@ -4229,7 +4589,7 @@ continuous_sensor_loop()
       return error;
     }
 
-    _sendTunnelPayload(payload) {
+    _sendTunnelPayload(payload, useLimiter = true, beforeSend = null) {
       if (!this.isConnected()) return Promise.reject(this._notConnectedError());
       const bytes = new TextEncoder().encode(payload);
       if (bytes.length > 0xffff) {
@@ -4252,19 +4612,44 @@ continuous_sensor_loop()
           )
         );
       }
-      return this._send(message, true);
+      return this._send(message, useLimiter, null, beforeSend);
     }
 
     _enqueueControllerCommand(commandName, fields, allowNotReady = false) {
-      const run = () =>
-        this._sendControllerCommand(commandName, fields, allowNotReady);
+      const generation = this._controllerCommandGeneration;
+      const run = () => {
+        if (
+          this._controllerStopping ||
+          generation !== this._controllerCommandGeneration
+        ) {
+          return Promise.reject(this._controllerCommandCancelledError());
+        }
+        return this._sendControllerCommand(commandName, fields, allowNotReady, {
+          generation,
+        });
+      };
       const pending = this._controllerCommandQueue.then(run, run);
       this._controllerCommandQueue = pending.catch(() => {});
       return pending;
     }
 
-    _sendControllerCommand(commandName, fields = {}, allowNotReady = false) {
+    _sendControllerCommand(
+      commandName,
+      fields = {},
+      allowNotReady = false,
+      options = {}
+    ) {
+      const priority = Boolean(options.priority);
+      const generation =
+        options.generation ?? this._controllerCommandGeneration;
       if (!this.isConnected()) return Promise.reject(this._notConnectedError());
+      if (
+        !priority &&
+        (this._controllerStopping ||
+          generation !== this._controllerCommandGeneration)
+      ) {
+        return Promise.reject(this._controllerCommandCancelledError());
+      }
       if (!allowNotReady && !this._controllerReady) {
         const error = new Error(t("controllerNotReady"));
         error.code = "ERR_CONTROLLER_NOT_READY";
@@ -4287,20 +4672,33 @@ continuous_sensor_loop()
             this._pendingControllerCommands.delete(requestId);
             const error = new Error(t("controllerTimeout"));
             error.code = "ERR_CONTROLLER_TIMEOUT";
-            this._controllerReady = false;
-            this._diagnostics.controllerStatus = "timeout";
+            if (!priority) {
+              this._controllerReady = false;
+              this._diagnostics.controllerStatus = "timeout";
+            }
             this._recordCommunicationError(error);
             reject(error);
           },
-          commandName === "matrix.text" ? 60000 : 4000
+          options.timeoutMs ?? (commandName === "matrix.text" ? 60000 : 4000)
         );
         this._pendingControllerCommands.set(requestId, {
           resolve,
           reject,
           timeout,
           commandName,
+          generation,
+          priority,
         });
-        this._sendTunnelPayload(JSON.stringify(command)).catch((error) => {
+        const canStillSend = priority
+          ? null
+          : () =>
+              !this._controllerStopping &&
+              generation === this._controllerCommandGeneration;
+        this._sendTunnelPayload(
+          JSON.stringify(command),
+          !priority,
+          canStillSend
+        ).catch((error) => {
           const pending = this._pendingControllerCommands.get(requestId);
           if (!pending) return;
           this._pendingControllerCommands.delete(requestId);
@@ -4463,11 +4861,23 @@ continuous_sensor_loop()
       if (this._controllerHeartbeatTimer !== null) {
         clearInterval(this._controllerHeartbeatTimer);
       }
+      const generation = this._controllerCommandGeneration;
       this._controllerHeartbeatTimer = setInterval(() => {
-        if (!this.isConnected() || !this._controllerReady) return;
-        this._sendTunnelPayload(JSON.stringify({ c: "p" })).catch((error) =>
-          this._recordTransportError(error)
-        );
+        if (
+          !this.isConnected() ||
+          !this._controllerReady ||
+          this._controllerStopping
+        ) {
+          return;
+        }
+        this._sendTunnelPayload(
+          JSON.stringify({ c: "p" }),
+          true,
+          () =>
+            !this._controllerStopping &&
+            this._controllerReady &&
+            generation === this._controllerCommandGeneration
+        ).catch((error) => this._recordTransportError(error));
       }, 1000);
     }
 
@@ -4475,7 +4885,8 @@ continuous_sensor_loop()
       message,
       responseType,
       timeoutMs = 5000,
-      diagnosticRecord = null
+      diagnosticRecord = null,
+      useLimiter = true
     ) {
       if (!this.isConnected()) return Promise.reject(this._notConnectedError());
       if (this._pendingProtocolResponses.has(responseType)) {
@@ -4483,7 +4894,13 @@ continuous_sensor_loop()
           this._unsupportedError("another request for this response is pending")
         );
       }
-      return new Promise((resolve, reject) => {
+      let resolveRequest;
+      let rejectRequest;
+      const requestPromise = new Promise((resolve, reject) => {
+        resolveRequest = resolve;
+        rejectRequest = reject;
+      });
+      {
         const timeout = setTimeout(() => {
           const pending = this._pendingProtocolResponses.get(responseType);
           if (!pending) return;
@@ -4493,22 +4910,24 @@ continuous_sensor_loop()
           );
           error.code = "ERR_HUB_PROTOCOL_TIMEOUT";
           this._recordCommunicationError(error);
-          reject(error);
+          rejectRequest(error);
         }, timeoutMs);
         this._pendingProtocolResponses.set(responseType, {
-          resolve,
-          reject,
+          resolve: resolveRequest,
+          reject: rejectRequest,
           timeout,
           diagnosticRecord,
+          promise: requestPromise,
         });
-        this._send(message, true, diagnosticRecord).catch((error) => {
+        this._send(message, useLimiter, diagnosticRecord).catch((error) => {
           const pending = this._pendingProtocolResponses.get(responseType);
           if (!pending) return;
           this._pendingProtocolResponses.delete(responseType);
           clearTimeout(pending.timeout);
-          reject(error);
+          rejectRequest(error);
         });
-      });
+      }
+      return requestPromise;
     }
 
     _handleProtocolResponse(data, wireFrame = null) {
@@ -4793,6 +5212,9 @@ continuous_sensor_loop()
     }
 
     async installController(slot) {
+      if (this._controllerStopPromise) {
+        await this._controllerStopPromise.catch(() => {});
+      }
       if (!this.isConnected()) throw this._notConnectedError();
       if (!Number.isInteger(slot) || slot < 0 || slot > 19) {
         throw this._unsupportedError(
@@ -4804,6 +5226,11 @@ continuous_sensor_loop()
           "controller installation requires BLE GATT"
         );
       }
+      this._controllerCommandGeneration++;
+      const generation = this._controllerCommandGeneration;
+      this._controllerStopping = false;
+      this._controllerCommandQueue = Promise.resolve();
+      this._runningControllerSlot = null;
       this._diagnostics.controllerStatus = "installing";
       this._controllerReady = false;
       const attempt = {
@@ -4821,13 +5248,17 @@ continuous_sensor_loop()
       this._diagnostics.controllerInstallAttempt = attempt;
       this._recordControllerInstallStage("waiting-info-response");
       try {
+        this._assertControllerGeneration(generation);
         await this._waitForInfoResponse();
+        this._assertControllerGeneration(generation);
         this._recordControllerInstallStage("info-response-received", true);
         const program = new TextEncoder().encode(SPIKE3_CONTROLLER_SOURCE);
+        this._assertControllerGeneration(generation);
         const clear = await this._requestHubResponse(
           this._buildClearSlotRequest(slot),
           SPIKE3.CLEAR_SLOT_RESPONSE
         );
+        this._assertControllerGeneration(generation);
         // The official example permits a non-acknowledged clear because the
         // slot may already be empty. The user has confirmed this exact slot.
         void clear;
@@ -4847,6 +5278,7 @@ continuous_sensor_loop()
           upload,
           SPIKE3.START_FILE_UPLOAD_RESPONSE
         );
+        this._assertControllerGeneration(generation);
         if (!startUpload.ok)
           throw new Error("Hub rejected StartFileUploadRequest");
         this._recordControllerInstallStage("file-upload-accepted", true);
@@ -4857,6 +5289,7 @@ continuous_sensor_loop()
           offset < program.length;
           offset += this._maxChunkSize
         ) {
+          this._assertControllerGeneration(generation);
           const chunk = program.slice(offset, offset + this._maxChunkSize);
           runningCrc = this._crc32(chunk, runningCrc);
           const request = this._buildTransferChunkRequest(runningCrc, chunk);
@@ -4864,6 +5297,7 @@ continuous_sensor_loop()
             request,
             SPIKE3.TRANSFER_CHUNK_RESPONSE
           );
+          this._assertControllerGeneration(generation);
           if (!response.ok) {
             throw new Error(`Hub rejected program chunk at byte ${offset}`);
           }
@@ -4883,10 +5317,13 @@ continuous_sensor_loop()
           totalBytes: program.length,
         });
 
+        this._assertControllerGeneration(generation);
+        this._runningControllerSlot = slot;
         const started = await this._requestHubResponse(
           this._buildProgramFlowRequest(false, slot),
           SPIKE3.PROGRAM_FLOW_RESPONSE
         );
+        this._assertControllerGeneration(generation);
         if (!started.ok) throw new Error("Hub rejected ProgramFlowRequest");
         this._diagnostics.controllerStatus = "starting";
         if (attempt.lastSuccessfulStage !== "program-flow-response-accepted") {
@@ -4899,6 +5336,7 @@ continuous_sensor_loop()
           attempt,
           SPIKE3.CONTROLLER_START_NOTIFICATION_TIMEOUT_MS
         );
+        this._assertControllerGeneration(generation);
         if (
           attempt.outcome === "startup-error" ||
           attempt.programFlowStoppedAt
@@ -4922,7 +5360,9 @@ continuous_sensor_loop()
             }
           );
         }
-        return await this._handshakeStartedController(attempt);
+        const handshake = await this._handshakeStartedController(attempt);
+        this._assertControllerGeneration(generation);
+        return handshake;
       } catch (error) {
         this._controllerReady = false;
         if (attempt.outcome === "in-progress") {
@@ -4934,7 +5374,13 @@ continuous_sensor_loop()
             stack: error?.stack || "",
           };
         }
-        if (error?.code === "ERR_CONTROLLER_START_NOTIFICATION_TIMEOUT") {
+        if (error?.code === "ERR_CONTROLLER_COMMAND_CANCELLED_BY_STOP") {
+          if (this._controllerStopping) {
+            this._diagnostics.controllerStatus = "stopping";
+          }
+        } else if (
+          error?.code === "ERR_CONTROLLER_START_NOTIFICATION_TIMEOUT"
+        ) {
           this._diagnostics.controllerStatus = "not-verified";
         } else if (error?.code === "ERR_CONTROLLER_STOPPED_BEFORE_READY") {
           this._diagnostics.controllerStatus = "startup-error";
@@ -5525,13 +5971,21 @@ continuous_sensor_loop()
       return this.sendPythonCommand(pythonCode);
     }
 
-    _send(message, useLimiter = false, diagnosticRecord = null) {
+    _send(
+      message,
+      useLimiter = false,
+      diagnosticRecord = null,
+      beforeSend = null
+    ) {
       if (!this.isConnected()) return Promise.reject(this._notConnectedError());
+      if (beforeSend && !beforeSend()) {
+        return Promise.reject(this._controllerCommandCancelledError());
+      }
       if (useLimiter) {
         return whenSlot(
           this._rateLimiter,
           () => this.isConnected(),
-          () => this._send(message, false, diagnosticRecord)
+          () => this._send(message, false, diagnosticRecord, beforeSend)
         );
       }
       const packed = COBS.pack(message);
@@ -5964,6 +6418,35 @@ continuous_sensor_loop()
         }
       }
 
+      const stopAttempt = this._diagnostics.lastStopAttempt;
+      if (
+        action === 1 &&
+        this._controllerStopping &&
+        stopAttempt?.programFlowStopRequestSentAt !== null &&
+        stopAttempt?.programFlowStopRequestSentAt !== undefined &&
+        timestamp >= stopAttempt.programFlowStopRequestSentAt
+      ) {
+        stopAttempt.programFlowStoppedAt = timestamp;
+        stopAttempt.programFlowStop.notificationAt = timestamp;
+        stopAttempt.programFlowStop.status =
+          stopAttempt.programFlowStop.status === "acknowledged"
+            ? "acknowledged-and-notified"
+            : "stop-notified";
+        this._controllerReady = false;
+        this._controllerVersion = null;
+        this._runningControllerSlot = null;
+        this._diagnostics.controllerStatus = "stopped";
+        if (this._controllerHeartbeatTimer !== null) {
+          clearInterval(this._controllerHeartbeatTimer);
+          this._controllerHeartbeatTimer = null;
+        }
+        this._controllerStopWaiter?.resolve(timestamp);
+        this._recordDiagnosticEvent("controller-program-stopped", {
+          slot: stopAttempt.slot,
+        });
+        return;
+      }
+
       const attempt = this._diagnostics.controllerInstallAttempt;
       if (
         attempt?.outcome === "in-progress" &&
@@ -5972,6 +6455,7 @@ continuous_sensor_loop()
       ) {
         if (action === 0) {
           attempt.programFlowStartedAt = timestamp;
+          this._runningControllerSlot = attempt.slot;
           const waiter = [...this._controllerStartWaiters].find(
             (candidate) => candidate.attempt === attempt
           );
@@ -6013,6 +6497,7 @@ continuous_sensor_loop()
       }
       if (action === 1 && this._controllerReady) {
         this._controllerReady = false;
+        this._runningControllerSlot = null;
         this._diagnostics.controllerStatus = "stopped";
         if (this._controllerHeartbeatTimer !== null) {
           clearInterval(this._controllerHeartbeatTimer);
@@ -6996,6 +7481,7 @@ continuous_sensor_loop()
           stack: error.stack,
         });
         console.error(error);
+        throw error;
       }
     }
 
@@ -9820,16 +10306,19 @@ continuous_sensor_loop()
     // TRANSPILATION BLOCKS
     // ============================================================================
 
+    _rejectOperation(error) {
+      this._peripheral.active?._recordCommunicationError?.(error);
+      return Promise.reject(error);
+    }
+
     transpileProject() {
-      this._transpiler.transpileProject();
-      alert(t("codeGenerated"));
+      return this._transpiler.transpileProject();
     }
 
     showCode() {
       const code = this._transpiler.getCode();
       if (!code) {
-        alert(t("noCodeGenerated"));
-        return;
+        return this._rejectOperation(new Error(t("noCodeGenerated")));
       }
 
       const modal = document.createElement("div");
@@ -9874,8 +10363,7 @@ continuous_sensor_loop()
     downloadCode() {
       const code = this._transpiler.getCode();
       if (!code) {
-        alert(t("generateFirst"));
-        return;
+        return this._rejectOperation(new Error(t("generateFirst")));
       }
 
       const blob = new Blob([code], { type: "text/plain" });
@@ -9887,10 +10375,6 @@ continuous_sensor_loop()
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-
-      alert(
-        t("downloaded") + " spike_program.py\n\n" + t("uploadInstructions")
-      );
     }
 
     getTranspiledCode() {
@@ -9900,13 +10384,11 @@ continuous_sensor_loop()
     uploadScriptToHub(args) {
       const code = this._transpiler.getCode();
       if (!code) {
-        alert(t("noCodeGenerated"));
-        return;
+        return this._rejectOperation(new Error(t("noCodeGenerated")));
       }
 
       if (!this._peripheral.isConnected()) {
-        alert(t("notConnected"));
-        return;
+        return this._rejectOperation(new Error(t("notConnected")));
       }
 
       const filename = Cast.toString(args.NAME).replace(
@@ -9956,18 +10438,16 @@ continuous_sensor_loop()
       }
 
       return promise
-        .then(() => {
-          alert(t("uploadScriptSuccess", filename));
-        })
+        .then(() => undefined)
         .catch((error) => {
-          alert(t("uploadScriptFailed", error.message));
+          this._peripheral.active?._recordCommunicationError?.(error);
+          throw error;
         });
     }
 
     runScriptOnHub(args) {
       if (!this._peripheral.isConnected()) {
-        alert(t("notConnected"));
-        return;
+        return this._rejectOperation(new Error(t("notConnected")));
       }
 
       const filename = Cast.toString(args.NAME).replace(
@@ -9986,14 +10466,14 @@ continuous_sensor_loop()
           console.log(`✓ Script ${filename} started`);
         })
         .catch((error) => {
-          alert(t("runScriptFailed", error.message));
+          this._peripheral.active?._recordCommunicationError?.(error);
+          throw error;
         });
     }
 
     renameScriptOnHub(args) {
       if (!this._peripheral.isConnected()) {
-        alert(t("notConnected"));
-        return;
+        return this._rejectOperation(new Error(t("notConnected")));
       }
 
       const oldName = Cast.toString(args.OLD).replace(/[^a-zA-Z0-9._-]/g, "_");
@@ -10006,17 +10486,17 @@ continuous_sensor_loop()
       return this._peripheral
         .sendPythonCommand(renameCommand)
         .then(() => {
-          alert(t("renameScriptSuccess", oldName, newName));
+          return undefined;
         })
         .catch((error) => {
-          alert(t("renameScriptFailed", error.message));
+          this._peripheral.active?._recordCommunicationError?.(error);
+          throw error;
         });
     }
 
     deleteScriptOnHub(args) {
       if (!this._peripheral.isConnected()) {
-        alert(t("notConnected"));
-        return;
+        return this._rejectOperation(new Error(t("notConnected")));
       }
 
       const filename = Cast.toString(args.NAME).replace(
@@ -10038,17 +10518,18 @@ continuous_sensor_loop()
         return this._peripheral
           .sendPythonCommand(deleteCommand)
           .then(() => {
-            alert(t("deleteScriptSuccess", filename));
+            return undefined;
           })
           .catch((error) => {
-            alert(t("deleteScriptFailed", error.message));
+            this._peripheral.active?._recordCommunicationError?.(error);
+            throw error;
           });
       });
     }
 
     listScriptsOnHub() {
       if (!this._peripheral.isConnected()) {
-        return t("notConnected");
+        return this._rejectOperation(new Error(t("notConnected")));
       }
 
       // Request list of .py files
@@ -10062,16 +10543,21 @@ continuous_sensor_loop()
 
     stopRunningScript() {
       if (!this._peripheral.isConnected()) {
-        alert(t("notConnected"));
-        return;
+        return this._rejectOperation(new Error(t("notConnected")));
       }
 
       console.log("⏹️ Stopping script...");
 
       // Send Ctrl+C to interrupt
-      return this._peripheral.sendRaw("\x03").then(() => {
-        console.log("✓ Stop signal sent");
-      });
+      return this._peripheral
+        .sendRaw("\x03")
+        .then(() => {
+          console.log("✓ Stop signal sent");
+        })
+        .catch((error) => {
+          this._peripheral.active?._recordCommunicationError?.(error);
+          throw error;
+        });
     }
 
     // ============================================================================
@@ -11059,22 +11545,13 @@ continuous_sensor_loop()
       const slot = Cast.toNumber(args.SLOT);
       const probe = SPIKE_STARTUP_PROBES[probeId];
       if (!probe || !Number.isInteger(slot) || slot < 0 || slot > 19) {
-        const message = t("startupProbeInvalid");
-        const error = new Error(message);
-        alert(t("startupProbeInvalid"));
-        return Promise.reject(error);
+        return this._rejectOperation(new Error(t("startupProbeInvalid")));
       }
       if (!this._peripheral.isConnected()) {
-        const message = t("notConnected");
-        const error = new Error(message);
-        alert(t("notConnected"));
-        return Promise.reject(error);
+        return this._rejectOperation(new Error(t("notConnected")));
       }
       if (this._peripheral.protocol !== "spike3") {
-        const message = t("controllerUnsupported");
-        const error = new Error(message);
-        alert(t("controllerUnsupported"));
-        return Promise.reject(error);
+        return this._rejectOperation(new Error(t("controllerUnsupported")));
       }
 
       return askYesNo(
@@ -11090,17 +11567,10 @@ continuous_sensor_loop()
         return this._peripheral.active
           .runStartupProbe(probeId, slot)
           .then((result) => {
-            alert(
-              t(
-                "startupProbeFinished",
-                probeId,
-                t(`diag.startupProbeOutcome.${result.outcome}`)
-              )
-            );
             return result;
           })
           .catch((error) => {
-            alert(t("startupProbeExecutionFailed", error.message));
+            this._peripheral.active?._recordCommunicationError?.(error);
             throw error;
           });
       });
@@ -11117,61 +11587,40 @@ continuous_sensor_loop()
 
     installHubController(args) {
       if (!this._peripheral.isConnected()) {
-        alert(t("notConnected"));
-        return Promise.reject(new Error(t("notConnected")));
+        return this._rejectOperation(new Error(t("notConnected")));
       }
       if (this._peripheral.protocol !== "spike3") {
         const error = new Error(t("controllerUnsupported"));
         error.code = "ERR_UNSUPPORTED_HUB_COMMAND";
-        alert(t("operationFailed", error.message));
-        return Promise.reject(error);
+        return this._rejectOperation(error);
       }
       const slot = Math.trunc(Cast.toNumber(args.SLOT));
       if (slot < 0 || slot > 19) {
         const error = new Error(t("controllerInvalidSlot"));
-        alert(t("operationFailed", error.message));
-        return Promise.reject(error);
+        error.code = "ERR_CONTROLLER_INVALID_SLOT";
+        return this._rejectOperation(error);
       }
 
-      // Program slots cannot be inspected through the published BLE protocol.
-      // This confirmation is required every time before ClearSlotRequest is sent.
-      return askYesNo(t("controllerConfirmOverwrite", slot)).then((yes) => {
-        if (!yes) return;
-        return this._peripheral.active
-          .installController(slot)
-          .then((result) => {
-            alert(t("controllerReady"));
-            return result;
-          })
-          .catch((error) => {
-            alert(t("controllerFailed", error.message));
-            throw error;
-          });
+      // Resolves only after the controller's hello response verifies readiness.
+      return this._peripheral.active.installController(slot).catch((error) => {
+        this._peripheral.active?._recordCommunicationError?.(error);
+        throw error;
       });
     }
 
     checkHubController() {
       if (!this._peripheral.isConnected()) {
-        const error = new Error(t("notConnected"));
-        alert(t("operationFailed", error.message));
-        return Promise.reject(error);
+        return this._rejectOperation(new Error(t("notConnected")));
       }
       if (this._peripheral.protocol !== "spike3") {
         const error = new Error(t("controllerUnsupported"));
         error.code = "ERR_UNSUPPORTED_HUB_COMMAND";
-        alert(t("operationFailed", error.message));
-        return Promise.reject(error);
+        return this._rejectOperation(error);
       }
-      return this._peripheral.active
-        .probeController()
-        .then((result) => {
-          alert(t("controllerReady"));
-          return result;
-        })
-        .catch((error) => {
-          alert(t("controllerFailed", error.message));
-          throw error;
-        });
+      return this._peripheral.active.probeController().catch((error) => {
+        this._peripheral.active?._recordCommunicationError?.(error);
+        throw error;
+      });
     }
 
     connectHub() {
@@ -11456,6 +11905,7 @@ continuous_sensor_loop()
       const localizeStage = (stage) =>
         stage ? t(`diag.controllerStage.${stage}`) : unavailable;
       const attempt = diagnostics.controllerInstallAttempt;
+      const stopAttempt = diagnostics.lastStopAttempt;
       const lastWrite = diagnostics.lastWrite;
       const lastDisconnect = diagnostics.lastDisconnect;
       const recentEvents = (diagnostics.recentEvents || [])
@@ -11484,6 +11934,7 @@ continuous_sensor_loop()
         `${t("diag.controllerVersion")}: ${diagnostics.controllerVersion || diagnostics.lastKnownControllerVersion || unavailable}`,
         `${t("diag.lastControllerStage")}: ${localizeStage(attempt?.stage)}${attempt?.outcome ? ` (${t(`diag.controllerOutcome.${attempt.outcome}`)})` : ""}`,
         `${t("diag.lastSuccessfulControllerStage")}: ${localizeStage(diagnostics.lastSuccessfulControllerStage?.stage)}`,
+        `${t("diag.lastStopAttempt")}: ${stopAttempt ? `${t(`diag.stopOutcome.${stopAttempt.outcome}`)} (slot ${stopAttempt.slot ?? unavailable})` : unavailable}`,
         `${t("diag.lastDisconnectOrigin")}: ${lastDisconnect ? `${t(`diag.disconnectOrigin.${lastDisconnect.origin}`)} (${lastDisconnect.origin}) — ${formatTimestamp(lastDisconnect.timestamp)}` : unavailable}`,
         `${t("diag.lastWrite")}: ${lastWrite ? `${lastWrite.messageName} (0x${lastWrite.messageType.toString(16)}), ${t(`diag.writeStatus.${lastWrite.status}`)}` : unavailable}`,
         `${t("diag.imuCount")}: ${diagnostics.imuNotificationCount ?? notApplicable}`,
