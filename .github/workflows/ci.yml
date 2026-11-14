@@ -20,6 +20,11 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Install
         run: npm ci --no-audit --no-fund
 
@@ -38,10 +43,20 @@ jobs:
       # Movement blocks of the unified SPIKE extension, against a stub hub.
       - name: SPIKE movement tests
         run: node development/test-spikeprime-movement.js
+      # Every SPIKE opcode is exercised through the existing Scratch-to-Python
+      # generator, and generated Python is syntax-parsed without a physical hub.
+      - name: SPIKE Python code generation coverage
+        run: node development/test-spikeprime-codegen.js
+      # Diagnostics UI copy/download behavior, using a fake DOM and no hub.
+      - name: SPIKE diagnostics dialog tests
+        run: node development/test-spikeprime-diagnostics-dialog.js
       # SPIKE 3.x framing, Web Bluetooth notifications and diagnostics against
       # an in-memory fake device; no physical hub is accessed.
       - name: SPIKE Web Bluetooth transport tests
         run: node development/test-spikeprime-transport.js
+      # Executes the embedded Hub OS controller against stubbed APIs; no hub is accessed.
+      - name: SPIKE controller fake-hub tests
+        run: python development/test-spikeprime-hub-controller.py
       - name: Native array reference kinds
         run: node --test development/test-array-value-kinds.js
       - name: Named array item, copy and numeric contracts

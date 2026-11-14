@@ -116,6 +116,12 @@ test("singular units are sent plural", async () => {
 test("cm and in are sent as rotations", async () => {
   const ext = loadExtension();
   const sent = captureSends(ext);
+  await ext.setMovementMotors({
+    PORT_A: "A",
+    PORT_B: "B",
+    WHEEL_CIRCUMFERENCE_CM: 17.6,
+  });
+  sent.length = 0;
   const done = ext.moveForward({
     DIRECTION: "backward",
     VALUE: 17.6,
@@ -281,29 +287,76 @@ test("movement commands define motors on the hub when it is missing", async () =
   }
 });
 
-test("the pair survives a route switch and both fields agree", async () => {
+test("the selected movement pair survives switching to the SPIKE 3 route", async () => {
   const ext = loadExtension();
   const sent = captureSends(ext);
   const router = ext._peripheral;
   await ext.setMovementMotors({ PORT_A: "E", PORT_B: "F" });
   assert.deepEqual([...router.movementMotors], ["E", "F"]);
   assert.deepEqual([...router._movementMotors], ["E", "F"]);
-  // AUTO settling on the SPIKE 3 route after the pair was set.
+  // The selected pair is retained when switching protocols, and movement
+  // blocks use the controller command path rather than legacy Python.
   router._activeProtocol = "spike3";
+  router._spike3._sensors.motorPositions.E = { motorType: 0x31 };
+  router._spike3._sensors.motorPositions.F = { motorType: 0x31 };
+  const commands = [];
+  router.sendCommand = (method, params) => {
+    commands.push({ method, params });
+    return Promise.resolve();
+  };
+  await ext.setMovementMotors({ PORT_A: "E", PORT_B: "F" });
+  await ext.steer({ STEERING: 25 });
+  await ext.startTank({ LEFT_SPEED: 30, RIGHT_SPEED: -30 });
+  await ext.stopMovement();
   assert.deepEqual([...router.movementMotors], ["E", "F"]);
   assert.deepEqual([...router._movementMotors], ["E", "F"]);
-  sent.length = 0;
-  await ext.motorPairMove({ STEERING: 0, SPEED: 50 });
-  assert.match(sent[0], /hub\.port\.E\.motor.*hub\.port\.F\.motor/);
+  assert.deepEqual(
+    commands.map(({ method }) => method),
+    [
+      "scratch.motor_pair_configure",
+      "scratch.motor_pair_move",
+      "scratch.motor_pair_move_tank",
+      "scratch.motor_pair_stop",
+    ]
+  );
+  assert.equal(sent.length, 1, "only the initial legacy pair setup was sent");
+});
+
+test("SPIKE 3 distance movement requires wheel circumference and converts it", async () => {
+  const ext = loadExtension();
+  const router = ext._peripheral;
+  router._activeProtocol = "spike3";
+  router._spike3._sensors.motorPositions.A = { motorType: 0x31 };
+  router._spike3._sensors.motorPositions.B = { motorType: 0x31 };
+  const commands = [];
+  router.sendCommand = (method, params) => {
+    commands.push({ method, params });
+    return Promise.resolve();
+  };
+  await assert.rejects(
+    ext.moveForward({ DIRECTION: "forward", VALUE: 10, UNIT: "cm" }),
+    /wheel circumference/
+  );
+  await ext.setMovementMotors({
+    PORT_A: "A",
+    PORT_B: "B",
+    WHEEL_CIRCUMFERENCE_CM: 20,
+  });
+  await ext.moveForward({ DIRECTION: "forward", VALUE: 10, UNIT: "cm" });
+  assert.equal(commands.at(-1).method, "scratch.motor_pair_move_degrees");
+  assert.equal(commands.at(-1).params.degrees, 180);
+  assert.equal(commands.at(-1).params.steering, 0);
+  assert.equal(commands.at(-1).params.speed, 75);
 });
 
 // The generated hub Python must be valid: run it through CPython with stub
-// spike/mindstorms modules when python3 is on the machine.
-test("the MotorPair line is valid Python (python3, when present)", async () => {
+// spike/mindstorms modules when Python is on the machine.
+test("the MotorPair line is valid Python when Python is present", async () => {
   const { spawnSync } = await import("node:child_process");
-  const probe = spawnSync("python3", ["--version"]);
+  const python = process.platform === "win32" ? "python" : "python3";
+  const probe = spawnSync(python, ["--version"]);
   if (probe.status !== 0) {
-    console.log("  (python3 not found: this check did not run)");
+    console.log(`  (${python} not found: this check did not run)`);
     return;
   }
   const ext = loadExtension();
@@ -323,9 +376,12 @@ test("the MotorPair line is valid Python (python3, when present)", async () => {
     sent[1],
     "print('pair', motors.ports)",
   ].join("\n");
-  const run = spawnSync("python3", ["-c", program], { encoding: "utf8" });
+  const run = spawnSync(python, ["-c", program], { encoding: "utf8" });
   assert.equal(run.status, 0, run.stderr);
-  assert.equal(run.stdout, "stop ('A', 'B')\npair ('C', 'D')\n");
+  assert.equal(
+    run.stdout.replace(/\r\n/g, "\n"),
+    "stop ('A', 'B')\npair ('C', 'D')\n"
+  );
 });
 
 test("a SPIKE 3 notification with a 3x3 matrix record keeps the records after it", () => {
@@ -358,14 +414,16 @@ test("a SPIKE 3 notification with a 3x3 matrix record keeps the records after it
     ...records,
   ]);
   hub._handleDeviceNotification(data);
-  assert.equal(
-    JSON.stringify(hub.portValues.F),
-    JSON.stringify({ type: "matrix3", pixels: [9, 0, 0, 0, 9, 0, 0, 0, 9] })
+  assert.equal(hub.portValues.F.type, "matrix3");
+  assert.deepEqual(
+    Array.from(hub.portValues.F.pixels),
+    [9, 0, 0, 0, 9, 0, 0, 0, 9]
   );
+  assert.equal(Number.isFinite(hub.portValues.F.receivedAt), true);
   assert.equal(hub.portValues.A.distance, 34.5);
 });
 
-test("two commands sent in the same millisecond both reach the hub, in order", async () => {
+test("SPIKE 3 rejects arbitrary Python snippets instead of sending them to TunnelMessage", async () => {
   const ext = loadExtension();
   const hub = ext._peripheral._spike3;
   const writes = [];
@@ -376,15 +434,15 @@ test("two commands sent in the same millisecond both reach the hub, in order", a
       return Promise.resolve();
     },
   };
-  // Back to back, as two blocks do when a busy browser fires two VM steps
-  // within one rate-limit interval. The second used to be dropped silently.
-  const first = hub.sendPythonCommand("motors.set_default_speed(30)");
-  const second = hub.sendPythonCommand("motors.start(0, speed=30)");
-  assert.equal(writes.length, 1, "the first goes at once");
-  await Promise.all([first, second]);
-  assert.equal(writes.length, 2, "the second is delayed, not lost");
-  const text = writes.map((w) => w.toString("latin1"));
-  assert.ok(text[0].length > 0 && text[1].length > 0);
+  await assert.rejects(
+    hub.sendPythonCommand("motors.set_default_speed(30)"),
+    /Raw Python is not executed by TunnelMessage/
+  );
+  await assert.rejects(
+    hub.sendPythonCommandRaw("motors.start(0, speed=30)"),
+    /Raw Python is not executed by TunnelMessage/
+  );
+  assert.equal(writes.length, 0, "no Python bytes are sent to the hub");
 });
 
 // SPIKE 3 device notifications read back through the blocks. The AXIS menu
@@ -401,10 +459,21 @@ test("gyro rate [yaw] reads the IMU record's z rate (and pitch y, roll x)", () =
   ext._peripheral._spike3._handleDeviceNotification(
     Uint8Array.from([0x3c, imu.length, 0, ...imu])
   );
-  assert.equal(ext.getGyroRate({ AXIS: "yaw" }), 90);
-  assert.equal(ext.getGyroRate({ AXIS: "pitch" }), -22);
-  assert.equal(ext.getGyroRate({ AXIS: "roll" }), 11);
-  assert.equal(ext.getFilteredGyroRate({ AXIS: "yaw" }), 90);
+  assert.equal(ext.getGyroRate({ AXIS: "yaw" }), 9);
+  assert.equal(ext.getGyroRate({ AXIS: "pitch" }), -2.2);
+  assert.equal(ext.getGyroRate({ AXIS: "roll" }), 1.1);
+  assert.equal(
+    ext.getFilteredGyroRate({ AXIS: "yaw" }),
+    "",
+    "filtered data is not invented from raw BLE data"
+  );
+  ext._peripheral._spike3._handleControllerSensorSnapshot({
+    gyro_filtered: [3, -4, 27],
+    acceleration_filtered: [0, 0, 1000],
+  });
+  assert.equal(ext.getFilteredGyroRate({ AXIS: "yaw" }), 2.7);
+  assert.equal(ext.getFilteredGyroRate({ AXIS: "pitch" }), -0.4);
+  assert.equal(ext.getFilteredAcceleration({ AXIS: "z" }), 1000);
 });
 
 test("raw colour channels read the colour record's red, green and blue", () => {
@@ -422,27 +491,38 @@ test("raw colour channels read the colour record's red, green and blue", () => {
   assert.equal(ext.getColorRGB({ PORT: "C", CHANNEL: "red" }), 900);
   assert.equal(ext.getColorRGB({ PORT: "C", CHANNEL: "green" }), 150);
   assert.equal(ext.getColorRGB({ PORT: "C", CHANNEL: "blue" }), 140);
-  assert.equal(ext.getColorRGB({ PORT: "D", CHANNEL: "red" }), 0);
+  assert.equal(ext.getColorRGB({ PORT: "D", CHANNEL: "red" }), "");
 });
 
 // --- "start motor at % power": a duty cycle, not a speed ---------------------
 
-test("start motor at % power sends each firmware's documented duty-cycle call", async () => {
+test("start motor at % power uses the controller on SPIKE 3 and legacy fallback on 2.x", async () => {
   const ext = loadExtension();
   const sent = captureSends(ext);
-  // SPIKE 3: motor.set_duty_cycle(port, -10000..10000).
+  const commands = [];
+  ext._peripheral.sendCommand = (method, params) => {
+    commands.push({ method, params });
+    return Promise.resolve();
+  };
   ext._peripheral._activeProtocol = "spike3";
   await ext.motorStartPower({ PORT: "B", POWER: 50 });
-  assert.deepEqual(sent, [
-    "import motor; from hub import port; motor.set_duty_cycle(port.B, 5000)",
-  ]);
-  sent.length = 0;
+  assert.equal(
+    JSON.stringify(commands),
+    JSON.stringify([
+      { method: "scratch.motor_power", params: { port: "B", power: 5000 } },
+    ])
+  );
+  commands.length = 0;
   await ext.motorStartPower({ PORT: "B", POWER: 12.34 });
-  assert.deepEqual(sent, [
-    "import motor; from hub import port; motor.set_duty_cycle(port.B, 1234)",
-  ]);
+  assert.equal(
+    JSON.stringify(commands),
+    JSON.stringify([
+      { method: "scratch.motor_power", params: { port: "B", power: 1234 } },
+    ])
+  );
   // 2.x hub module: motor.pwm(-100..100), clamped, one call per port.
   sent.length = 0;
+  ext._peripheral.sendCommand = () => Promise.reject(new Error("unsupported"));
   ext._peripheral._activeProtocol = "repl";
   await ext.motorStartPower({ PORT: "A+C", POWER: -130 });
   assert.deepEqual(sent, [
