@@ -69,6 +69,7 @@ class FakeRuntime {
   constructor() {
     this.events = [];
     this.listeners = new Map();
+    this.peripheralExtensions = {};
   }
 
   emit(event, payload) {
@@ -84,6 +85,7 @@ class FakeRuntime {
 
   registerPeripheralExtension(id, peripheral) {
     this.peripheral = { id, peripheral };
+    this.peripheralExtensions[id] = peripheral;
   }
 }
 
@@ -322,6 +324,7 @@ async function waitUntil(predicate, message, attempts = 100) {
 function setup({
   failRequestWrite = false,
   failWriteMessageType = null,
+  failBluetoothChooser = false,
   locale = "en",
   developerMode = false,
 } = {}) {
@@ -332,6 +335,11 @@ function setup({
     requests: [],
     requestDevice: (options) => {
       bluetooth.requests.push(options);
+      if (failBluetoothChooser) {
+        return Promise.reject(
+          new Error("simulated Web Bluetooth chooser failure")
+        );
+      }
       return Promise.resolve(device);
     },
   };
@@ -1527,6 +1535,40 @@ test("control center sensor snapshot exposes fresh hardware notification timesta
   assert.equal(snapshot.portSensors.F.type, "motor");
   assert.ok(Number.isFinite(snapshot.portSensors.F.receivedAt));
   assert.equal(snapshot.motorPorts.F.relativePosition, -123456);
+});
+
+test("control center API is registered on the same router used by Scratch blocks", () => {
+  const state = setup();
+  const router = state.runtime.peripheralExtensions.spikeprime;
+  const api = router.getControlCenterAPI();
+
+  assert.equal(router, state.ext._peripheral);
+  assert.equal(api, state.runtime.brickwrightSpikePrimeControl);
+  assert.equal(api.extensionId, "spikeprime");
+  assert.equal(api.hubRouterId, router.instanceId);
+  assert.equal(api.getState().hubRouterId, router.instanceId);
+  assert.equal(api.getState().runtimeRegistered, true);
+
+  api.setMode("scratchlink-ble");
+  assert.equal(router.mode, "scratchlink-ble");
+  assert.equal(api.getState().selectedConnectionMode, "scratchlink-ble");
+});
+
+test("control center reports the Web Bluetooth chooser error to the GUI", async () => {
+  const state = setup({ failBluetoothChooser: true });
+  const api =
+    state.runtime.peripheralExtensions.spikeprime.getControlCenterAPI();
+
+  await assert.rejects(
+    api.connect("web-ble"),
+    /simulated Web Bluetooth chooser failure/
+  );
+  assert.equal(state.runtime.brickwrightSpikePrimeControl, api);
+  assert.equal(state.ext._peripheral.isConnected(), false);
+  assert.equal(
+    api.getState().diagnostics.lastTransportError.message,
+    "simulated Web Bluetooth chooser failure"
+  );
 });
 
 test("reinstall stops the running controller before clearing and replacing the same slot", async () => {

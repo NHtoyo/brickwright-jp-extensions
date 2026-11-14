@@ -22,6 +22,14 @@
     throw new Error("SPIKE Prime BTC extension must run unsandboxed");
   }
 
+  // Keep the URL of the script that created this extension instance. This is
+  // useful when the gallery has loaded an older implementation with the same
+  // extension ID from a different source.
+  const SPIKE_EXTENSION_SOURCE_URL =
+    typeof document !== "undefined" && document.currentScript
+      ? document.currentScript.src
+      : "";
+
   console.log("🤖 [SPIKE] Extension loading with transpilation support...");
 
   const ArgumentType = Scratch.ArgumentType;
@@ -8301,6 +8309,10 @@ continuous_sensor_loop()
       this._extensionId = extensionId;
       this._mode = HubMode.AUTO;
       this._resolvedMode = null;
+      this._instanceId = `spikeprime-router-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2)}`;
+      this._controlCenterAPI = null;
       this._candidates = [];
       this._bridgeURL = "localhost:8081";
 
@@ -8343,6 +8355,18 @@ continuous_sensor_loop()
 
     get resolvedMode() {
       return this._resolvedMode;
+    }
+
+    get instanceId() {
+      return this._instanceId;
+    }
+
+    registerControlCenterAPI(api) {
+      this._controlCenterAPI = api;
+    }
+
+    getControlCenterAPI() {
+      return this._controlCenterAPI;
     }
 
     setBridgeURL(url) {
@@ -8492,6 +8516,7 @@ continuous_sensor_loop()
           return link.connectPeripheral().catch((error) => {
             this._spike3._recordTransportError(error);
             this._emitRequestError();
+            throw error;
           });
         }
 
@@ -10853,9 +10878,12 @@ continuous_sensor_loop()
       // The editor's SPIKE control center reads this narrow API instead of
       // reaching into the peripheral transport. It is intentionally read-only
       // except for explicit user actions (connect, install, stop, offline run).
+      this._controlCenterAPI = this._createControlCenterAPI();
+      this._peripheral.registerControlCenterAPI(this._controlCenterAPI);
       if (this.runtime) {
-        this.runtime.brickwrightSpikePrimeControl =
-          this._createControlCenterAPI();
+        // Preserve the earlier bridge for hosts that adopted it already, but
+        // the router registered with Scratch VM is the authoritative owner.
+        this.runtime.brickwrightSpikePrimeControl = this._controlCenterAPI;
       }
       console.log("🤖 [SPIKE] Extension loaded - Language:", currentLang);
     }
@@ -10897,9 +10925,15 @@ continuous_sensor_loop()
 
     _createControlCenterAPI() {
       return {
+        extensionId: "spikeprime",
+        hubRouterId: this._peripheral.instanceId,
+        sourceURL: SPIKE_EXTENSION_SOURCE_URL,
         getState: () => this.getControlCenterState(),
-        connect: () => this.connectHubFromControlCenter(),
+        connect: (mode) => this.connectHubFromControlCenter(mode),
+        connectPeripheral: (peripheralId) =>
+          this.connectPeripheralFromControlCenter(peripheralId),
         disconnect: () => this.disconnectHub(),
+        setMode: (mode) => this._peripheral.setMode(mode),
         installController: (slot) =>
           this.installControllerFromControlCenter(slot),
         stop: () => this.stopHubFromControlCenter(),
@@ -10916,6 +10950,15 @@ continuous_sensor_loop()
       const device = this._peripheral.active?._link?._device;
       return {
         available: true,
+        extensionId: "spikeprime",
+        hubRouterId: this._peripheral.instanceId,
+        runtimeRegistered: Boolean(
+          this.runtime &&
+            this.runtime.peripheralExtensions &&
+            this.runtime.peripheralExtensions.spikeprime === this._peripheral
+        ),
+        sourceURL: SPIKE_EXTENSION_SOURCE_URL,
+        selectedConnectionMode: this._peripheral.mode,
         connected,
         protocol: diagnostics.protocol,
         connectionMode:
@@ -10937,17 +10980,35 @@ continuous_sensor_loop()
       };
     }
 
-    async connectHubFromControlCenter() {
-      this._peripheral.setMode(HubMode.WEB_BLE);
+    async connectHubFromControlCenter(mode = HubMode.WEB_BLE) {
+      this._peripheral.setMode(mode);
       await this._peripheral.scan();
       if (!this._peripheral.isConnected()) {
-        throw new Error("Web Bluetooth did not connect to a SPIKE hub");
+        // Scratch Link discovery is intentionally separate from connection:
+        // the user must choose one of the discovered peripherals.
+        if (
+          this._peripheral.mode === HubMode.SCRATCH_LINK_BLE ||
+          this._peripheral.mode === HubMode.AUTO
+        ) {
+          return {
+            ...this.getControlCenterState(),
+            awaitingPeripheralSelection: true,
+          };
+        }
+        throw new Error(
+          "The selected connection route did not connect to a SPIKE hub"
+        );
       }
       if (this._peripheral.protocol !== "spike3")
         return this.getControlCenterState();
 
       const hub = this._peripheral.active;
       await hub._waitForInfoResponse();
+      await this._verifyOrStartController(hub);
+      return this.getControlCenterState();
+    }
+
+    async _verifyOrStartController(hub) {
       try {
         await hub.probeController();
       } catch (probeError) {
@@ -10974,6 +11035,36 @@ continuous_sensor_loop()
             }
           );
         }
+      }
+    }
+
+    async connectPeripheralFromControlCenter(peripheralId) {
+      if (peripheralId === null || typeof peripheralId === "undefined") {
+        throw new Error("A discovered SPIKE hub must be selected first");
+      }
+      const runtime = this.runtime;
+      this._peripheral.connect(peripheralId);
+      const startedAt = Date.now();
+      while (!this._peripheral.isConnected()) {
+        if (Date.now() - startedAt >= 15000) {
+          throw new Error(
+            "Timed out while connecting to the selected SPIKE hub"
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      if (this._peripheral.protocol === "spike3") {
+        await this._peripheral.active._waitForInfoResponse();
+        await this._verifyOrStartController(this._peripheral.active);
+      }
+      // Keep this parameter read so that accidental use of a different VM
+      // instance is visible in diagnostics during development.
+      if (
+        runtime &&
+        runtime.peripheralExtensions &&
+        runtime.peripheralExtensions.spikeprime !== this._peripheral
+      ) {
+        throw new Error("SPIKE extension router is not registered on this VM");
       }
       return this.getControlCenterState();
     }
