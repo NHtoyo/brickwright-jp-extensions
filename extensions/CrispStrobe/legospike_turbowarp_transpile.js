@@ -5774,6 +5774,7 @@ continuous_sensor_loop()
             delete next.green;
             delete next.blue;
           }
+          next.receivedAt = Date.now();
           this._recordPortEdges(port, previous, next);
           this._portValues[port] = next;
         }
@@ -8092,12 +8093,14 @@ continuous_sensor_loop()
                 power: power,
                 relativePosition: position,
                 absolutePosition: absolutePosition,
+                receivedAt: Date.now(),
               };
               this._sensors.motorPositions[port] = {
                 motorType: data[offset + 2],
                 relativePosition: position,
                 absolutePosition: absolutePosition,
                 speed: speed,
+                receivedAt: this._portValues[port].receivedAt,
               };
             }
             this._diagnostics.motorNotificationCount++;
@@ -8126,6 +8129,7 @@ continuous_sensor_loop()
                 red: red,
                 green: green,
                 blue: blue,
+                receivedAt: Date.now(),
               };
               this._recordPortEdges(port, previous, this._portValues[port]);
               this._syncReflectionPorts().catch(() => {});
@@ -8151,6 +8155,7 @@ continuous_sensor_loop()
                 // blocks that ask for millimetres explicitly.
                 distance: mm < 0 ? null : mm / 10,
                 distanceMM: mm < 0 ? null : mm,
+                receivedAt: Date.now(),
               };
             }
             offset += 4;
@@ -8169,6 +8174,7 @@ continuous_sensor_loop()
                 type: "force",
                 force: data[offset + 2],
                 pressed: data[offset + 3] === 1,
+                receivedAt: Date.now(),
               };
               this._recordPortEdges(port, previous, this._portValues[port]);
             }
@@ -8187,6 +8193,7 @@ continuous_sensor_loop()
               this._portValues[port] = {
                 type: "matrix3",
                 pixels: Array.from(data.slice(offset + 2, offset + 11)),
+                receivedAt: Date.now(),
               };
             }
             offset += 11;
@@ -10843,12 +10850,198 @@ continuous_sensor_loop()
       this._peripheral = new HubRouter(this.runtime, "spikeprime");
       this._transpiler = new SpikeTranspiler();
       this._sessionProgramSlots = new Map();
+      // The editor's SPIKE control center reads this narrow API instead of
+      // reaching into the peripheral transport. It is intentionally read-only
+      // except for explicit user actions (connect, install, stop, offline run).
+      if (this.runtime) {
+        this.runtime.brickwrightSpikePrimeControl =
+          this._createControlCenterAPI();
+      }
       console.log("🤖 [SPIKE] Extension loaded - Language:", currentLang);
     }
 
     _programSlotStorageKey() {
       const deviceId = this._peripheral.active?._link?._device?.id || "default";
       return `brickwright.spikeprime.program-slots.${deviceId}`;
+    }
+
+    _controllerSlotStorageKey() {
+      const deviceId = this._peripheral.active?._link?._device?.id || "default";
+      return `brickwright.spikeprime.controller-slot.${deviceId}`;
+    }
+
+    _readControllerSlot() {
+      try {
+        if (typeof localStorage === "undefined") return null;
+        const stored = localStorage.getItem(this._controllerSlotStorageKey());
+        if (stored === null) return null;
+        const value = Number(stored);
+        return Number.isInteger(value) && value >= 0 && value <= 19
+          ? value
+          : null;
+      } catch (error) {
+        this._peripheral.active?._recordCommunicationError?.(error);
+        return null;
+      }
+    }
+
+    _writeControllerSlot(slot) {
+      try {
+        if (typeof localStorage !== "undefined") {
+          localStorage.setItem(this._controllerSlotStorageKey(), String(slot));
+        }
+      } catch (error) {
+        this._peripheral.active?._recordCommunicationError?.(error);
+      }
+    }
+
+    _createControlCenterAPI() {
+      return {
+        getState: () => this.getControlCenterState(),
+        connect: () => this.connectHubFromControlCenter(),
+        disconnect: () => this.disconnectHub(),
+        installController: (slot) =>
+          this.installControllerFromControlCenter(slot),
+        stop: () => this.stopHubFromControlCenter(),
+        generatePython: () => this.generatePythonForControlCenter(),
+        uploadAndRun: (slot, source) =>
+          this.uploadAndRunStandalone(slot, source),
+        startSlot: (slot) => this.startStandaloneSlot(slot),
+      };
+    }
+
+    getControlCenterState() {
+      const connected = this._peripheral.isConnected();
+      const diagnostics = this._peripheral.getCommunicationDiagnostics();
+      const device = this._peripheral.active?._link?._device;
+      return {
+        available: true,
+        connected,
+        protocol: diagnostics.protocol,
+        connectionMode:
+          diagnostics.connectionMode || this._peripheral.resolvedMode,
+        deviceName: device?.name || this._peripheral.hubDescription || null,
+        firmwareVersion: diagnostics.firmwareVersion || null,
+        controllerSlot: this._readControllerSlot(),
+        controllerStatus:
+          diagnostics.controllerStatus ||
+          (connected ? "not-applicable" : "disconnected"),
+        controllerReady: Boolean(diagnostics.controllerReady),
+        controllerVersion: diagnostics.controllerVersion || null,
+        angles: diagnostics.angles || null,
+        imuReceivedAt: diagnostics.lastImuReceivedAt || null,
+        motorPorts: diagnostics.motorPorts || {},
+        portSensors: diagnostics.portSensors || {},
+        lastCommunicationError: diagnostics.lastCommunicationError || null,
+        diagnostics,
+      };
+    }
+
+    async connectHubFromControlCenter() {
+      this._peripheral.setMode(HubMode.WEB_BLE);
+      await this._peripheral.scan();
+      if (!this._peripheral.isConnected()) {
+        throw new Error("Web Bluetooth did not connect to a SPIKE hub");
+      }
+      if (this._peripheral.protocol !== "spike3")
+        return this.getControlCenterState();
+
+      const hub = this._peripheral.active;
+      await hub._waitForInfoResponse();
+      try {
+        await hub.probeController();
+      } catch (probeError) {
+        // Only auto-start a slot this browser previously verified as an
+        // installed Brickwright controller. Never guess a slot or clear it.
+        const slot = this._readControllerSlot();
+        if (slot === null || !hub.isConnected()) {
+          hub._diagnostics.controllerStatus = "not-verified";
+          hub._recordDiagnosticEvent("control-center-controller-not-verified", {
+            reason: probeError?.message || String(probeError),
+          });
+          return this.getControlCenterState();
+        }
+        try {
+          await hub.startProgramInSlot(slot);
+          await hub.probeController();
+        } catch (startError) {
+          hub._recordCommunicationError(startError);
+          hub._recordDiagnosticEvent(
+            "control-center-controller-autostart-failed",
+            {
+              slot,
+              reason: startError?.message || String(startError),
+            }
+          );
+        }
+      }
+      return this.getControlCenterState();
+    }
+
+    async installControllerFromControlCenter(slot) {
+      if (!Number.isInteger(slot) || slot < 0 || slot > 19) {
+        throw new Error("Controller slot must be from 0 to 19");
+      }
+      const result = await this.installHubController({ SLOT: slot });
+      this._writeControllerSlot(slot);
+      return result;
+    }
+
+    stopHubFromControlCenter() {
+      if (!this._peripheral.isConnected()) throw new Error(t("notConnected"));
+      return this._peripheral.stopAll();
+    }
+
+    generatePythonForControlCenter() {
+      this._transpiler.transpileProject();
+      const code = this._transpiler.getCode();
+      if (!code) throw new Error(t("noCodeGenerated"));
+      return code;
+    }
+
+    async uploadAndRunStandalone(slot, source) {
+      if (!Number.isInteger(slot) || slot < 0 || slot > 19) {
+        throw new Error("Program slot must be from 0 to 19");
+      }
+      if (slot === this._readControllerSlot()) {
+        throw new Error(
+          "The selected slot is reserved for the Brickwright controller"
+        );
+      }
+      const hub = this._peripheral.active;
+      if (this._peripheral.protocol !== "spike3" || !hub.isConnected()) {
+        throw new Error(
+          "Offline program transfer requires a connected SPIKE 3 hub"
+        );
+      }
+      if (hub._controllerReady || hub._runningControllerSlot !== null) {
+        await hub.stopAll();
+      }
+      const result = await hub.uploadProgramToSlot(source, slot);
+      const runResult = await hub.startProgramInSlot(slot);
+      return { ...result, ...runResult };
+    }
+
+    async startStandaloneSlot(slot) {
+      if (!Number.isInteger(slot) || slot < 0 || slot > 19) {
+        throw new Error("Program slot must be from 0 to 19");
+      }
+      if (slot === this._readControllerSlot()) {
+        throw new Error(
+          "The selected slot is reserved for the Brickwright controller"
+        );
+      }
+      if (
+        this._peripheral.protocol !== "spike3" ||
+        !this._peripheral.isConnected()
+      ) {
+        throw new Error("Starting a program requires a connected SPIKE 3 hub");
+      }
+      const hub = this._peripheral.active;
+      if (hub._controllerReady || hub._runningControllerSlot !== null) {
+        await hub.stopAll();
+      }
+      return hub.startProgramInSlot(slot);
     }
 
     _readProgramSlots() {
@@ -14026,10 +14219,16 @@ continuous_sensor_loop()
       }
 
       // Resolves only after the controller's hello response verifies readiness.
-      return this._peripheral.active.installController(slot).catch((error) => {
-        this._peripheral.active?._recordCommunicationError?.(error);
-        throw error;
-      });
+      return this._peripheral.active
+        .installController(slot)
+        .catch((error) => {
+          this._peripheral.active?._recordCommunicationError?.(error);
+          throw error;
+        })
+        .then((result) => {
+          this._writeControllerSlot(slot);
+          return result;
+        });
     }
 
     checkHubController() {

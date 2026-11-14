@@ -335,6 +335,12 @@ function setup({
       return Promise.resolve(device);
     },
   };
+  const savedValues = new Map();
+  const storage = {
+    getItem: (key) => savedValues.get(key) ?? null,
+    setItem: (key, value) => savedValues.set(key, String(value)),
+    removeItem: (key) => savedValues.delete(key),
+  };
   const confirmationCalls = [];
   const alertCalls = [];
   const rxWrite = device.rx.writeValueWithoutResponse.bind(device.rx);
@@ -362,6 +368,9 @@ function setup({
     }
     await rxWrite(packet);
     for (const decoded of completeMessages) {
+      if (device.autoInfoResponse && decoded[0] === 0x00) {
+        device.tx.emit(packMessage(infoResponse()));
+      }
       if (device.protocolHandler) await device.protocolHandler(decoded);
     }
   };
@@ -395,6 +404,7 @@ function setup({
       },
     },
     document: { documentElement: { lang: locale } },
+    localStorage: storage,
     console: { log() {}, warn() {}, error() {}, info() {}, debug() {} },
     setTimeout: clock.setTimeout.bind(clock),
     clearTimeout: clock.clearTimeout.bind(clock),
@@ -426,6 +436,7 @@ function setup({
     failRequestWrite,
     confirmationCalls,
     alertCalls,
+    storage,
   };
 }
 
@@ -1474,6 +1485,48 @@ test("controller installation is non-modal, CRC-checked, transferred, started, a
     "controller-hello-acknowledged"
   );
   assert.equal(diagnostics.lastProgramFlowNotification.action, "start");
+  assert.equal(
+    state.runtime.brickwrightSpikePrimeControl.getState().controllerSlot,
+    19,
+    "the UI remembers only the slot whose controller hello was verified"
+  );
+});
+
+test("control center reconnect auto-starts only the previously verified controller slot", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+  await state.ext.installHubController({ SLOT: 19 });
+  assert.equal(
+    state.runtime.brickwrightSpikePrimeControl.getState().controllerReady,
+    true
+  );
+
+  state.ext.disconnectHub();
+  fakeHub.running = false;
+  state.device.autoInfoResponse = true;
+  const connectedState =
+    await state.runtime.brickwrightSpikePrimeControl.connect();
+
+  assert.equal(connectedState.connected, true);
+  assert.equal(connectedState.controllerSlot, 19);
+  assert.equal(connectedState.controllerReady, true);
+  assert.equal(
+    fakeHub.startCount,
+    2,
+    "reconnect restarted the remembered controller once"
+  );
+});
+
+test("control center sensor snapshot exposes fresh hardware notification timestamps", async () => {
+  const state = setup();
+  await connect(state);
+  state.device.tx.emit(packMessage(notification(motorRecord({ port: 5 }))));
+  const snapshot = state.runtime.brickwrightSpikePrimeControl.getState();
+  assert.equal(snapshot.portSensors.F.type, "motor");
+  assert.ok(Number.isFinite(snapshot.portSensors.F.receivedAt));
+  assert.equal(snapshot.motorPorts.F.relativePosition, -123456);
 });
 
 test("reinstall stops the running controller before clearing and replacing the same slot", async () => {
