@@ -414,10 +414,12 @@ test("a SPIKE 3 notification with a 3x3 matrix record keeps the records after it
     ...records,
   ]);
   hub._handleDeviceNotification(data);
-  assert.equal(
-    JSON.stringify(hub.portValues.F),
-    JSON.stringify({ type: "matrix3", pixels: [9, 0, 0, 0, 9, 0, 0, 0, 9] })
+  assert.equal(hub.portValues.F.type, "matrix3");
+  assert.deepEqual(
+    Array.from(hub.portValues.F.pixels),
+    [9, 0, 0, 0, 9, 0, 0, 0, 9]
   );
+  assert.equal(Number.isFinite(hub.portValues.F.receivedAt), true);
   assert.equal(hub.portValues.A.distance, 34.5);
 });
 
