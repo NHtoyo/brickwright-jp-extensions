@@ -140,6 +140,7 @@ class FakeCharacteristic {
 
 class FakeHubDevice {
   constructor() {
+    this.id = "fake-spike-prime-hub";
     this.listeners = new Map();
     this.writes = [];
     this.rx = new FakeCharacteristic({ writes: this.writes });
@@ -574,6 +575,7 @@ function attachFakeControllerHub(
     suppressReadyMarker = false,
     ignoreFirstHellos = 0,
     failProgramFlowStart = false,
+    failClearSlots = [],
   } = {}
 ) {
   const { device } = state;
@@ -601,6 +603,8 @@ function attachFakeControllerHub(
     suppressStopNotification,
     failProgramFlowStop,
     failProgramFlowStart,
+    failClearSlots: new Set(failClearSlots),
+    failHello: false,
   };
   const emit = (message) => device.tx.emit(packMessage(message));
   const status = (type, ok) =>
@@ -632,8 +636,15 @@ function attachFakeControllerHub(
           2,
           "ClearSlotRequest is exactly two bytes"
         );
-        const existed = slots.delete(message[1]);
-        controller.events.push({ type: "clear", slot: message[1] });
+        const existed = controller.failClearSlots.has(message[1])
+          ? false
+          : slots.delete(message[1]);
+        controller.events.push({
+          type: "clear",
+          slot: message[1],
+          helloCount: controller.helloCount,
+          cleared: existed,
+        });
         status(0x47, existed);
         break;
       }
@@ -865,6 +876,19 @@ function attachFakeControllerHub(
         }
         if (request.c === "h") {
           controller.helloCount++;
+          controller.events.push({
+            type: "controller-hello",
+            count: controller.helloCount,
+          });
+          if (controller.failHello) {
+            emitTunnel({
+              i: request.i,
+              ok: false,
+              error: "execution_failed",
+              detail: "simulated hello failure",
+            });
+            break;
+          }
           if (controller.helloCount <= ignoreFirstHellos) break;
           const acknowledge = () =>
             emitTunnel({ i: request.i, ok: true, result: "bw-spike-1" });
@@ -1552,6 +1576,91 @@ test("control center API is registered on the same router used by Scratch blocks
   api.setMode("scratchlink-ble");
   assert.equal(router.mode, "scratchlink-ble");
   assert.equal(api.getState().selectedConnectionMode, "scratchlink-ble");
+});
+
+test("control center installs to slot 0 by default without a migration", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  fakeHub.slots.set(0, Buffer.from("existing target program"));
+
+  const result =
+    await state.runtime.brickwrightSpikePrimeControl.installController();
+
+  assert.equal(result.version, 1);
+  assert.equal(fakeHub.currentUpload.slot, 0);
+  assert.equal(fakeHub.running, true);
+  assert.equal(
+    state.runtime.brickwrightSpikePrimeControl.getState()
+      .controllerMigrationSlot,
+    0
+  );
+  assert.equal(
+    fakeHub.events.some((event) => event.type === "clear" && event.slot !== 0),
+    false,
+    "the default install must not clear any previous slot"
+  );
+});
+
+test("control center clears a confirmed previous slot after upload and before start", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  fakeHub.slots.set(0, Buffer.from("new target slot"));
+  fakeHub.slots.set(7, Buffer.from("remembered old controller"));
+  const api = state.runtime.brickwrightSpikePrimeControl;
+  await api.installController(7);
+  fakeHub.events.length = 0;
+
+  const result = await api.installController(0, { previousSlot: 7 });
+
+  const lastChunk = fakeHub.events.findLastIndex(
+    (event) => event.type === "chunk-acknowledged"
+  );
+  const oldSlotClear = fakeHub.events.findIndex(
+    (event) => event.type === "clear" && event.slot === 7
+  );
+  const newStart = fakeHub.events.findIndex(
+    (event) => event.type === "start-request" && event.slot === 0
+  );
+  assert.ok(lastChunk >= 0 && lastChunk < oldSlotClear);
+  assert.ok(oldSlotClear < newStart);
+  assert.equal(result.cleanup.status, "deleted");
+  assert.equal(fakeHub.slots.has(7), false);
+  assert.equal(fakeHub.slots.has(0), true);
+  assert.equal(api.getState().controllerMigrationSlot, 0);
+});
+
+test("failed target upload preserves the confirmed previous controller slot", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  fakeHub.slots.set(0, Buffer.from("new target slot"));
+  fakeHub.slots.set(7, Buffer.from("remembered old controller"));
+  const api = state.runtime.brickwrightSpikePrimeControl;
+  await api.installController(7);
+  const oldProgram = Buffer.from(fakeHub.slots.get(7));
+  fakeHub.failChunkIndex = 0;
+
+  await assert.rejects(
+    api.installController(0, { previousSlot: 7 }),
+    /chunk at byte 0/
+  );
+
+  assert.deepEqual(fakeHub.slots.get(7), oldProgram);
+  assert.equal(api.getState().controllerMigrationSlot, 7);
+  assert.equal(
+    fakeHub.events.filter((event) => event.type === "clear" && event.slot === 7)
+      .length,
+    1,
+    "only the initial target install may have cleared slot 7"
+  );
 });
 
 test("control center reports the Web Bluetooth chooser error to the GUI", async () => {

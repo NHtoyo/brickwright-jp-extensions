@@ -4222,6 +4222,7 @@ continuous_sensor_loop()
         lastKnownControllerVersion,
         lastControllerResponseAt: null,
         controllerInstallAttempt: previous?.controllerInstallAttempt || null,
+        controllerSlotMigration: previous?.controllerSlotMigration || null,
         startupProbeRuns: previous?.startupProbeRuns
           ? JSON.parse(JSON.stringify(previous.startupProbeRuns))
           : [],
@@ -4266,6 +4267,17 @@ continuous_sensor_loop()
       const events = this._diagnostics.recentEvents;
       events.push({ timestamp: Date.now(), type, ...details });
       if (events.length > 50) events.splice(0, events.length - 50);
+    }
+
+    _recordControllerSlotMigration(details) {
+      this._diagnostics.controllerSlotMigration = {
+        timestamp: Date.now(),
+        ...details,
+      };
+      this._recordDiagnosticEvent(
+        "controller-slot-migration",
+        this._diagnostics.controllerSlotMigration
+      );
     }
 
     _protocolMessageHex(data) {
@@ -4412,6 +4424,11 @@ continuous_sensor_loop()
         controllerInstallAttempt: this._diagnostics.controllerInstallAttempt
           ? JSON.parse(
               JSON.stringify(this._diagnostics.controllerInstallAttempt)
+            )
+          : null,
+        controllerSlotMigration: this._diagnostics.controllerSlotMigration
+          ? JSON.parse(
+              JSON.stringify(this._diagnostics.controllerSlotMigration)
             )
           : null,
         lastSuccessfulControllerStage:
@@ -6029,9 +6046,18 @@ continuous_sensor_loop()
       responseType,
       timeoutMs = 5000,
       diagnosticRecord = null,
-      useLimiter = true
+      useLimiter = true,
+      beforeSend = null
     ) {
       if (!this.isConnected()) return Promise.reject(this._notConnectedError());
+      if (beforeSend && !beforeSend()) {
+        return Promise.reject(
+          Object.assign(
+            new Error("SPIKE slot cleanup transaction was invalidated"),
+            { code: "ERR_CONTROLLER_SLOT_CLEANUP_INVALIDATED" }
+          )
+        );
+      }
       if (this._pendingProtocolResponses.has(responseType)) {
         return Promise.reject(
           this._unsupportedError("another request for this response is pending")
@@ -6062,13 +6088,15 @@ continuous_sensor_loop()
           diagnosticRecord,
           promise: requestPromise,
         });
-        this._send(message, useLimiter, diagnosticRecord).catch((error) => {
-          const pending = this._pendingProtocolResponses.get(responseType);
-          if (!pending) return;
-          this._pendingProtocolResponses.delete(responseType);
-          clearTimeout(pending.timeout);
-          rejectRequest(error);
-        });
+        this._send(message, useLimiter, diagnosticRecord, beforeSend).catch(
+          (error) => {
+            const pending = this._pendingProtocolResponses.get(responseType);
+            if (!pending) return;
+            this._pendingProtocolResponses.delete(responseType);
+            clearTimeout(pending.timeout);
+            rejectRequest(error);
+          }
+        );
       }
       return requestPromise;
     }
@@ -6460,7 +6488,7 @@ continuous_sensor_loop()
       return result;
     }
 
-    async clearProgramSlot(slot) {
+    async clearProgramSlot(slot, { beforeSend = null } = {}) {
       if (!this.isConnected()) throw this._notConnectedError();
       if (!Number.isInteger(slot) || slot < 0 || slot > 19) {
         throw this._unsupportedError(
@@ -6473,13 +6501,24 @@ continuous_sensor_loop()
         );
       }
       await this._waitForInfoResponse();
+      if (beforeSend && !beforeSend()) {
+        throw Object.assign(
+          new Error("SPIKE slot cleanup transaction was invalidated"),
+          { code: "ERR_CONTROLLER_SLOT_CLEANUP_INVALIDATED" }
+        );
+      }
       const response = await this._requestHubResponse(
         this._buildClearSlotRequest(slot),
-        SPIKE3.CLEAR_SLOT_RESPONSE
+        SPIKE3.CLEAR_SLOT_RESPONSE,
+        5000,
+        null,
+        true,
+        beforeSend
       );
       if (!response.ok)
-        throw new Error(
-          "Hub did not confirm that the program slot was cleared"
+        throw Object.assign(
+          new Error("Hub rejected the program slot clear request"),
+          { code: "ERR_HUB_CLEAR_SLOT_REJECTED" }
         );
       this._recordDiagnosticEvent("user-program-slot-cleared", {
         slot,
@@ -6586,8 +6625,12 @@ continuous_sensor_loop()
       };
     }
 
-    installController(slot) {
+    installController(
+      slot,
+      { beforeInstall = null, afterUpload = null, onReady = null } = {}
+    ) {
       const installGeneration = this._controllerInstallGeneration;
+      const installLink = this._link;
       const runInstall = async () => {
         this._assertControllerInstallGeneration(installGeneration);
         // A queued install must wait until PROJECT_STOP_ALL is classified.
@@ -6599,14 +6642,53 @@ continuous_sensor_loop()
         this._assertControllerInstallGeneration(installGeneration);
         if (this._controllerStopPromise) await this._controllerStopPromise;
         this._assertControllerInstallGeneration(installGeneration);
-        return this._installControllerNow(slot, installGeneration);
+        if ((beforeInstall || onReady) && this._link !== installLink) {
+          throw Object.assign(
+            new Error("SPIKE hub changed before controller installation"),
+            { code: "ERR_CONTROLLER_INSTALL_CONNECTION_CHANGED" }
+          );
+        }
+        if (beforeInstall) {
+          await beforeInstall({
+            hub: this,
+            link: installLink,
+            installGeneration,
+          });
+        }
+        this._assertControllerInstallGeneration(installGeneration);
+        if ((beforeInstall || onReady) && this._link !== installLink) {
+          throw Object.assign(
+            new Error("SPIKE hub changed before controller installation"),
+            { code: "ERR_CONTROLLER_INSTALL_CONNECTION_CHANGED" }
+          );
+        }
+        const result = await this._installControllerNow(
+          slot,
+          installGeneration,
+          {
+            afterUpload,
+          }
+        );
+        this._assertControllerInstallGeneration(installGeneration);
+        if (onReady) {
+          return onReady(result, {
+            hub: this,
+            link: installLink,
+            installGeneration,
+          });
+        }
+        return result;
       };
       const queued = this._controllerInstallQueue.then(runInstall, runInstall);
       this._controllerInstallQueue = queued.catch(() => {});
       return queued;
     }
 
-    async _installControllerNow(slot, installGeneration) {
+    async _installControllerNow(
+      slot,
+      installGeneration,
+      { afterUpload = null } = {}
+    ) {
       if (!this.isConnected()) throw this._notConnectedError();
       if (!Number.isInteger(slot) || slot < 0 || slot > 19) {
         throw this._unsupportedError(
@@ -6736,6 +6818,17 @@ continuous_sensor_loop()
         this._recordControllerInstallStage("program-upload-complete", true, {
           totalBytes: program.length,
         });
+
+        if (afterUpload) {
+          await afterUpload({
+            hub: this,
+            slot,
+            link: this._link,
+            installGeneration,
+          });
+          this._assertControllerInstallGeneration(installGeneration);
+          this._assertControllerGeneration(generation);
+        }
 
         this._assertControllerGeneration(generation);
         this._runningControllerSlot = slot;
@@ -10960,33 +11053,69 @@ continuous_sensor_loop()
       return `brickwright.spikeprime.program-slots.${deviceId}`;
     }
 
-    _controllerSlotStorageKey() {
-      const deviceId = this._peripheral.active?._link?._device?.id || "default";
-      return `brickwright.spikeprime.controller-slot.${deviceId}`;
+    _controllerDeviceId(link = this._peripheral.active?._link) {
+      const deviceId = link?._device?.id;
+      return typeof deviceId === "string" && deviceId.length > 0
+        ? deviceId
+        : null;
     }
 
-    _readControllerSlot() {
+    _controllerSlotStorageKey(deviceId = this._controllerDeviceId()) {
+      const storageDeviceId = deviceId || "default";
+      return `brickwright.spikeprime.controller-slot.${storageDeviceId}`;
+    }
+
+    _readControllerSlotAtKey(storageKey) {
       try {
-        if (typeof localStorage === "undefined") return null;
-        const stored = localStorage.getItem(this._controllerSlotStorageKey());
-        if (stored === null) return null;
+        if (typeof localStorage === "undefined" || !storageKey) return null;
+        const stored = localStorage.getItem(storageKey);
+        if (stored === null || !/^(0|[1-9]\d*)$/.test(stored)) return null;
         const value = Number(stored);
-        return Number.isInteger(value) && value >= 0 && value <= 19
-          ? value
-          : null;
+        return Number.isInteger(value) && value <= 19 ? value : null;
       } catch (error) {
         this._peripheral.active?._recordCommunicationError?.(error);
         return null;
       }
     }
 
-    _writeControllerSlot(slot) {
+    _readControllerSlot() {
+      return this._readControllerSlotAtKey(this._controllerSlotStorageKey());
+    }
+
+    _readControllerSlotForDevice(deviceId) {
+      if (!deviceId) return null;
+      return this._readControllerSlotAtKey(
+        this._controllerSlotStorageKey(deviceId)
+      );
+    }
+
+    _writeControllerSlot(slot, deviceId = undefined) {
       try {
         if (typeof localStorage !== "undefined") {
-          localStorage.setItem(this._controllerSlotStorageKey(), String(slot));
+          localStorage.setItem(
+            this._controllerSlotStorageKey(
+              deviceId === undefined ? this._controllerDeviceId() : deviceId
+            ),
+            String(slot)
+          );
+          return true;
         }
+        return false;
       } catch (error) {
         this._peripheral.active?._recordCommunicationError?.(error);
+        return false;
+      }
+    }
+
+    _removeControllerSlotForDevice(deviceId) {
+      if (!deviceId) return false;
+      try {
+        if (typeof localStorage === "undefined") return false;
+        localStorage.removeItem(this._controllerSlotStorageKey(deviceId));
+        return true;
+      } catch (error) {
+        this._peripheral.active?._recordCommunicationError?.(error);
+        return false;
       }
     }
 
@@ -11001,8 +11130,8 @@ continuous_sensor_loop()
           this.connectPeripheralFromControlCenter(peripheralId),
         disconnect: () => this.disconnectHub(),
         setMode: (mode) => this._peripheral.setMode(mode),
-        installController: (slot) =>
-          this.installControllerFromControlCenter(slot),
+        installController: (slot, options) =>
+          this.installControllerFromControlCenter(slot, options),
         stop: () => this.stopHubFromControlCenter(),
         generatePython: () => this.generatePythonForControlCenter(),
         uploadAndRun: (slot, source) =>
@@ -11033,6 +11162,10 @@ continuous_sensor_loop()
         deviceName: device?.name || this._peripheral.hubDescription || null,
         firmwareVersion: diagnostics.firmwareVersion || null,
         controllerSlot: this._readControllerSlot(),
+        controllerMigrationSlot: this._readControllerSlotForDevice(
+          this._controllerDeviceId()
+        ),
+        controllerSlotMigration: diagnostics.controllerSlotMigration || null,
         controllerStatus:
           diagnostics.controllerStatus ||
           (connected ? "not-applicable" : "disconnected"),
@@ -11136,13 +11269,193 @@ continuous_sensor_loop()
       return this.getControlCenterState();
     }
 
-    async installControllerFromControlCenter(slot) {
+    async installControllerFromControlCenter(slot = 0, options = {}) {
       if (!Number.isInteger(slot) || slot < 0 || slot > 19) {
         throw new Error("Controller slot must be from 0 to 19");
       }
-      const result = await this.installHubController({ SLOT: slot });
-      this._writeControllerSlot(slot);
-      return result;
+      if (
+        !this._peripheral.isConnected() ||
+        this._peripheral.protocol !== "spike3"
+      ) {
+        throw new Error(t("controllerUnsupported"));
+      }
+      const requestedPrevious = options?.previousSlot;
+      if (
+        typeof requestedPrevious !== "undefined" &&
+        (!Number.isInteger(requestedPrevious) ||
+          requestedPrevious < 0 ||
+          requestedPrevious > 19)
+      ) {
+        throw new Error("Previous controller slot must be from 0 to 19");
+      }
+      const previousSlot =
+        requestedPrevious == null || requestedPrevious === slot
+          ? null
+          : requestedPrevious;
+      const hub = this._peripheral.active;
+      const link = hub._link;
+      const deviceId = this._controllerDeviceId(link);
+      const migration = {
+        slot,
+        previousSlot: previousSlot ?? requestedPrevious ?? null,
+        status: previousSlot === null ? "not-requested" : "pending",
+        previousSlotRemains: previousSlot !== null,
+      };
+      const sameConnection = () =>
+        this._peripheral.active === hub &&
+        hub._link === link &&
+        hub.isConnected();
+      const validateInstall = () => {
+        if (!sameConnection()) {
+          throw Object.assign(
+            new Error("SPIKE hub changed before installation"),
+            {
+              code: "ERR_CONTROLLER_INSTALL_CONNECTION_CHANGED",
+            }
+          );
+        }
+        if (previousSlot !== null) {
+          if (!deviceId) {
+            throw Object.assign(
+              new Error(
+                "Cannot migrate a controller slot without a known hub identity"
+              ),
+              { code: "ERR_CONTROLLER_MIGRATION_IDENTITY_UNKNOWN" }
+            );
+          }
+          if (this._readControllerSlotForDevice(deviceId) !== previousSlot) {
+            throw Object.assign(
+              new Error(
+                "The confirmed previous controller slot is no longer remembered for this hub"
+              ),
+              { code: "ERR_CONTROLLER_MIGRATION_SLOT_CHANGED" }
+            );
+          }
+        }
+      };
+      const record = () => {
+        hub._recordControllerSlotMigration({
+          ...migration,
+          newControllerReady: Boolean(hub._controllerReady),
+        });
+      };
+      const afterUpload = async (transaction) => {
+        if (previousSlot === null) return;
+        const valid = () =>
+          sameConnection() &&
+          hub._controllerInstallGeneration === transaction.installGeneration &&
+          !hub._controllerStopping &&
+          !hub._pendingProjectStop &&
+          hub._diagnostics.controllerInstallAttempt?.slot === slot &&
+          hub._diagnostics.controllerInstallAttempt?.outcome ===
+            "in-progress" &&
+          (previousSlot === null ||
+            this._readControllerSlotForDevice(deviceId) === previousSlot);
+        if (!valid()) {
+          throw Object.assign(
+            new Error("Stop or reconnect invalidated slot cleanup"),
+            {
+              code: "ERR_CONTROLLER_SLOT_CLEANUP_INVALIDATED",
+            }
+          );
+        }
+        if (this._readControllerSlotForDevice(deviceId) !== previousSlot) {
+          migration.status = "skipped";
+          migration.reason = "remembered-slot-changed";
+          record();
+          return;
+        }
+        let clearMayHaveBeenSent = false;
+        const canSendClear = () => valid() && (clearMayHaveBeenSent = true);
+        try {
+          await hub.clearProgramSlot(previousSlot, {
+            beforeSend: canSendClear,
+          });
+          if (!valid()) {
+            migration.status = "unverified";
+            migration.previousSlotRemains = null;
+            migration.reason = "connection-changed-after-clear";
+          } else {
+            migration.registrySaved =
+              this._removeControllerSlotForDevice(deviceId);
+            migration.status = migration.registrySaved
+              ? "deleted"
+              : "deleted-registry-error";
+            migration.previousSlotRemains = false;
+          }
+        } catch (error) {
+          if (
+            error?.code === "ERR_CONTROLLER_SLOT_CLEANUP_INVALIDATED" ||
+            error?.code === "ERR_HUB_DISCONNECTED"
+          ) {
+            throw error;
+          }
+          hub._recordCommunicationError(error);
+          migration.status = "failed";
+          migration.previousSlotRemains =
+            error?.code === "ERR_HUB_CLEAR_SLOT_REJECTED"
+              ? true
+              : clearMayHaveBeenSent
+                ? null
+                : true;
+          migration.error = error?.message || String(error);
+        }
+        record();
+      };
+      const onReady = (result) => {
+        const registrySaved = this._writeControllerSlot(
+          slot,
+          deviceId || undefined
+        );
+        if (!registrySaved) {
+          const error = new Error(
+            "Controller is ready, but its slot could not be saved"
+          );
+          hub._recordCommunicationError(error);
+          migration.registrySaved = false;
+          migration.error = error.message;
+          migration.status = "ready-registry-error";
+        } else {
+          migration.registrySaved = true;
+          if (previousSlot === null && requestedPrevious === slot) {
+            migration.status = "same-slot";
+          } else if (migration.status === "not-requested") {
+            migration.status = "ready";
+          }
+        }
+        migration.newControllerReady = true;
+        record();
+        return {
+          ...result,
+          cleanup: {
+            ...migration,
+          },
+        };
+      };
+
+      if (previousSlot !== null) {
+        validateInstall();
+        record();
+      }
+      try {
+        return await hub.installController(slot, {
+          beforeInstall: validateInstall,
+          afterUpload,
+          onReady,
+        });
+      } catch (error) {
+        if (
+          migration.status === "deleted" ||
+          migration.status === "deleted-registry-error"
+        ) {
+          migration.status = "startup-failed-after-old-slot-clear";
+          migration.previousSlotRemains = false;
+        } else if (previousSlot !== null) migration.status = "install-failed";
+        migration.error = error?.message || String(error);
+        migration.newControllerReady = false;
+        record();
+        throw error;
+      }
     }
 
     stopHubFromControlCenter() {
