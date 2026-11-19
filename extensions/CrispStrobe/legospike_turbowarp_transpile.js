@@ -4060,6 +4060,7 @@ continuous_sensor_loop()
       this._controllerReady = false;
       this._controllerVersion = null;
       this._controllerHeartbeatTimer = null;
+      this._pendingProjectStop = null;
 
       this._rateLimiter = new RateLimiter(BTSendRateMax);
       this._portValues = {};
@@ -4083,9 +4084,35 @@ continuous_sensor_loop()
       this.reset = this.reset.bind(this);
       this._onConnect = this._onConnect.bind(this);
       this._onMessage = this._onMessage.bind(this);
+      this._onProjectStart = () => {
+        // Runtime.greenFlag() emits PROJECT_STOP_ALL synchronously before it
+        // emits PROJECT_START. Only treat that same-turn pair as Scratch's
+        // normal restart; an actual red-stop event has no paired start.
+        if (this._pendingProjectStop) {
+          this._pendingProjectStop.cancelled = true;
+          this._pendingProjectStop = null;
+        }
+      };
       this._onProjectStopAll = () => {
-        if (!this._link) return;
-        const stopPromise = this.stopAll({ cancelQueuedInstalls: true });
+        const stopLink = this._link;
+        if (!stopLink) return;
+
+        // Defer one microtask so Runtime.greenFlag() can emit its paired
+        // PROJECT_START. Capture the link now: if it is replaced before the
+        // deferred action, never send an old stop request to the new hub.
+        const pendingStop = { link: stopLink, cancelled: false };
+        this._pendingProjectStop = pendingStop;
+        const stopPromise = Promise.resolve().then(() => {
+          if (
+            pendingStop.cancelled ||
+            this._pendingProjectStop !== pendingStop
+          ) {
+            return undefined;
+          }
+          this._pendingProjectStop = null;
+          if (this._link !== pendingStop.link) return undefined;
+          return this.stopAll({ cancelQueuedInstalls: true });
+        });
         this._projectStopPromise = stopPromise;
         // PROJECT_STOP_ALL is an event; the VM does not await its listeners.
         // Keep the rejection visible in diagnostics without creating an
@@ -4094,6 +4121,7 @@ continuous_sensor_loop()
       };
       if (this._runtime && typeof this._runtime.on === "function") {
         this._runtime.on("PROJECT_STOP_ALL", this._onProjectStopAll);
+        this._runtime.on("PROJECT_START", this._onProjectStart);
       }
 
       this._timerInterval = setInterval(() => {
@@ -5381,7 +5409,14 @@ continuous_sensor_loop()
 
     _enqueueControllerCommand(commandName, fields, allowNotReady = false) {
       const generation = this._controllerCommandGeneration;
-      const run = () => {
+      const commandLink = this._link;
+      const run = async () => {
+        if (this._pendingProjectStop && this._projectStopPromise) {
+          await this._projectStopPromise;
+        }
+        if (this._link !== commandLink) {
+          return Promise.reject(this._controllerCommandCancelledError());
+        }
         if (
           this._controllerStopping ||
           generation !== this._controllerCommandGeneration
@@ -5406,6 +5441,21 @@ continuous_sensor_loop()
       const priority = Boolean(options.priority);
       const generation =
         options.generation ?? this._controllerCommandGeneration;
+      if (!priority && this._pendingProjectStop && this._projectStopPromise) {
+        const deferredStop = this._projectStopPromise;
+        const commandLink = this._link;
+        return deferredStop.then(() => {
+          if (this._link !== commandLink) {
+            throw this._controllerCommandCancelledError();
+          }
+          return this._sendControllerCommand(
+            commandName,
+            fields,
+            allowNotReady,
+            { ...options, generation }
+          );
+        });
+      }
       if (!this.isConnected()) return Promise.reject(this._notConnectedError());
       if (
         !priority &&
@@ -6540,6 +6590,13 @@ continuous_sensor_loop()
       const installGeneration = this._controllerInstallGeneration;
       const runInstall = async () => {
         this._assertControllerInstallGeneration(installGeneration);
+        // A queued install must wait until PROJECT_STOP_ALL is classified.
+        // Otherwise its queue microtask could run before the deferred stop
+        // and clear a slot while an actual emergency stop is being handled.
+        if (this._pendingProjectStop && this._projectStopPromise) {
+          await this._projectStopPromise;
+        }
+        this._assertControllerInstallGeneration(installGeneration);
         if (this._controllerStopPromise) await this._controllerStopPromise;
         this._assertControllerInstallGeneration(installGeneration);
         return this._installControllerNow(slot, installGeneration);
@@ -7361,6 +7418,16 @@ continuous_sensor_loop()
       beforeSend = null
     ) {
       if (!this.isConnected()) return Promise.reject(this._notConnectedError());
+      if (beforeSend && this._pendingProjectStop && this._projectStopPromise) {
+        const deferredStop = this._projectStopPromise;
+        const sendLink = this._link;
+        return deferredStop.then(() => {
+          if (this._link !== sendLink || !beforeSend()) {
+            throw this._controllerCommandCancelledError();
+          }
+          return this._send(message, useLimiter, diagnosticRecord, beforeSend);
+        });
+      }
       if (beforeSend && !beforeSend()) {
         return Promise.reject(this._controllerCommandCancelledError());
       }

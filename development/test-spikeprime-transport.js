@@ -2445,6 +2445,118 @@ test("chained blocks wait for hello readiness and continue immediately without p
   assert.deepEqual(state.alertCalls, []);
 });
 
+test("Scratch greenFlag's synchronous stop/start pair does not stop the SPIKE controller", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  await state.ext.installHubController({ SLOT: 5 });
+  const writesBeforeRun = state.device.writes.length;
+
+  // scratch-vm Runtime.greenFlag() calls stopAll() and then emits
+  // PROJECT_START synchronously, before queued Scratch blocks run.
+  const motorCommand = state.ext.motorStart({ PORT: "A", DIRECTION: 1 });
+  state.runtime.emit("PROJECT_STOP_ALL");
+  const pairedStop = hub._projectStopPromise;
+  state.runtime.emit("PROJECT_START");
+  await pairedStop;
+  await motorCommand;
+
+  assert.equal(fakeHub.running, true);
+  assert.equal(hub._controllerReady, true);
+  assert.equal(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).controllerStatus,
+    "ready"
+  );
+  assert.ok(fakeHub.actions.some((action) => action.cmd === "motor.run"));
+  assert.equal(
+    fakeHub.receivedCommands.includes("controller.stop_all"),
+    false,
+    "the paired green-flag event must not send a hub stop command"
+  );
+  const newMessages = unpackWrittenMessages(
+    state.device.writes.slice(writesBeforeRun)
+  );
+  assert.equal(
+    newMessages.some((message) => message[0] === 0x1e && message[1] === 1),
+    false,
+    "the paired green-flag event must not send ProgramFlow stop"
+  );
+});
+
+test("a deferred stop and queued command never target a replacement hub", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  await state.ext.installHubController({ SLOT: 5 });
+
+  const queuedMotor = state.ext.motorStart({ PORT: "A", DIRECTION: 1 });
+  state.runtime.emit("PROJECT_STOP_ALL");
+  const deferredStop = hub._projectStopPromise;
+  const replacementWrites = [];
+  hub.attach({
+    kind: "gatt",
+    isConnected: () => true,
+    startNotifications: () => Promise.resolve(),
+    write: (_service, _characteristic, data) => {
+      replacementWrites.push(Buffer.from(data, "base64"));
+      return Promise.resolve();
+    },
+  });
+
+  await deferredStop;
+  await assert.rejects(
+    queuedMotor,
+    /stopped the pending SPIKE controller command/i
+  );
+  assert.equal(fakeHub.running, true);
+  assert.deepEqual(replacementWrites, []);
+});
+
+test("a rate-limited command cannot leak after a standalone emergency stop", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  await state.ext.installHubController({ SLOT: 5 });
+  hub._rateLimiter.reserve = () => 100;
+  const writesBeforeCommand = state.device.writes.length;
+
+  const queuedMotor = state.ext.motorStart({ PORT: "A", DIRECTION: 1 });
+  await tick();
+  state.runtime.emit("PROJECT_STOP_ALL");
+  await hub._projectStopPromise;
+  await assert.rejects(
+    queuedMotor,
+    /stopped the pending SPIKE controller command/i
+  );
+  state.clock.advance(100);
+  await tick();
+
+  assert.equal(fakeHub.running, false);
+  assert.equal(
+    fakeHub.actions.some((action) => action.cmd === "motor.run"),
+    false,
+    "a command waiting in the BLE rate limiter is cancelled by emergency stop"
+  );
+  const messages = unpackWrittenMessages(
+    state.device.writes.slice(writesBeforeCommand)
+  );
+  assert.equal(
+    messages.some(
+      (message) =>
+        message[0] === 0x32 &&
+        JSON.parse(Buffer.from(message.slice(3)).toString()).c === "r"
+    ),
+    false,
+    "the delayed motor TunnelMessage must never be written"
+  );
+});
+
 test("PROJECT_STOP_ALL preempts queued commands, stops hardware and Python, then permits restart", async () => {
   const state = setup();
   await connect(state);
