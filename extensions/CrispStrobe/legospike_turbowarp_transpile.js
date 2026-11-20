@@ -142,6 +142,10 @@
       operationFailed: "SPIKE operation failed: {0}",
       controllerNotReady:
         "Install and start the Brickwright SPIKE controller first.",
+      controllerBootEvidenceRequired:
+        "The hub remains connected, but the controller has not been verified in this connection. In Hub details, choose Start saved controller; use Install only for first setup.",
+      controllerBootEvidenceTimeout:
+        "The hub remains connected, but the controller startup callback was not observed. In Hub details, choose Start saved controller; use Install only for first setup.",
       controllerTimeout:
         "The hub controller did not acknowledge the command in time.",
       controllerStartNotificationTimeout:
@@ -514,6 +518,10 @@
       operationFailed: "SPIKEの操作に失敗しました: {0}",
       controllerNotReady:
         "先にBrickwright SPIKE制御プログラムを転送して起動してください。",
+      controllerBootEvidenceRequired:
+        "ハブの接続は維持されていますが、この接続中に制御プログラムの起動を確認できていません。ハブの詳細から「保存済み制御プログラムを起動」を選んでください。初回のみ「インストール」を使います。",
+      controllerBootEvidenceTimeout:
+        "ハブの接続は維持されていますが、制御プログラムの起動処理を確認できませんでした。ハブの詳細から「保存済み制御プログラムを起動」を選んでください。初回のみ「インストール」を使います。",
       controllerTimeout: "制御プログラムから時間内に応答がありませんでした。",
       controllerStartNotificationTimeout:
         "ProgramFlowRequestは受理されましたが、プログラム起動通知が届きませんでした。",
@@ -4229,6 +4237,11 @@ continuous_sensor_loop()
       this._controllerVerification = null;
       this._controllerStartWaiters = new Set();
       this._programFlowStartWaiters = new Set();
+      this._controllerBootMarkerWaiters = new Set();
+      this._controllerConsoleBootBuffer = "";
+      this._controllerBootEvidence = null;
+      this._lastProgramFlowEvent = null;
+      this._runningControllerSession = null;
       this._controllerCommandId = 0;
       this._controllerCommandQueue = Promise.resolve();
       this._controllerCommandGeneration = 0;
@@ -4239,6 +4252,7 @@ continuous_sensor_loop()
       this._controllerStopWaiter = null;
       this._runningControllerSlot = null;
       this._controllerReady = false;
+      this._pendingProgramFlowStart = null;
       this._controllerVersion = null;
       this._controllerHeartbeatTimer = null;
       this._pendingProjectStop = null;
@@ -4728,6 +4742,14 @@ continuous_sensor_loop()
         controllerStatus: this._diagnostics.controllerStatus,
         controllerReady: this._controllerReady,
         controllerStopping: this._controllerStopping,
+        controllerBootEvidence: this._getCurrentControllerBootEvidence()
+          ? {
+              status: "callback-ready-marker-received",
+              source: this._controllerBootEvidence.source,
+              receivedAt: this._controllerBootEvidence.receivedAt,
+              sessionId: this._controllerBootEvidence.sessionId,
+            }
+          : { status: "not-observed" },
         controllerVersion: this._diagnostics.controllerVersion,
         lastKnownControllerVersion:
           this._diagnostics.lastKnownControllerVersion,
@@ -4850,6 +4872,131 @@ continuous_sensor_loop()
       return Boolean(this._link && this._link.isConnected());
     }
 
+    _getCurrentControllerBootEvidence() {
+      const evidence = this._controllerBootEvidence;
+      if (
+        !evidence ||
+        !this.isConnected() ||
+        evidence.link !== this._link ||
+        evidence.sessionId !== this._connectionSession ||
+        (this._lastProgramFlowEvent?.sessionId === this._connectionSession &&
+          this._lastProgramFlowEvent.action === "stop")
+      ) {
+        return null;
+      }
+      return evidence;
+    }
+
+    _hasControllerBootEvidence(evidence = null) {
+      const current = this._getCurrentControllerBootEvidence();
+      if (!current) return false;
+      return !evidence || evidence === current;
+    }
+
+    _waitForControllerBootMarker({
+      afterTimestamp,
+      sessionId = this._connectionSession,
+      link = this._link,
+      timeoutMs = 5000,
+      assertCurrent = null,
+    }) {
+      const matchingEvidence = () => {
+        const evidence = this._getCurrentControllerBootEvidence();
+        return evidence && evidence.receivedAt >= afterTimestamp
+          ? evidence
+          : null;
+      };
+      const existing = matchingEvidence();
+      if (existing) return Promise.resolve(existing);
+      if (!this._isCurrentConnectionSession(sessionId, link)) {
+        return Promise.reject(this._notConnectedError());
+      }
+      return new Promise((resolve, reject) => {
+        const waiter = {
+          resolve: (evidence) => {
+            this._controllerBootMarkerWaiters.delete(waiter);
+            clearTimeout(waiter.timeout);
+            if (assertCurrent) {
+              try {
+                assertCurrent();
+              } catch (error) {
+                reject(error);
+                return;
+              }
+            }
+            if (!this._isCurrentConnectionSession(sessionId, link)) {
+              reject(this._notConnectedError());
+              return;
+            }
+            const current = matchingEvidence();
+            if (!current || current !== evidence) {
+              reject(
+                Object.assign(
+                  new Error("SPIKE controller boot evidence was invalidated"),
+                  { code: "ERR_CONTROLLER_BOOT_EVIDENCE_INVALIDATED" }
+                )
+              );
+              return;
+            }
+            resolve(current);
+          },
+          reject: (error) => {
+            this._controllerBootMarkerWaiters.delete(waiter);
+            clearTimeout(waiter.timeout);
+            reject(error);
+          },
+          timeout: null,
+        };
+        waiter.timeout = setTimeout(() => {
+          waiter.reject(
+            Object.assign(new Error(t("controllerBootEvidenceTimeout")), {
+              code: "ERR_CONTROLLER_BOOT_EVIDENCE_TIMEOUT",
+            })
+          );
+        }, timeoutMs);
+        this._controllerBootMarkerWaiters.add(waiter);
+        const afterRegister = matchingEvidence();
+        if (afterRegister) waiter.resolve(afterRegister);
+      });
+    }
+
+    _settleControllerBootMarkerWaiters(evidence) {
+      for (const waiter of [...this._controllerBootMarkerWaiters]) {
+        waiter.resolve(evidence);
+      }
+    }
+
+    _invalidateControllerBootEvidence(reason, timestamp = Date.now()) {
+      const previous = this._controllerBootEvidence;
+      this._controllerBootEvidence = null;
+      this._controllerConsoleBootBuffer = "";
+      for (const [requestId, pending] of this._pendingControllerCommands) {
+        if (pending.commandName !== "controller.hello") continue;
+        this._pendingControllerCommands.delete(requestId);
+        clearTimeout(pending.timeout);
+        pending.reject(
+          Object.assign(new Error(t("controllerBootEvidenceRequired")), {
+            code: "ERR_CONTROLLER_BOOT_EVIDENCE_INVALIDATED",
+          })
+        );
+      }
+      for (const waiter of [...this._controllerBootMarkerWaiters]) {
+        waiter.reject(
+          Object.assign(
+            new Error(`SPIKE controller boot evidence invalidated: ${reason}`),
+            { code: "ERR_CONTROLLER_BOOT_EVIDENCE_INVALIDATED" }
+          )
+        );
+      }
+      if (previous) {
+        this._recordDiagnosticEvent("controller-boot-evidence-invalidated", {
+          reason,
+          timestamp,
+          evidenceAt: previous.receivedAt,
+        });
+      }
+    }
+
     disconnect() {
       if (this._link instanceof WebBLELink) {
         this._link.disconnect({ origin: "user-requested" });
@@ -4861,6 +5008,11 @@ continuous_sensor_loop()
 
     reset(details = {}) {
       this._connectionSession++;
+      this._invalidateControllerBootEvidence("connection-reset");
+      this._lastProgramFlowEvent = null;
+      this._runningControllerSlot = null;
+      this._runningControllerSession = null;
+      this._pendingProgramFlowStart = null;
       if (this._notificationRecoveryTimer !== null) {
         this._diagnostics.notificationRecovery.status =
           "cancelled-disconnected";
@@ -5066,26 +5218,34 @@ continuous_sensor_loop()
       }
 
       const attempt = this._diagnostics.controllerInstallAttempt;
-      const attemptCanIdentifySlot = [
-        "in-progress",
-        "not-verified",
-        "ready",
-      ].includes(attempt?.outcome);
+      const controllerEvidence =
+        this._controllerReady || this._hasControllerBootEvidence();
       const slot =
-        this._runningControllerSlot ??
-        (attemptCanIdentifySlot ? attempt.slot : null) ??
-        this._diagnostics.lastSuccessfulControllerStage?.slot ??
-        null;
+        this._runningControllerSession === this._connectionSession
+          ? this._runningControllerSlot
+          : this._pendingProgramFlowStart?.sessionId === this._connectionSession
+            ? this._pendingProgramFlowStart.slot
+            : attempt?.outcome === "in-progress" &&
+                attempt.sessionId === this._connectionSession &&
+                attempt.programFlowRequestSentAt
+              ? attempt.slot
+              : null;
+      const runtimeKnown = controllerEvidence || slot !== null;
+      const statusBeforeStop = this._diagnostics.controllerStatus;
       const stopAttempt = {
         startedAt: Date.now(),
         finishedAt: null,
         outcome: "in-progress",
         slot,
         controllerStop: {
-          status: skipControllerStop ? "not-required" : "pending",
+          status: skipControllerStop
+            ? "not-required"
+            : controllerEvidence
+              ? "pending"
+              : "not-sent-controller-unverified",
         },
         programFlowStop: {
-          status: slot === null ? "not-sent-no-known-slot" : "pending",
+          status: slot === null ? "not-sent-no-known-active-slot" : "pending",
         },
         programFlowStopRequestSentAt: null,
         programFlowStoppedAt: null,
@@ -5094,8 +5254,11 @@ continuous_sensor_loop()
       this._controllerStopping = true;
       this._controllerCommandGeneration++;
       this._controllerCommandQueue = Promise.resolve();
+      this._pendingProgramFlowStart = null;
       this._controllerReady = false;
-      this._diagnostics.controllerStatus = "stopping";
+      this._diagnostics.controllerStatus = runtimeKnown
+        ? "stopping"
+        : statusBeforeStop;
       if (this._controllerHeartbeatTimer !== null) {
         clearInterval(this._controllerHeartbeatTimer);
         this._controllerHeartbeatTimer = null;
@@ -5136,28 +5299,29 @@ continuous_sensor_loop()
         };
       }
 
-      const stopHardware = skipControllerStop
-        ? Promise.resolve({ skipped: true })
-        : this._sendControllerCommand("controller.stop_all", {}, true, {
-            priority: true,
-            timeoutMs: 1500,
-          }).then(
-            (result) => {
-              stopAttempt.controllerStop = {
-                status: "acknowledged",
-                responseAt: Date.now(),
-              };
-              return result;
-            },
-            (error) => {
-              stopAttempt.controllerStop = {
-                status: isStopLinkActive() ? "failed" : "not-reached",
-                error: error.message,
-              };
-              this._recordCommunicationError(error);
-              throw error;
-            }
-          );
+      const stopHardware =
+        skipControllerStop || !controllerEvidence
+          ? Promise.resolve({ skipped: true })
+          : this._sendControllerCommand("controller.stop_all", {}, true, {
+              priority: true,
+              timeoutMs: 1500,
+            }).then(
+              (result) => {
+                stopAttempt.controllerStop = {
+                  status: "acknowledged",
+                  responseAt: Date.now(),
+                };
+                return result;
+              },
+              (error) => {
+                stopAttempt.controllerStop = {
+                  status: isStopLinkActive() ? "failed" : "not-reached",
+                  error: error.message,
+                };
+                this._recordCommunicationError(error);
+                throw error;
+              }
+            );
 
       const previousProgramFlow = this._pendingProtocolResponses.get(
         SPIKE3.PROGRAM_FLOW_RESPONSE
@@ -5180,11 +5344,7 @@ continuous_sensor_loop()
             { code: "ERR_SPIKE_STOP_CONNECTION_CHANGED" }
           );
         }
-        if (slot === null) {
-          throw new Error(
-            "Cannot send ProgramFlow stop because the active controller slot is unknown"
-          );
-        }
+        if (slot === null) return { skipped: true };
         stopAttempt.programFlowStop.requestPending = true;
         stopAttempt.programFlowStopRequestSentAt = Date.now();
         const stoppedNotification = this._waitForControllerProgramStop(
@@ -5240,17 +5400,22 @@ continuous_sensor_loop()
       const stopPromise = Promise.allSettled([stopHardware, stopProgram]).then(
         (results) => {
           stopAttempt.finishedAt = Date.now();
-          const controllerStopped =
-            skipControllerStop || results[0].status === "fulfilled";
-          const programStopped = results[1].status === "fulfilled";
-          stopAttempt.outcome =
-            controllerStopped && programStopped
+          const controllerStopped = skipControllerStop
+            ? true
+            : controllerEvidence && results[0].status === "fulfilled";
+          const programStopped =
+            slot !== null && results[1].status === "fulfilled";
+          stopAttempt.outcome = !runtimeKnown
+            ? "not-verified"
+            : controllerStopped && programStopped
               ? "success"
               : stopAttempt.programFlowStoppedAt && programStopped
                 ? "partial-failure"
                 : "failure";
           if (isStopLinkActive()) {
-            if (stopAttempt.programFlowStoppedAt) {
+            if (!runtimeKnown) {
+              this._diagnostics.controllerStatus = statusBeforeStop;
+            } else if (stopAttempt.programFlowStoppedAt) {
               this._diagnostics.controllerStatus =
                 controllerStopped && programStopped
                   ? "stopped"
@@ -5270,12 +5435,32 @@ continuous_sensor_loop()
           this._recordDiagnosticEvent("controller-stop-finished", {
             outcome: stopAttempt.outcome,
             slot,
+            controllerEvidence,
             connectionChanged: Boolean(stopAttempt.connectionChanged),
           });
+          if (stopAttempt.outcome === "not-verified") {
+            this._controllerStopping = false;
+            return {
+              stopped: false,
+              outcome: "not-verified",
+              reason:
+                "No active controller boot evidence or current-session program slot is known",
+            };
+          }
           if (stopAttempt.outcome !== "success") {
             const failures = results
               .filter((result) => result.status === "rejected")
               .map((result) => result.reason?.message || String(result.reason));
+            if (!controllerEvidence && slot !== null) {
+              failures.push(
+                "controller.stop_all was not sent because controller boot evidence was unavailable"
+              );
+            }
+            if (controllerEvidence && slot === null) {
+              failures.push(
+                "ProgramFlow stop was not sent because no current-session active slot is known"
+              );
+            }
             const error = new Error(
               `SPIKE stop was not fully confirmed: ${failures.join("; ") || "stop notification missing"}`
             );
@@ -5733,7 +5918,12 @@ continuous_sensor_loop()
       return error;
     }
 
-    _sendTunnelPayload(payload, useLimiter = true, beforeSend = null) {
+    _sendTunnelPayload(
+      payload,
+      useLimiter = true,
+      beforeSend = null,
+      controllerCommand = null
+    ) {
       if (!this.isConnected()) return Promise.reject(this._notConnectedError());
       const bytes = new TextEncoder().encode(payload);
       if (bytes.length > 0xffff) {
@@ -5756,10 +5946,17 @@ continuous_sensor_loop()
           )
         );
       }
-      return this._send(message, useLimiter, null, beforeSend);
+      return this._send(message, useLimiter, null, beforeSend, {
+        controllerCommand,
+      });
     }
 
-    _enqueueControllerCommand(commandName, fields, allowNotReady = false) {
+    _enqueueControllerCommand(
+      commandName,
+      fields,
+      allowNotReady = false,
+      commandOptions = {}
+    ) {
       const generation = this._controllerCommandGeneration;
       const commandLink = this._link;
       const run = async () => {
@@ -5776,6 +5973,7 @@ continuous_sensor_loop()
           return Promise.reject(this._controllerCommandCancelledError());
         }
         return this._sendControllerCommand(commandName, fields, allowNotReady, {
+          ...commandOptions,
           generation,
         });
       };
@@ -5809,6 +6007,18 @@ continuous_sensor_loop()
         });
       }
       if (!this.isConnected()) return Promise.reject(this._notConnectedError());
+      if (
+        commandName === "controller.hello" &&
+        !this._controllerReady &&
+        !this._hasControllerBootEvidence(options.bootEvidence)
+      ) {
+        const error = Object.assign(
+          new Error(t("controllerBootEvidenceRequired")),
+          { code: "ERR_CONTROLLER_BOOT_EVIDENCE_REQUIRED" }
+        );
+        this._recordCommunicationError(error);
+        return Promise.reject(error);
+      }
       if (
         !priority &&
         (this._controllerStopping ||
@@ -5868,16 +6078,21 @@ continuous_sensor_loop()
           commandName,
           generation,
           priority,
+          bootEvidence: options.bootEvidence || null,
         });
         const canStillSend = priority
           ? null
           : () =>
               !this._controllerStopping &&
-              generation === this._controllerCommandGeneration;
+              generation === this._controllerCommandGeneration &&
+              (commandName !== "controller.hello" ||
+                this._controllerReady ||
+                this._hasControllerBootEvidence(options.bootEvidence));
         this._sendTunnelPayload(
           JSON.stringify(command),
           !priority,
-          canStillSend
+          canStillSend,
+          commandName
         ).catch((error) => {
           const pending = this._pendingControllerCommands.get(requestId);
           if (!pending) return;
@@ -6268,6 +6483,24 @@ continuous_sensor_loop()
         }
         return;
       }
+      if (
+        pending.commandName === "controller.hello" &&
+        !this._hasControllerBootEvidence(pending.bootEvidence)
+      ) {
+        this._pendingControllerCommands.delete(requestId);
+        clearTimeout(pending.timeout);
+        const error = Object.assign(
+          new Error(t("controllerBootEvidenceRequired")),
+          { code: "ERR_CONTROLLER_BOOT_EVIDENCE_INVALIDATED" }
+        );
+        this._diagnostics.controllerStatus = "not-verified";
+        this._recordDiagnosticEvent("controller-hello-response-discarded", {
+          requestId,
+          reason: "callback-ready-evidence-invalidated-before-response",
+        });
+        pending.reject(error);
+        return;
+      }
       const state = response.result && response.result.state;
       if (
         response.ok === true &&
@@ -6371,7 +6604,8 @@ continuous_sensor_loop()
           () =>
             !this._controllerStopping &&
             this._controllerReady &&
-            generation === this._controllerCommandGeneration
+            generation === this._controllerCommandGeneration,
+          "controller.ping"
         ).catch((error) => this._recordTransportError(error));
       }, 1000);
     }
@@ -6670,10 +6904,31 @@ continuous_sensor_loop()
       });
     }
 
-    probeController() {
+    probeController(bootEvidence = null) {
       if (!this.isConnected()) return Promise.reject(this._notConnectedError());
+      if (this._controllerReady) {
+        return Promise.resolve({
+          protocol: "brickwright-spike-controller",
+          version: 1,
+        });
+      }
+      const evidence = bootEvidence || this._getCurrentControllerBootEvidence();
+      if (!this._hasControllerBootEvidence(evidence)) {
+        const error = Object.assign(
+          new Error(t("controllerBootEvidenceRequired")),
+          { code: "ERR_CONTROLLER_BOOT_EVIDENCE_REQUIRED" }
+        );
+        this._diagnostics.controllerStatus = "not-verified";
+        this._recordDiagnosticEvent("controller-hello-not-sent", {
+          reason: "current-session-callback-ready-evidence-missing",
+        });
+        this._recordCommunicationError(error);
+        return Promise.reject(error);
+      }
       this._diagnostics.controllerStatus = "checking";
-      return this._enqueueControllerCommand("controller.hello", {}, true)
+      return this._enqueueControllerCommand("controller.hello", {}, true, {
+        bootEvidence: evidence,
+      })
         .then((result) => {
           if (
             result.protocol !== "brickwright-spike-controller" ||
@@ -6689,9 +6944,11 @@ continuous_sensor_loop()
             ? this._diagnostics.controllerInstallAttempt?.outcome ===
               "startup-error"
               ? "startup-error"
-              : error?.code === "ERR_CONTROLLER_TIMEOUT"
-                ? "timeout"
-                : "error"
+              : error?.code?.startsWith("ERR_CONTROLLER_BOOT_EVIDENCE")
+                ? "not-verified"
+                : error?.code === "ERR_CONTROLLER_TIMEOUT"
+                  ? "timeout"
+                  : "error"
             : "disconnected";
           this._recordCommunicationError(error);
           throw error;
@@ -6703,7 +6960,7 @@ continuous_sensor_loop()
       if (this._controllerStopping) {
         return Promise.reject(this._controllerCommandCancelledError());
       }
-      if (this._controllerReady && !forceProbe) {
+      if (this._controllerReady) {
         return Promise.resolve({
           protocol: "brickwright-spike-controller",
           version: 1,
@@ -6725,7 +6982,8 @@ continuous_sensor_loop()
         return current.promise;
       }
 
-      const promise = this.probeController().then((result) => {
+      const bootEvidence = this._getCurrentControllerBootEvidence();
+      const promise = this.probeController(bootEvidence).then((result) => {
         if (
           !this.isConnected() ||
           this._link !== context.link ||
@@ -6751,29 +7009,37 @@ continuous_sensor_loop()
 
     async _handshakeStartedController(attempt, assertCurrent = null) {
       if (assertCurrent) assertCurrent();
-      const marker = "BWCTRL:boot:tunnel-callback-registered";
-      const observed = () =>
-        this._diagnostics.recentConsoleNotifications
-          .filter((entry) => entry.timestamp >= attempt.startedAt)
-          .map((entry) => entry.text)
-          .join("")
-          .includes(marker);
-      if (!observed()) {
-        await new Promise((resolve) => {
-          const timer = setTimeout(() => {
-            attempt.callbackReadyWaiter = null;
-            resolve();
-          }, 1000);
-          attempt.callbackReadyWaiter = () => {
-            if (!observed()) return;
-            clearTimeout(timer);
-            attempt.callbackReadyWaiter = null;
-            resolve();
-          };
+      const sessionId = this._connectionSession;
+      const link = this._link;
+      let bootEvidence;
+      try {
+        bootEvidence = await this._waitForControllerBootMarker({
+          afterTimestamp: attempt.programFlowStartedAt || attempt.startedAt,
+          sessionId,
+          link,
+          timeoutMs: 5000,
+          assertCurrent,
         });
+      } catch (error) {
+        attempt.callbackReadyWaiter = null;
+        attempt.callbackReadyObserved = false;
+        attempt.bootEvidenceOutcome =
+          error?.code === "ERR_CONTROLLER_BOOT_EVIDENCE_TIMEOUT"
+            ? "callback-marker-missing"
+            : "callback-marker-invalidated";
+        this._diagnostics.controllerStatus = "not-verified";
+        this._recordDiagnosticEvent("controller-boot-evidence-missing", {
+          slot: attempt.slot ?? null,
+          reason: attempt.bootEvidenceOutcome,
+          errorCode: error?.code || null,
+        });
+        throw error;
       }
       if (assertCurrent) assertCurrent();
-      attempt.callbackReadyObserved = observed();
+      attempt.callbackReadyWaiter = null;
+      attempt.callbackReadyObserved = true;
+      attempt.callbackReadyObservedAt = bootEvidence.receivedAt;
+      attempt.bootEvidenceOutcome = "callback-marker-received";
       for (let number = 1; number <= 3; number++) {
         if (assertCurrent) assertCurrent();
         if (
@@ -6785,12 +7051,18 @@ continuous_sensor_loop()
           });
         }
         if (!this.isConnected()) throw this._notConnectedError();
+        if (!this._hasControllerBootEvidence(bootEvidence)) {
+          throw Object.assign(
+            new Error("SPIKE controller boot evidence changed before hello"),
+            { code: "ERR_CONTROLLER_BOOT_EVIDENCE_INVALIDATED" }
+          );
+        }
         this._recordDiagnosticEvent("controller-hello-attempt", {
           number,
           callbackReadyObserved: attempt.callbackReadyObserved,
         });
         try {
-          const result = await this.probeController();
+          const result = await this.probeController(bootEvidence);
           if (assertCurrent) assertCurrent();
           return result;
         } catch (error) {
@@ -6930,6 +7202,13 @@ continuous_sensor_loop()
       }
       const afterTimestamp = Date.now();
       const startNotification = this._waitForProgramFlowStart(afterTimestamp);
+      const pendingStart = {
+        slot,
+        sessionId: this._connectionSession,
+        requestAt: afterTimestamp,
+        notifiedAt: null,
+      };
+      this._pendingProgramFlowStart = pendingStart;
       if (this._controllerHeartbeatTimer !== null) {
         clearInterval(this._controllerHeartbeatTimer);
         this._controllerHeartbeatTimer = null;
@@ -6937,7 +7216,6 @@ continuous_sensor_loop()
       this._controllerReady = false;
       this._controllerVersion = null;
       this._diagnostics.controllerStatus = "starting-user-program";
-      this._runningControllerSlot = slot;
       this._recordDiagnosticEvent("user-program-start-requested", { slot });
       try {
         const response = await this._requestHubResponse(
@@ -6952,6 +7230,9 @@ continuous_sensor_loop()
           status: response.status,
         });
         const notification = await startNotification;
+        if (this._pendingProgramFlowStart === pendingStart) {
+          this._pendingProgramFlowStart = null;
+        }
         this._recordDiagnosticEvent("user-program-start-notified", {
           slot,
           notificationAt: notification.timestamp,
@@ -6960,7 +7241,16 @@ continuous_sensor_loop()
         return { slot, startedAt: notification.timestamp };
       } catch (error) {
         startNotification.catch(() => {});
-        this._runningControllerSlot = null;
+        if (this._pendingProgramFlowStart === pendingStart) {
+          this._pendingProgramFlowStart = null;
+        }
+        if (
+          this._runningControllerSession === pendingStart.sessionId &&
+          this._runningControllerSlot === slot
+        ) {
+          this._runningControllerSlot = null;
+          this._runningControllerSession = null;
+        }
         this._diagnostics.controllerStatus = "not-verified";
         this._recordCommunicationError(error);
         throw error;
@@ -7121,6 +7411,7 @@ continuous_sensor_loop()
       this._controllerReady = false;
       const attempt = {
         slot,
+        sessionId: this._connectionSession,
         startedAt: Date.now(),
         updatedAt: Date.now(),
         stage: "waiting-info-response",
@@ -7290,7 +7581,13 @@ continuous_sensor_loop()
       } catch (error) {
         this._controllerReady = false;
         if (attempt.outcome === "in-progress") {
-          attempt.outcome = "failed";
+          const bootEvidenceUnverified = error?.code?.startsWith(
+            "ERR_CONTROLLER_BOOT_EVIDENCE"
+          );
+          attempt.outcome = bootEvidenceUnverified ? "not-verified" : "failed";
+          if (bootEvidenceUnverified) {
+            attempt.stage = "controller-boot-evidence-missing";
+          }
           attempt.finishedAt = Date.now();
           attempt.error = {
             name: error?.name || "Error",
@@ -7302,6 +7599,8 @@ continuous_sensor_loop()
           if (this._controllerStopping) {
             this._diagnostics.controllerStatus = "stopping";
           }
+        } else if (error?.code?.startsWith("ERR_CONTROLLER_BOOT_EVIDENCE")) {
+          this._diagnostics.controllerStatus = "not-verified";
         } else if (
           error?.code === "ERR_CONTROLLER_START_NOTIFICATION_TIMEOUT"
         ) {
@@ -7899,7 +8198,8 @@ continuous_sensor_loop()
       message,
       useLimiter = false,
       diagnosticRecord = null,
-      beforeSend = null
+      beforeSend = null,
+      diagnosticMetadata = null
     ) {
       if (!this.isConnected()) return Promise.reject(this._notConnectedError());
       if (beforeSend && this._pendingProjectStop && this._projectStopPromise) {
@@ -7909,7 +8209,13 @@ continuous_sensor_loop()
           if (this._link !== sendLink || !beforeSend()) {
             throw this._controllerCommandCancelledError();
           }
-          return this._send(message, useLimiter, diagnosticRecord, beforeSend);
+          return this._send(
+            message,
+            useLimiter,
+            diagnosticRecord,
+            beforeSend,
+            diagnosticMetadata
+          );
         });
       }
       if (beforeSend && !beforeSend()) {
@@ -7919,7 +8225,14 @@ continuous_sensor_loop()
         return whenSlot(
           this._rateLimiter,
           () => this.isConnected(),
-          () => this._send(message, false, diagnosticRecord, beforeSend)
+          () =>
+            this._send(
+              message,
+              false,
+              diagnosticRecord,
+              beforeSend,
+              diagnosticMetadata
+            )
         );
       }
       const packed = COBS.pack(message);
@@ -7947,6 +8260,17 @@ continuous_sensor_loop()
       };
       const attemptedAt = Date.now();
       if (diagnosticRecord) diagnosticRecord.writeAttemptedAt = attemptedAt;
+      if (
+        message[0] === SPIKE3.PROGRAM_FLOW_REQUEST &&
+        (message[1] === 0 || message[1] === 1)
+      ) {
+        this._invalidateControllerBootEvidence(
+          `program-flow-${message[1] === 0 ? "start" : "stop"}-requested`,
+          attemptedAt
+        );
+        this._controllerReady = false;
+        this._controllerVersion = null;
+      }
       const messageContext = {
         attemptedAt,
         messageType: message[0],
@@ -7954,6 +8278,9 @@ continuous_sensor_loop()
         payloadLength: message.length,
         frameLength: packed.length,
         status: "pending",
+        ...(diagnosticMetadata?.controllerCommand
+          ? { controllerCommand: diagnosticMetadata.controllerCommand }
+          : {}),
       };
       this._diagnostics.lastWrite = messageContext;
       const attempt = this._diagnostics.controllerInstallAttempt;
@@ -8001,6 +8328,11 @@ continuous_sensor_loop()
     _onConnect() {
       const sessionId = ++this._connectionSession;
       const link = this._link;
+      this._invalidateControllerBootEvidence("new-connection-session");
+      this._lastProgramFlowEvent = null;
+      this._runningControllerSlot = null;
+      this._runningControllerSession = null;
+      this._pendingProgramFlowStart = null;
       this._clearNotificationResponseTimeout();
       this._clearNotificationRecoveryTimer();
       if (this._pendingNotificationRequest) {
@@ -8295,6 +8627,26 @@ continuous_sensor_loop()
           const text = new TextDecoder()
             .decode(data.slice(1))
             .replace(/\0+$/, "");
+          const timestamp = Date.now();
+          const bootMarker = "BWCTRL:boot:tunnel-callback-registered";
+          this._controllerConsoleBootBuffer =
+            `${this._controllerConsoleBootBuffer}${text}`.slice(-512);
+          if (this._controllerConsoleBootBuffer.includes(bootMarker)) {
+            const evidence = {
+              link: this._link,
+              sessionId: this._connectionSession,
+              receivedAt: timestamp,
+              source: "controller-callback-ready-marker",
+            };
+            this._controllerBootEvidence = evidence;
+            this._recordDiagnosticEvent("controller-boot-evidence-received", {
+              sessionId: evidence.sessionId,
+              timestamp,
+              source: evidence.source,
+            });
+            this._settleControllerBootMarkerWaiters(evidence);
+            this._controllerConsoleBootBuffer = "";
+          }
           const installAttempt = this._diagnostics.controllerInstallAttempt;
           if (installAttempt?.outcome === "in-progress") {
             installAttempt.consoleOutput =
@@ -8304,7 +8656,7 @@ continuous_sensor_loop()
           if (this._replOutput.length > 4096) {
             this._replOutput = this._replOutput.slice(-4096);
           }
-          const notification = { timestamp: Date.now(), text };
+          const notification = { timestamp, text };
           this._diagnostics.recentConsoleNotifications.push(notification);
           const probeRun = this._activeStartupProbe;
           if (probeRun && notification.timestamp >= probeRun.startedAt) {
@@ -8369,7 +8721,6 @@ continuous_sensor_loop()
               .map((item) => item.text)
               .join("")
               .slice(-4096);
-          this._diagnostics.controllerInstallAttempt?.callbackReadyWaiter?.();
           this._recordDiagnosticEvent("console-notification", { text });
           break;
         }
@@ -8395,6 +8746,31 @@ continuous_sensor_loop()
         return;
       }
       const timestamp = Date.now();
+      this._lastProgramFlowEvent = {
+        action: action === 0 ? "start" : "stop",
+        timestamp,
+        sessionId: this._connectionSession,
+      };
+      this._invalidateControllerBootEvidence(
+        `program-flow-${action === 0 ? "start" : "stop"}`,
+        timestamp
+      );
+      if (action === 1) {
+        this._runningControllerSlot = null;
+        this._runningControllerSession = null;
+      } else {
+        this._runningControllerSlot = null;
+        this._runningControllerSession = null;
+        const pendingStart = this._pendingProgramFlowStart;
+        if (
+          pendingStart?.sessionId === this._connectionSession &&
+          timestamp >= pendingStart.requestAt
+        ) {
+          pendingStart.notifiedAt = timestamp;
+          this._runningControllerSlot = pendingStart.slot;
+          this._runningControllerSession = this._connectionSession;
+        }
+      }
       const notification = {
         timestamp,
         action: action === 0 ? "start" : "stop",
@@ -8448,6 +8824,13 @@ continuous_sensor_loop()
       }
 
       if (action === 0) {
+        if (this._controllerHeartbeatTimer !== null) {
+          clearInterval(this._controllerHeartbeatTimer);
+          this._controllerHeartbeatTimer = null;
+        }
+        this._controllerReady = false;
+        this._controllerVersion = null;
+        this._diagnostics.controllerStatus = "not-verified";
         for (const waiter of [...this._programFlowStartWaiters]) {
           if (timestamp >= waiter.afterTimestamp) waiter.resolve(notification);
         }
@@ -8485,7 +8868,9 @@ continuous_sensor_loop()
         if (action === 0) {
           attempt.programFlowStartedAt = timestamp;
           attempt.programFlowPhase = "start-notified";
+          this._diagnostics.controllerStatus = "starting";
           this._runningControllerSlot = attempt.slot;
+          this._runningControllerSession = this._connectionSession;
           const waiter = [...this._controllerStartWaiters].find(
             (candidate) => candidate.attempt === attempt
           );
@@ -8541,17 +8926,29 @@ continuous_sensor_loop()
                 "ProgramFlowNotification has no slot or request identifier; install waits for start and hello evidence",
             }
           );
+          if (attempt.outcome !== "startup-error") {
+            this._diagnostics.controllerStatus = "not-verified";
+          }
         }
         return;
       }
-      if (action === 1 && this._controllerReady) {
+      if (action === 1) {
         this._controllerReady = false;
+        this._controllerVersion = null;
         this._runningControllerSlot = null;
-        this._diagnostics.controllerStatus = "stopped";
+        this._runningControllerSession = null;
+        if (this._diagnostics.controllerStatus !== "startup-error") {
+          this._diagnostics.controllerStatus = "not-verified";
+        }
         if (this._controllerHeartbeatTimer !== null) {
           clearInterval(this._controllerHeartbeatTimer);
           this._controllerHeartbeatTimer = null;
         }
+        this._recordDiagnosticEvent("program-flow-stop-unattributed", {
+          reason:
+            "ProgramFlowNotification has no slot or request identifier; stop status is not confirmed",
+          notificationAt: timestamp,
+        });
       }
     }
 
@@ -13711,25 +14108,15 @@ continuous_sensor_loop()
           };
         }
 
-        const verificationStartedAt = Date.now();
-        try {
-          const verified = await hub.ensureControllerReady(true);
+        const bootEvidence = hub._getCurrentControllerBootEvidence();
+        if (bootEvidence) {
+          const verified = await hub.probeController(bootEvidence);
           assertCurrent();
           hub._recordDiagnosticEvent("saved-controller-already-running", {
             slot,
             verificationAt: Date.now(),
           });
           return { slot, alreadyRunning: true, ...verified };
-        } catch (error) {
-          assertCurrent();
-          const transportError = hub._diagnostics.lastTransportError;
-          if (
-            transportError?.timestamp >= verificationStartedAt ||
-            error?.code === "ERR_HUB_DISCONNECTED" ||
-            error?.code === "ERR_CONTROLLER_COMMAND_CANCELLED_BY_STOP"
-          ) {
-            throw error;
-          }
         }
 
         const startedAt = Date.now();
@@ -13738,6 +14125,7 @@ continuous_sensor_loop()
         const attempt = {
           slot,
           startedAt,
+          programFlowStartedAt: startResult.startedAt,
           programFlowStoppedAt: null,
           outcome: "in-progress",
           callbackReadyWaiter: null,

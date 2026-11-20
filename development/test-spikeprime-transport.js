@@ -252,6 +252,13 @@ function packMessage(message) {
   return Uint8Array.from([...output.map((byte) => byte ^ 3), 2]);
 }
 
+function emitControllerBootMarker(
+  state,
+  text = "BWCTRL:boot:tunnel-callback-registered\n"
+) {
+  state.device.tx.emit(packMessage([0x21, ...new TextEncoder().encode(text)]));
+}
+
 function unpackMessage(frame) {
   assert.equal(frame.at(-1), 2, "wire message has a 0x02 delimiter");
   const encoded = Array.from(frame.slice(0, -1), (byte) => byte ^ 3);
@@ -1550,6 +1557,118 @@ test("connection monitoring sends no tunnel or program-flow commands", async () 
   assert.equal(diagnostics.notificationTelemetry.validNotificationCount, 1);
 });
 
+test("sensor-only Prime sessions never tunnel hello or stop commands", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  fakeHub.running = true;
+  state.device.tx.emit(packMessage(notification(imuRecord({ pitch: 800 }))));
+
+  const writesBeforeVerify = state.device.writes.length;
+  await assert.rejects(
+    state.runtime.brickwrightSpikePrimeControl.verifyController(),
+    /hub remains connected|ハブの接続は維持されています/i
+  );
+  assert.equal(state.device.writes.length, writesBeforeVerify);
+  assert.equal(fakeHub.helloCount, 0);
+
+  await assert.rejects(
+    state.ext.motorStart({ PORT: "A", DIRECTION: 1 }),
+    /hub remains connected|ハブの接続は維持されています/i
+  );
+  const stopResult = await state.ext._peripheral.stopAll();
+  assert.equal(stopResult.stopped, false);
+  assert.equal(stopResult.outcome, "not-verified");
+  assert.equal(state.ext.isConnected(), true);
+
+  const messages = unpackWrittenMessages(state.device.writes);
+  assert.equal(
+    messages.some(([type]) => type === 0x32),
+    false
+  );
+  assert.equal(
+    messages.some(([type]) => type === 0x1e),
+    false
+  );
+  assert.equal(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).lastWrite
+      .controllerCommand,
+    undefined
+  );
+});
+
+test("an unrelated ProgramFlow start does not authorize hello; a fragmented current-session marker does", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  fakeHub.running = true;
+  state.device.tx.emit(packMessage([0x20, 0]));
+  const writesBeforeVerify = state.device.writes.length;
+
+  await assert.rejects(
+    state.runtime.brickwrightSpikePrimeControl.verifyController(),
+    /hub remains connected|ハブの接続は維持されています/i
+  );
+  assert.equal(state.device.writes.length, writesBeforeVerify);
+  assert.equal(fakeHub.helloCount, 0);
+  assert.equal(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).controllerStatus,
+    "not-verified",
+    "an unrelated ProgramFlow start does not label a controller as starting or ready"
+  );
+
+  emitControllerBootMarker(state, "BWCTRL:boot:tunnel-callback-");
+  emitControllerBootMarker(state, "registered\n");
+  await state.runtime.brickwrightSpikePrimeControl.verifyController();
+  assert.equal(fakeHub.helloCount, 1);
+  assert.equal(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).lastWrite
+      .controllerCommand,
+    "controller.hello"
+  );
+  state.device.tx.emit(packMessage([0x20, 1]));
+  emitControllerBootMarker(state);
+  const writesAfterStop = state.device.writes.length;
+  await assert.rejects(
+    state.runtime.brickwrightSpikePrimeControl.verifyController(),
+    /hub remains connected|ハブの接続は維持されています/i
+  );
+  assert.equal(state.device.writes.length, writesAfterStop);
+  assert.equal(fakeHub.helloCount, 1);
+  assert.equal(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).controllerBootEvidence
+      .status,
+    "not-observed"
+  );
+});
+
+test("a delayed hello response is discarded when ProgramFlow invalidates its boot evidence", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state, { helloResponseDelayMs: 500 });
+  fakeHub.running = true;
+  emitControllerBootMarker(state);
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+
+  const verify = state.runtime.brickwrightSpikePrimeControl.verifyController();
+  await waitUntil(() => fakeHub.helloCount === 1, "hello request sent");
+  state.device.tx.emit(packMessage([0x20, 1]));
+  await assert.rejects(
+    verify,
+    /hub remains connected|ハブの接続は維持されています/i
+  );
+  state.clock.advance(500);
+  await tick();
+
+  assert.equal(hub._controllerReady, false);
+  assert.equal(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).controllerStatus,
+    "not-verified"
+  );
+  assert.equal(fakeHub.helloCount, 1);
+});
+
 test("SPIKE 3.x verifies before output and never auto-starts an unknown controller slot", async () => {
   const state = setup();
   await connect(state);
@@ -1558,14 +1677,17 @@ test("SPIKE 3.x verifies before output and never auto-starts an unknown controll
   const writesBefore = state.device.writes.length;
   await assert.rejects(
     state.ext.motorStart({ PORT: "A", DIRECTION: 1 }),
-    /controller command failed|not running/i
+    /hub remains connected|ハブの接続は維持されています/i
   );
   const commandMessages = unpackWrittenMessages(
     state.device.writes.slice(writesBefore)
   );
-  assert.ok(commandMessages.some(([type]) => type === 0x32));
+  assert.equal(
+    commandMessages.some(([type]) => type === 0x32),
+    false
+  );
   assert.equal(fakeHub.helloCount, 0, "stopped fake ignores hello execution");
-  assert.ok(fakeHub.receivedCommands.includes("controller.hello"));
+  assert.equal(fakeHub.receivedCommands.includes("controller.hello"), false);
   assert.equal(fakeHub.startCount, 0);
   assert.equal(
     commandMessages.some(([type]) => [0x0c, 0x10, 0x1e, 0x46].includes(type)),
@@ -1881,6 +2003,12 @@ test("control center reconnect does not probe or start a remembered controller s
   assert.equal(connectedState.controllerReady, false);
   assert.equal(connectedState.controllerStatus, "not-verified");
   assert.equal(
+    state.runtime.brickwrightSpikePrimeControl.getState().diagnostics
+      .controllerBootEvidence.status,
+    "not-observed",
+    "boot evidence from the previous connection is cleared"
+  );
+  assert.equal(
     fakeHub.startCount,
     1,
     "a stored slot is not started during connection"
@@ -1931,6 +2059,7 @@ test("first intentional controller command verifies an already-running controlle
   await connect(state);
   const fakeHub = attachFakeControllerHub(state);
   fakeHub.running = true;
+  emitControllerBootMarker(state);
   state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
 
   await state.ext.motorStart({ PORT: "A", DIRECTION: 1 });
@@ -1962,16 +2091,17 @@ test("an intentional command does not auto-start a remembered but unverified slo
 
   await assert.rejects(
     state.ext.motorStart({ PORT: "A", DIRECTION: 1 }),
-    /controller command failed|not running/i
+    /hub remains connected|ハブの接続は維持されています/i
   );
 
   assert.equal(fakeHub.helloCount, 0);
-  assert.ok(fakeHub.receivedCommands.includes("controller.hello"));
+  assert.equal(fakeHub.receivedCommands.includes("controller.hello"), false);
   assert.equal(fakeHub.startCount, 0);
   const messages = unpackWrittenMessages(state.device.writes);
-  assert.ok(
+  assert.equal(
     messages.some(([type]) => type === 0x32),
-    "an intentional controller command performs read-only hello verification"
+    false,
+    "an intentional controller command never sends hello without boot evidence"
   );
   assert.equal(
     messages.some(([type]) => [0x0c, 0x10, 0x1e, 0x46].includes(type)),
@@ -2012,6 +2142,7 @@ test("control center exposes an explicit read-only controller verification actio
   await connect(state);
   const fakeHub = attachFakeControllerHub(state);
   fakeHub.running = true;
+  emitControllerBootMarker(state);
   const api = state.runtime.brickwrightSpikePrimeControl;
   const writesBefore = state.device.writes.length;
 
@@ -2019,6 +2150,11 @@ test("control center exposes an explicit read-only controller verification actio
 
   assert.equal(result.version, 1);
   assert.equal(fakeHub.helloCount, 1);
+  assert.equal(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).lastWrite
+      .controllerCommand,
+    "controller.hello"
+  );
   const messages = unpackWrittenMessages(
     state.device.writes.slice(writesBefore)
   );
@@ -2077,12 +2213,13 @@ test("control center explicitly restarts only the current hub's saved controller
   assert.equal(state.device.writes.length, writesBeforeReadyStart);
 });
 
-test("saved-controller start verifies a live controller after reconnect without restarting it", async () => {
+test("saved-controller start sends ProgramFlow before hello after reconnect", async () => {
   const state = setup();
   await connect(state);
   const fakeHub = attachFakeControllerHub(state);
-  fakeHub.running = true;
-  state.ext._writeControllerSlot(19);
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+  await state.ext.installHubController({ SLOT: 19 });
+  const startCountBeforeReconnect = fakeHub.startCount;
 
   state.ext.disconnectHub();
   state.device.autoInfoResponse = true;
@@ -2093,16 +2230,22 @@ test("saved-controller start verifies a live controller after reconnect without 
   const writesBeforeStart = state.device.writes.length;
   const result =
     await state.runtime.brickwrightSpikePrimeControl.startSavedController(19);
-  assert.equal(result.alreadyRunning, true);
-  assert.equal(fakeHub.startCount, 0);
+  assert.equal(result.version, 1);
+  assert.equal(fakeHub.startCount, startCountBeforeReconnect + 1);
   const messages = unpackWrittenMessages(
     state.device.writes.slice(writesBeforeStart)
   );
-  assert.ok(messages.some(([type]) => type === 0x32));
+  const startIndex = messages.findIndex(
+    ([type, action]) => type === 0x1e && action === 0
+  );
+  const helloIndex = messages.findIndex(([type]) => type === 0x32);
+  assert.ok(startIndex >= 0);
+  assert.ok(helloIndex > startIndex);
+  assert.equal(fakeHub.helloCount, 2);
   assert.equal(
-    messages.some(([type]) => [0x0c, 0x10, 0x1e, 0x46].includes(type)),
+    messages.some(([type]) => [0x0c, 0x10, 0x46].includes(type)),
     false,
-    "the explicit saved-slot action verifies a running controller without restarting it"
+    "saved-slot restart sends ProgramFlow before hello and never clears or retransfers"
   );
 });
 
@@ -3468,7 +3611,7 @@ test("an emergency stop never targets a replacement hub after reconnect", async 
   );
 });
 
-test("missing readiness console and lost first hello are recovered by bounded retry", async () => {
+test("missing callback-ready console does not send a speculative hello", async () => {
   const state = setup();
   await connect(state);
   const fakeHub = attachFakeControllerHub(state, {
@@ -3485,16 +3628,26 @@ test("missing readiness console and lost first hello are recovered by bounded re
     "start notification"
   );
   assert.equal(fakeHub.helloCount, 0);
-  state.clock.advance(1000);
-  await waitUntil(() => fakeHub.helloCount === 1, "first hello");
-  state.clock.advance(4000);
-  await waitUntil(() => fakeHub.helloCount === 2, "second hello");
-  assert.equal((await install).version, 1);
+  state.clock.advance(5000);
+  await assert.rejects(install, /startup callback was not observed/i);
+  assert.equal(fakeHub.helloCount, 0);
   assert.equal(hub._pendingControllerCommands.size, 0);
-  const ids = unpackWrittenMessages(state.device.writes)
-    .filter((m) => m[0] === 0x32)
-    .map((m) => JSON.parse(Buffer.from(m.slice(3)).toString()).i);
-  assert.notEqual(ids[0], ids[1]);
+  assert.equal(
+    unpackWrittenMessages(state.device.writes).some(([type]) => type === 0x32),
+    false,
+    "ProgramFlow start alone does not authorize a Tunnel hello"
+  );
+  assert.equal(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).controllerBootEvidence
+      .status,
+    "not-observed"
+  );
+  assert.equal(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).controllerInstallAttempt
+      .outcome,
+    "not-verified",
+    "missing console evidence is not reported as proven execution failure"
+  );
 });
 
 test("late hello response cannot resolve the next attempt", async () => {
@@ -3551,9 +3704,11 @@ test("manual controller check can verify an already-running program without clea
   const priorChunkCount = beforeCheck.filter(
     (message) => message[0] === 0x10
   ).length;
-  const result = await state.ext.checkHubController();
-  assert.equal(result.version, 1);
-  assert.equal(fakeHub.helloCount, 1);
+  await assert.rejects(
+    state.ext.checkHubController(),
+    /hub remains connected|ハブの接続は維持されています/i
+  );
+  assert.equal(fakeHub.helloCount, 0);
   assert.deepEqual(state.alertCalls, []);
   const afterCheck = unpackWrittenMessages(state.device.writes);
   assert.equal(
@@ -3563,6 +3718,11 @@ test("manual controller check can verify an already-running program without clea
   assert.equal(
     afterCheck.filter((message) => message[0] === 0x10).length,
     priorChunkCount
+  );
+  assert.equal(
+    afterCheck.some((message) => message[0] === 0x32),
+    false,
+    "a saved slot and a ProgramFlow start notification are not callback-ready proof"
   );
 });
 
