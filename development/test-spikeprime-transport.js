@@ -2030,6 +2030,104 @@ test("control center exposes an explicit read-only controller verification actio
   );
 });
 
+test("control center explicitly restarts only the current hub's saved controller slot", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  const api = state.runtime.brickwrightSpikePrimeControl;
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+  await state.ext.installHubController({ SLOT: 19 });
+  await api.stop();
+  assert.equal(fakeHub.running, false);
+
+  const writesBeforeStart = state.device.writes.length;
+  fakeHub.startNotificationDelayMs = 100;
+  const firstStart = api.startSavedController(19);
+  const duplicateStart = api.startSavedController(19);
+  assert.strictEqual(
+    firstStart,
+    duplicateStart,
+    "duplicate clicks share one explicit start operation"
+  );
+  await waitUntil(() => fakeHub.startCount === 2, "saved controller start");
+  state.clock.advance(100);
+  const result = await firstStart;
+
+  assert.equal(result.version, 1);
+  assert.equal(result.slot, 19);
+  assert.equal(fakeHub.running, true);
+  assert.equal(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).controllerStatus,
+    "ready"
+  );
+  const messages = unpackWrittenMessages(
+    state.device.writes.slice(writesBeforeStart)
+  );
+  assert.ok(messages.some(([type, action]) => type === 0x1e && action === 0));
+  assert.ok(messages.some(([type]) => type === 0x32));
+  assert.equal(
+    messages.some(([type]) => [0x0c, 0x10, 0x46].includes(type)),
+    false,
+    "restarting a saved controller never clears or retransfers its slot"
+  );
+
+  const writesBeforeReadyStart = state.device.writes.length;
+  const alreadyRunning = await api.startSavedController(19);
+  assert.equal(alreadyRunning.alreadyRunning, true);
+  assert.equal(state.device.writes.length, writesBeforeReadyStart);
+});
+
+test("saved-controller start verifies a live controller after reconnect without restarting it", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  fakeHub.running = true;
+  state.ext._writeControllerSlot(19);
+
+  state.ext.disconnectHub();
+  state.device.autoInfoResponse = true;
+  const connectedState =
+    await state.runtime.brickwrightSpikePrimeControl.connect();
+  assert.equal(connectedState.controllerReady, false);
+
+  const writesBeforeStart = state.device.writes.length;
+  const result =
+    await state.runtime.brickwrightSpikePrimeControl.startSavedController(19);
+  assert.equal(result.alreadyRunning, true);
+  assert.equal(fakeHub.startCount, 0);
+  const messages = unpackWrittenMessages(
+    state.device.writes.slice(writesBeforeStart)
+  );
+  assert.ok(messages.some(([type]) => type === 0x32));
+  assert.equal(
+    messages.some(([type]) => [0x0c, 0x10, 0x1e, 0x46].includes(type)),
+    false,
+    "the explicit saved-slot action verifies a running controller without restarting it"
+  );
+});
+
+test("saved-controller start rejects missing or mismatched slots without writing", async () => {
+  const state = setup();
+  await connect(state);
+  const api = state.runtime.brickwrightSpikePrimeControl;
+  const hub = state.ext._peripheral._spike3;
+  const writesBefore = state.device.writes.length;
+
+  await assert.rejects(
+    api.startSavedController(19),
+    /No Brickwright controller slot/
+  );
+  assert.equal(state.device.writes.length, writesBefore);
+
+  state.ext._writeControllerSlot(7);
+  await assert.rejects(
+    api.startSavedController(8),
+    /not the saved Brickwright controller slot/
+  );
+  assert.equal(state.device.writes.length, writesBefore);
+  assert.equal(hub._controllerReady, false);
+});
+
 test("control center installs to slot 0 by default without a migration", async () => {
   const state = setup();
   await connect(state);

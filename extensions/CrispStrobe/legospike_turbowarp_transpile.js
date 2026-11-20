@@ -6749,7 +6749,8 @@ continuous_sensor_loop()
       return promise;
     }
 
-    async _handshakeStartedController(attempt) {
+    async _handshakeStartedController(attempt, assertCurrent = null) {
+      if (assertCurrent) assertCurrent();
       const marker = "BWCTRL:boot:tunnel-callback-registered";
       const observed = () =>
         this._diagnostics.recentConsoleNotifications
@@ -6771,8 +6772,10 @@ continuous_sensor_loop()
           };
         });
       }
+      if (assertCurrent) assertCurrent();
       attempt.callbackReadyObserved = observed();
       for (let number = 1; number <= 3; number++) {
+        if (assertCurrent) assertCurrent();
         if (
           attempt.programFlowStoppedAt ||
           attempt.outcome === "startup-error"
@@ -6787,7 +6790,9 @@ continuous_sensor_loop()
           callbackReadyObserved: attempt.callbackReadyObserved,
         });
         try {
-          return await this.probeController();
+          const result = await this.probeController();
+          if (assertCurrent) assertCurrent();
+          return result;
         } catch (error) {
           if (error?.code !== "ERR_CONTROLLER_TIMEOUT" || number === 3) {
             throw error;
@@ -13348,6 +13353,7 @@ continuous_sensor_loop()
       this._peripheral = new HubRouter(this.runtime, "spikeprime");
       this._transpiler = new SpikeTranspiler();
       this._sessionProgramSlots = new Map();
+      this._savedControllerStartOperation = null;
       // The editor's SPIKE control center reads this narrow API instead of
       // reaching into the peripheral transport. It is intentionally read-only
       // except for explicit user actions (connect, install, stop, offline run).
@@ -13448,6 +13454,8 @@ continuous_sensor_loop()
           this.connectPeripheralFromControlCenter(peripheralId),
         disconnect: () => this.disconnectHub(),
         verifyController: () => this.verifyControllerFromControlCenter(),
+        startSavedController: (slot) =>
+          this.startSavedControllerFromControlCenter(slot),
         setMode: (mode) => this._peripheral.setMode(mode),
         setHubModel: (model) => this._peripheral.setHubModel(model),
         installController: (slot, options) =>
@@ -13581,6 +13589,176 @@ continuous_sensor_loop()
         throw new Error(t("controllerUnsupported"));
       }
       return hub.ensureControllerReady(true);
+    }
+
+    startSavedControllerFromControlCenter(slot) {
+      if (!Number.isInteger(slot) || slot < 0 || slot > 19) {
+        return Promise.reject(
+          new Error("Controller slot must be from 0 to 19")
+        );
+      }
+      const hub = this._peripheral.active;
+      if (!this._peripheral.isConnected() || !hub) {
+        return Promise.reject(new Error(t("notConnected")));
+      }
+      if (hub.standaloneCapable !== true) {
+        return Promise.reject(new Error(t("controllerUnsupported")));
+      }
+
+      const link = hub._link;
+      const deviceId = this._controllerDeviceId(link);
+      const savedSlot = this._readControllerSlotForDevice(deviceId);
+      if (savedSlot === null) {
+        return Promise.reject(
+          new Error("No Brickwright controller slot is saved for this hub")
+        );
+      }
+      if (slot !== savedSlot) {
+        return Promise.reject(
+          new Error(
+            `Slot ${slot} is not the saved Brickwright controller slot for this hub`
+          )
+        );
+      }
+
+      const sessionId = hub._connectionSession;
+      let commandGeneration = hub._controllerCommandGeneration;
+      const installGeneration = hub._controllerInstallGeneration;
+      const existing = this._savedControllerStartOperation;
+      if (existing) {
+        if (
+          existing.hub === hub &&
+          existing.link === link &&
+          existing.sessionId === sessionId &&
+          existing.slot === slot
+        ) {
+          return existing.promise;
+        }
+        return Promise.reject(
+          Object.assign(
+            new Error("A saved-controller start is already in progress"),
+            { code: "ERR_CONTROLLER_START_ALREADY_IN_PROGRESS" }
+          )
+        );
+      }
+
+      const operation = { hub, link, sessionId, slot, promise: null };
+      const assertSession = () => {
+        if (
+          this._peripheral.active !== hub ||
+          hub._link !== link ||
+          !hub.isConnected() ||
+          hub._connectionSession !== sessionId
+        ) {
+          throw Object.assign(
+            new Error("SPIKE hub changed while starting the saved controller"),
+            { code: "ERR_CONTROLLER_START_CONNECTION_CHANGED" }
+          );
+        }
+        if (
+          hub._controllerCommandGeneration !== commandGeneration ||
+          hub._controllerInstallGeneration !== installGeneration
+        ) {
+          throw hub._controllerCommandCancelledError();
+        }
+        if (this._readControllerSlotForDevice(deviceId) !== slot) {
+          throw Object.assign(
+            new Error("The saved Brickwright controller slot changed"),
+            { code: "ERR_CONTROLLER_SAVED_SLOT_CHANGED" }
+          );
+        }
+      };
+      const assertCurrent = () => {
+        assertSession();
+        if (hub._controllerStopping) {
+          throw hub._controllerCommandCancelledError();
+        }
+      };
+
+      const run = async () => {
+        assertSession();
+        if (hub._controllerStopPromise) {
+          await hub._controllerStopPromise;
+        }
+        // Reconnects while a stop is settling must not mutate a replacement
+        // hub's command state. Validate the original link/session first.
+        assertSession();
+        if (hub._controllerStopping) {
+          if (
+            hub._diagnostics.controllerStatus !== "stopped" ||
+            hub._diagnostics.lastStopAttempt?.outcome !== "success"
+          ) {
+            throw Object.assign(
+              new Error("The previous SPIKE stop was not confirmed"),
+              { code: "ERR_CONTROLLER_PREVIOUS_STOP_UNCONFIRMED" }
+            );
+          }
+          // A confirmed stop intentionally invalidates the old command queue.
+          // Reset that stopped state only for this explicit user action.
+          hub._controllerCommandGeneration++;
+          hub._controllerCommandQueue = Promise.resolve();
+          hub._controllerStopping = false;
+          commandGeneration = hub._controllerCommandGeneration;
+        }
+        assertCurrent();
+
+        if (hub._controllerReady) {
+          return {
+            slot,
+            alreadyRunning: true,
+            protocol: "brickwright-spike-controller",
+            version: 1,
+          };
+        }
+
+        const verificationStartedAt = Date.now();
+        try {
+          const verified = await hub.ensureControllerReady(true);
+          assertCurrent();
+          hub._recordDiagnosticEvent("saved-controller-already-running", {
+            slot,
+            verificationAt: Date.now(),
+          });
+          return { slot, alreadyRunning: true, ...verified };
+        } catch (error) {
+          assertCurrent();
+          const transportError = hub._diagnostics.lastTransportError;
+          if (
+            transportError?.timestamp >= verificationStartedAt ||
+            error?.code === "ERR_HUB_DISCONNECTED" ||
+            error?.code === "ERR_CONTROLLER_COMMAND_CANCELLED_BY_STOP"
+          ) {
+            throw error;
+          }
+        }
+
+        const startedAt = Date.now();
+        const startResult = await hub.startProgramInSlot(slot);
+        assertCurrent();
+        const attempt = {
+          slot,
+          startedAt,
+          programFlowStoppedAt: null,
+          outcome: "in-progress",
+          callbackReadyWaiter: null,
+        };
+        const handshake = await hub._handshakeStartedController(
+          attempt,
+          assertCurrent
+        );
+        return { ...startResult, ...handshake, slot };
+      };
+
+      operation.promise = Promise.resolve().then(run);
+      this._savedControllerStartOperation = operation;
+      operation.promise
+        .finally(() => {
+          if (this._savedControllerStartOperation === operation) {
+            this._savedControllerStartOperation = null;
+          }
+        })
+        .catch(() => {});
+      return operation.promise;
     }
 
     async connectPeripheralFromControlCenter(peripheralId) {
