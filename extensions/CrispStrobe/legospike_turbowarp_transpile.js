@@ -4226,6 +4226,7 @@ continuous_sensor_loop()
       this._lastTimedOutNotificationRequest = null;
       this._pendingProtocolResponses = new Map();
       this._pendingControllerCommands = new Map();
+      this._controllerVerification = null;
       this._controllerStartWaiters = new Set();
       this._programFlowStartWaiters = new Set();
       this._controllerCommandId = 0;
@@ -5419,10 +5420,21 @@ continuous_sensor_loop()
         return Promise.reject(this._controllerCommandCancelledError());
       }
       if (!this._controllerReady) {
-        const error = new Error(t("controllerNotReady"));
-        error.code = "ERR_CONTROLLER_NOT_READY";
-        this._recordCommunicationError(error);
-        return Promise.reject(error);
+        const link = this._link;
+        const sessionId = this._connectionSession;
+        const generation = this._controllerCommandGeneration;
+        return this.ensureControllerReady().then(() => {
+          if (
+            !this.isConnected() ||
+            this._link !== link ||
+            this._connectionSession !== sessionId ||
+            this._controllerCommandGeneration !== generation ||
+            this._controllerStopping
+          ) {
+            throw this._controllerCommandCancelledError();
+          }
+          return this._sendCommand(method, params);
+        });
       }
       const p = params || {};
       const port = String(p.port || "").toUpperCase();
@@ -6684,6 +6696,57 @@ continuous_sensor_loop()
           this._recordCommunicationError(error);
           throw error;
         });
+    }
+
+    ensureControllerReady(forceProbe = false) {
+      if (!this.isConnected()) return Promise.reject(this._notConnectedError());
+      if (this._controllerStopping) {
+        return Promise.reject(this._controllerCommandCancelledError());
+      }
+      if (this._controllerReady && !forceProbe) {
+        return Promise.resolve({
+          protocol: "brickwright-spike-controller",
+          version: 1,
+        });
+      }
+
+      const context = {
+        link: this._link,
+        sessionId: this._connectionSession,
+        generation: this._controllerCommandGeneration,
+      };
+      const current = this._controllerVerification;
+      if (
+        current &&
+        current.context.link === context.link &&
+        current.context.sessionId === context.sessionId &&
+        current.context.generation === context.generation
+      ) {
+        return current.promise;
+      }
+
+      const promise = this.probeController().then((result) => {
+        if (
+          !this.isConnected() ||
+          this._link !== context.link ||
+          this._connectionSession !== context.sessionId ||
+          this._controllerCommandGeneration !== context.generation ||
+          this._controllerStopping
+        ) {
+          throw this._controllerCommandCancelledError();
+        }
+        return result;
+      });
+      const verification = { context, promise };
+      this._controllerVerification = verification;
+      promise
+        .finally(() => {
+          if (this._controllerVerification === verification) {
+            this._controllerVerification = null;
+          }
+        })
+        .catch(() => {});
+      return promise;
     }
 
     async _handshakeStartedController(attempt) {
@@ -13384,6 +13447,7 @@ continuous_sensor_loop()
         connectPeripheral: (peripheralId) =>
           this.connectPeripheralFromControlCenter(peripheralId),
         disconnect: () => this.disconnectHub(),
+        verifyController: () => this.verifyControllerFromControlCenter(),
         setMode: (mode) => this._peripheral.setMode(mode),
         setHubModel: (model) => this._peripheral.setHubModel(model),
         installController: (slot, options) =>
@@ -13501,39 +13565,22 @@ continuous_sensor_loop()
       if (this._peripheral._activeProtocol === "spike3") {
         const hub = this._peripheral.active;
         await hub._waitForInfoResponse();
-        if (hub.standaloneCapable) await this._verifyOrStartController(hub);
+        if (this._peripheral.active !== hub || !hub.isConnected()) {
+          throw hub._notConnectedError();
+        }
       }
       return this.getControlCenterState();
     }
 
-    async _verifyOrStartController(hub) {
-      try {
-        await hub.probeController();
-      } catch (probeError) {
-        // Only auto-start a slot this browser previously verified as an
-        // installed Brickwright controller. Never guess a slot or clear it.
-        const slot = this._readControllerSlot();
-        if (slot === null || !hub.isConnected()) {
-          hub._diagnostics.controllerStatus = "not-verified";
-          hub._recordDiagnosticEvent("control-center-controller-not-verified", {
-            reason: probeError?.message || String(probeError),
-          });
-          return this.getControlCenterState();
-        }
-        try {
-          await hub.startProgramInSlot(slot);
-          await hub.probeController();
-        } catch (startError) {
-          hub._recordCommunicationError(startError);
-          hub._recordDiagnosticEvent(
-            "control-center-controller-autostart-failed",
-            {
-              slot,
-              reason: startError?.message || String(startError),
-            }
-          );
-        }
+    verifyControllerFromControlCenter() {
+      const hub = this._peripheral.active;
+      if (!this._peripheral.isConnected() || !hub) {
+        throw new Error(t("notConnected"));
       }
+      if (hub.standaloneCapable !== true) {
+        throw new Error(t("controllerUnsupported"));
+      }
+      return hub.ensureControllerReady(true);
     }
 
     async connectPeripheralFromControlCenter(peripheralId) {
@@ -13554,7 +13601,9 @@ continuous_sensor_loop()
       if (this._peripheral._activeProtocol === "spike3") {
         const hub = this._peripheral.active;
         await hub._waitForInfoResponse();
-        if (hub.standaloneCapable) await this._verifyOrStartController(hub);
+        if (this._peripheral.active !== hub || !hub.isConnected()) {
+          throw hub._notConnectedError();
+        }
       }
       // Keep this parameter read so that accidental use of a different VM
       // instance is visible in diagnostics during development.
@@ -17031,10 +17080,12 @@ continuous_sensor_loop()
         error.code = "ERR_UNSUPPORTED_HUB_COMMAND";
         return this._rejectOperation(error);
       }
-      return this._peripheral.active.probeController().catch((error) => {
-        this._peripheral.active?._recordCommunicationError?.(error);
-        throw error;
-      });
+      return this._peripheral.active
+        .ensureControllerReady(true)
+        .catch((error) => {
+          this._peripheral.active?._recordCommunicationError?.(error);
+          throw error;
+        });
     }
 
     connectHub() {

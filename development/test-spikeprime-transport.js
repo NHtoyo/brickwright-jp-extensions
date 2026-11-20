@@ -1550,19 +1550,32 @@ test("connection monitoring sends no tunnel or program-flow commands", async () 
   assert.equal(diagnostics.notificationTelemetry.validNotificationCount, 1);
 });
 
-test("SPIKE 3.x never writes an output command before a controller handshake", async () => {
+test("SPIKE 3.x verifies before output and never auto-starts an unknown controller slot", async () => {
   const state = setup();
   await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
   state.device.tx.emit(packMessage([0x29, 0x00]));
   const writesBefore = state.device.writes.length;
   await assert.rejects(
     state.ext.motorStart({ PORT: "A", DIRECTION: 1 }),
-    /Install and start the Brickwright SPIKE controller first/
+    /controller command failed|not running/i
+  );
+  const commandMessages = unpackWrittenMessages(
+    state.device.writes.slice(writesBefore)
+  );
+  assert.ok(commandMessages.some(([type]) => type === 0x32));
+  assert.equal(fakeHub.helloCount, 0, "stopped fake ignores hello execution");
+  assert.ok(fakeHub.receivedCommands.includes("controller.hello"));
+  assert.equal(fakeHub.startCount, 0);
+  assert.equal(
+    commandMessages.some(([type]) => [0x0c, 0x10, 0x1e, 0x46].includes(type)),
+    false,
+    "an unverified controller slot is never started or changed"
   );
   assert.equal(
-    state.device.writes.length,
-    writesBefore,
-    "without a verified command interpreter the block sends nothing"
+    fakeHub.actions.some((action) => action.cmd === "motor.run"),
+    false,
+    "output waits for a successful hello"
   );
 });
 
@@ -1843,7 +1856,7 @@ test("controller installation is non-modal, CRC-checked, transferred, started, a
   );
 });
 
-test("control center reconnect auto-starts only the previously verified controller slot", async () => {
+test("control center reconnect does not probe or start a remembered controller slot", async () => {
   const state = setup();
   await connect(state);
   const fakeHub = attachFakeControllerHub(state);
@@ -1853,20 +1866,117 @@ test("control center reconnect auto-starts only the previously verified controll
     state.runtime.brickwrightSpikePrimeControl.getState().controllerReady,
     true
   );
+  const helloCountBeforeReconnect = fakeHub.helloCount;
 
   state.ext.disconnectHub();
   fakeHub.running = false;
   state.device.autoInfoResponse = true;
+  const writesBeforeReconnect = state.device.writes.length;
   const connectedState =
     await state.runtime.brickwrightSpikePrimeControl.connect();
+  await tick();
 
   assert.equal(connectedState.connected, true);
   assert.equal(connectedState.controllerSlot, 19);
-  assert.equal(connectedState.controllerReady, true);
+  assert.equal(connectedState.controllerReady, false);
+  assert.equal(connectedState.controllerStatus, "not-verified");
   assert.equal(
     fakeHub.startCount,
-    2,
-    "reconnect restarted the remembered controller once"
+    1,
+    "a stored slot is not started during connection"
+  );
+  assert.equal(
+    fakeHub.helloCount,
+    helloCountBeforeReconnect,
+    "connection does not probe the tunnel"
+  );
+
+  const reconnectMessages = unpackWrittenMessages(
+    state.device.writes.slice(writesBeforeReconnect)
+  );
+  assert.ok(reconnectMessages.some(([type]) => type === 0x00));
+  assert.ok(reconnectMessages.some(([type]) => type === 0x28));
+  assert.equal(
+    reconnectMessages.some(([type]) =>
+      [0x0c, 0x10, 0x1e, 0x32, 0x46].includes(type)
+    ),
+    false,
+    "connection only requests device information and telemetry"
+  );
+});
+
+test("control center connects without controller or remembered slot side effects", async () => {
+  const state = setup();
+  state.device.autoInfoResponse = true;
+
+  const connectedState =
+    await state.runtime.brickwrightSpikePrimeControl.connect();
+  await tick();
+
+  assert.equal(connectedState.connected, true);
+  assert.equal(connectedState.controllerSlot, null);
+  assert.equal(connectedState.controllerReady, false);
+  const messages = unpackWrittenMessages(state.device.writes);
+  assert.ok(messages.some(([type]) => type === 0x00));
+  assert.ok(messages.some(([type]) => type === 0x28));
+  assert.equal(
+    messages.some(([type]) => [0x0c, 0x10, 0x1e, 0x32, 0x46].includes(type)),
+    false,
+    "a new hub connection does not upload, start, or message a controller"
+  );
+});
+
+test("first intentional controller command verifies an already-running controller", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  fakeHub.running = true;
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+
+  await state.ext.motorStart({ PORT: "A", DIRECTION: 1 });
+
+  assert.equal(fakeHub.helloCount, 1);
+  assert.ok(fakeHub.receivedCommands.includes("controller.hello"));
+  assert.equal(fakeHub.running, true);
+  assert.ok(fakeHub.actions.some((action) => action.cmd === "motor.run"));
+  const messages = unpackWrittenMessages(state.device.writes);
+  assert.ok(messages.some((message) => message[0] === 0x32));
+  assert.equal(
+    messages.some(([type]) => [0x0c, 0x10, 0x1e, 0x46].includes(type)),
+    false,
+    "readiness verification never starts or uploads a slot"
+  );
+  assert.equal(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).controllerStatus,
+    "ready"
+  );
+});
+
+test("an intentional command does not auto-start a remembered but unverified slot", async () => {
+  const state = setup();
+  await connect(state);
+  state.ext._writeControllerSlot(19);
+  const fakeHub = attachFakeControllerHub(state);
+  fakeHub.running = false;
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+
+  await assert.rejects(
+    state.ext.motorStart({ PORT: "A", DIRECTION: 1 }),
+    /controller command failed|not running/i
+  );
+
+  assert.equal(fakeHub.helloCount, 0);
+  assert.ok(fakeHub.receivedCommands.includes("controller.hello"));
+  assert.equal(fakeHub.startCount, 0);
+  const messages = unpackWrittenMessages(state.device.writes);
+  assert.ok(
+    messages.some(([type]) => type === 0x32),
+    "an intentional controller command performs read-only hello verification"
+  );
+  assert.equal(
+    messages.some(([type]) => [0x0c, 0x10, 0x1e, 0x46].includes(type)),
+    false,
+    "the stored slot is not automatically started or altered"
   );
 });
 
@@ -1895,6 +2005,29 @@ test("control center API is registered on the same router used by Scratch blocks
   api.setMode("scratchlink-ble");
   assert.equal(router.mode, "scratchlink-ble");
   assert.equal(api.getState().selectedConnectionMode, "scratchlink-ble");
+});
+
+test("control center exposes an explicit read-only controller verification action", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  fakeHub.running = true;
+  const api = state.runtime.brickwrightSpikePrimeControl;
+  const writesBefore = state.device.writes.length;
+
+  const result = await api.verifyController();
+
+  assert.equal(result.version, 1);
+  assert.equal(fakeHub.helloCount, 1);
+  const messages = unpackWrittenMessages(
+    state.device.writes.slice(writesBefore)
+  );
+  assert.ok(messages.some(([type]) => type === 0x32));
+  assert.equal(
+    messages.some(([type]) => [0x0c, 0x10, 0x1e, 0x46].includes(type)),
+    false,
+    "verification sends only the hello TunnelMessage"
+  );
 });
 
 test("control center installs to slot 0 by default without a migration", async () => {
@@ -3461,10 +3594,11 @@ test("a controller command timeout fails visibly and is never retried", async ()
     fakeHub.actions.some((action) => action.cmd === "motor.run"),
     false
   );
-  assert.equal(
-    JSON.parse(state.ext.getCommunicationDiagnostics()).controllerStatus,
-    "timeout"
-  );
+  const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.controllerStatus, "timeout");
+  assert.equal(state.ext.isConnected(), true);
+  assert.equal(diagnostics.disconnectCount, 0);
+  assert.equal(diagnostics.lastDisconnect, null);
 });
 
 test("failed transfer acknowledgement aborts before ProgramFlow starts a program", async () => {
