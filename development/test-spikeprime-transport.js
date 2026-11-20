@@ -139,12 +139,14 @@ class FakeCharacteristic {
 }
 
 class FakeHubDevice {
-  constructor() {
-    this.id = "fake-spike-prime-hub";
+  constructor(protocol = "spike3") {
+    this.protocol = protocol;
+    this.id =
+      protocol === "lwp3" ? "fake-spike-essential-hub" : "fake-spike-prime-hub";
     this.listeners = new Map();
     this.writes = [];
     this.rx = new FakeCharacteristic({ writes: this.writes });
-    this.tx = new FakeCharacteristic();
+    this.tx = protocol === "lwp3" ? this.rx : new FakeCharacteristic();
     this.gatt = {
       connected: false,
       connect: () => {
@@ -156,9 +158,23 @@ class FakeHubDevice {
         this.dispatch("gattserverdisconnected", {});
       },
       getPrimaryService: (uuid) => {
-        assert.equal(uuid, "0000fd02-0000-1000-8000-00805f9b34fb");
+        const lwp3 = "00001623-1212-efde-1623-785feabcd123";
+        const spike3 = "0000fd02-0000-1000-8000-00805f9b34fb";
+        if (this.protocol === "lwp3" && uuid !== lwp3) {
+          return Promise.reject(new Error("service unavailable"));
+        }
+        if (this.protocol !== "lwp3" && uuid !== spike3) {
+          return Promise.reject(new Error("service unavailable"));
+        }
         return Promise.resolve({
           getCharacteristic: (characteristicUUID) => {
+            if (this.protocol === "lwp3") {
+              assert.equal(
+                characteristicUUID,
+                "00001624-1212-efde-1623-785feabcd123"
+              );
+              return Promise.resolve(this.rx);
+            }
             if (characteristicUUID === "0000fd02-0001-1000-8000-00805f9b34fb") {
               return Promise.resolve(this.rx);
             }
@@ -171,6 +187,23 @@ class FakeHubDevice {
         });
       },
     };
+  }
+
+  emitLWP3(message) {
+    this.tx.emit(Uint8Array.from(message));
+  }
+
+  handleLWP3Write(message) {
+    if (message.length < 5 || message[0] !== message.length) return;
+    if (message[2] !== 0x01 || message[4] !== 0x05) return;
+    const property = message[3];
+    if (property === 0x0b) {
+      this.emitLWP3([6, 0, 0x01, property, 0x06, 0x83]);
+    } else if (property === 0x03) {
+      this.emitLWP3([9, 0, 0x01, property, 0x06, 1, 0, 0, 0]);
+    } else if (property === 0x06) {
+      this.emitLWP3([6, 0, 0x01, property, 0x06, 85]);
+    }
   }
 
   addEventListener(name, callback) {
@@ -328,10 +361,11 @@ function setup({
   failBluetoothChooser = false,
   locale = "en",
   developerMode = false,
+  hubKind = "prime",
 } = {}) {
   const clock = new FakeClock();
   const runtime = new FakeRuntime();
-  const device = new FakeHubDevice();
+  const device = new FakeHubDevice(hubKind === "essential" ? "lwp3" : "spike3");
   const bluetooth = {
     requests: [],
     requestDevice: (options) => {
@@ -355,6 +389,11 @@ function setup({
   const rxWrite = device.rx.writeValueWithoutResponse.bind(device.rx);
   let incomingFrame = [];
   device.rx.writeValueWithoutResponse = async (packet) => {
+    if (hubKind === "essential") {
+      await rxWrite(packet);
+      device.handleLWP3Write(Array.from(packet));
+      return;
+    }
     const completeMessages = [];
     for (const byte of packet) {
       incomingFrame.push(byte);
@@ -459,10 +498,16 @@ async function connect(setupResult) {
     "TX notifications enabled"
   );
   assert.equal(ext.isConnected(), true, "fake hub connected");
+  assert.equal(
+    ext._peripheral.detectedHubModel,
+    null,
+    "connected transport alone does not identify the hub model"
+  );
   assert.deepEqual(unpackMessage(Uint8Array.from(device.writes[0])), [0x00]);
   device.tx.emit(packMessage(infoResponse()));
   await tick();
   assert.equal(ext.getFirmwareVersion(), "1.6.62");
+  assert.equal(ext._peripheral.detectedHubModel, "prime");
   await tick();
   if (!setupResult.failRequestWrite) {
     assert.deepEqual(
@@ -471,6 +516,22 @@ async function connect(setupResult) {
       "the hub is asked for 100 ms device notifications"
     );
   }
+}
+
+async function connectEssential(setupResult) {
+  await setupResult.ext._peripheral.scan();
+  const { device, ext } = setupResult;
+  assert.equal(
+    device.tx.notificationsStarted,
+    true,
+    "LWP3 notifications enabled"
+  );
+  assert.equal(ext.isConnected(), true, "fake Essential hub connected");
+  const diagnostics = JSON.parse(ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.protocol, "lwp3-essential");
+  assert.equal(diagnostics.hubSystemType, 0x83);
+  assert.equal(diagnostics.detectedHubModel, "essential");
+  assert.deepEqual(diagnostics.availablePorts, ["A", "B"]);
 }
 
 const tests = [];
@@ -3223,6 +3284,204 @@ test("SPIKE 3.x display text uses acknowledged controller command", async () => 
   await assert.rejects(
     state.ext.displayText({ TEXT: "x".repeat(33) }),
     /32 UTF-8 bytes/
+  );
+});
+
+test("the real shared router identifies Essential from an LWP3 property response", async () => {
+  const state = setup({ hubKind: "essential" });
+  const api = state.runtime.brickwrightSpikePrimeControl;
+  assert.ok(api, "the same VM has the SPIKE control API");
+  api.setHubModel("essential");
+  assert.deepEqual(
+    Array.from(api.getState().availablePorts),
+    ["A", "B"],
+    "Essential ports are known before connecting"
+  );
+  const controlState = await api.connect("web-ble");
+  assert.equal(controlState.connected, true);
+  assert.equal(controlState.selectedHubModel, "essential");
+  assert.equal(controlState.detectedHubModel, "essential");
+  assert.equal(controlState.effectiveHubModel, "essential");
+  assert.equal(controlState.standaloneCapable, false);
+  assert.deepEqual(Array.from(controlState.availablePorts), ["A", "B"]);
+  assert.equal(
+    state.ext.isConnected(),
+    true,
+    "Scratch blocks share the connection"
+  );
+  const writesBeforeControllerRequest = state.device.writes.length;
+  await assert.rejects(api.installController(2));
+  assert.equal(
+    state.device.writes.length,
+    writesBeforeControllerRequest,
+    "Essential never attempts a Prime slot transfer"
+  );
+  assert.deepEqual(
+    state.device.writes.slice(0, 3),
+    [
+      [5, 0, 0x01, 0x0b, 0x05],
+      [5, 0, 0x01, 0x03, 0x05],
+      [5, 0, 0x01, 0x06, 0x05],
+    ],
+    "connect queries LWP3 system type, firmware, and battery properties"
+  );
+});
+
+test("verified connected Prime model overrides a conflicting Essential selection", async () => {
+  const state = setup();
+  await connect(state);
+  state.ext._peripheral.setHubModel("essential");
+  const controlState = state.runtime.brickwrightSpikePrimeControl.getState();
+  assert.equal(controlState.detectedHubModel, "prime");
+  assert.equal(controlState.effectiveHubModel, "prime");
+  assert.equal(controlState.modelStatus, "selection-mismatch");
+  assert.deepEqual(Array.from(controlState.availablePorts), [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+  ]);
+});
+
+test("Prime model detection stays unknown for truncated or unsupported product-group IDs", () => {
+  const truncated = setup().ext._peripheral._spike3;
+  truncated._handleInfoResponse(infoResponse().slice(0, 16));
+  assert.equal(truncated.detectedHubModel, null);
+  assert.equal(truncated.standaloneCapable, false);
+
+  const unsupported = setup().ext._peripheral._spike3;
+  const response = infoResponse();
+  response[15] = 1;
+  unsupported._handleInfoResponse(response);
+  assert.equal(unsupported.detectedHubModel, null);
+  assert.equal(unsupported.standaloneCapable, false);
+});
+
+test("Essential rejects nonexistent ports and executes motor commands on real LWP3 wire messages", async () => {
+  const state = setup({ hubKind: "essential" });
+  await connectEssential(state);
+  const { device, ext } = state;
+  const router = ext._peripheral;
+  const motorAttached = [7, 0, 0x04, 0, 0x01, 0x41, 0x00];
+  device.emitLWP3(motorAttached);
+  await tick();
+
+  const inputFormat = device.writes.find((message) => message[2] === 0x41);
+  assert.deepEqual(
+    inputFormat,
+    [10, 0, 0x41, 0, 2, 100, 0, 0, 0, 1],
+    "motor angle updates are enabled with a finite 100 ms LWP3 delta"
+  );
+  const writesBeforeInvalidPort = device.writes.length;
+  await assert.rejects(
+    router.sendCommand("scratch.motor_start", { port: "C", speed: 20 }),
+    /only ports A and B exist/
+  );
+  assert.equal(device.writes.length, writesBeforeInvalidPort);
+
+  device.emitLWP3([8, 0, 0x45, 0, 0x2c, 0x01, 0, 0]);
+  await tick();
+  assert.equal(router.portValues.A.relativePosition, 300);
+  assert.equal(typeof router.portValues.A.receivedAt, "number");
+  await new Promise((resolve) => setTimeout(resolve, 3));
+  device.emitLWP3([8, 0, 0x45, 0, 0x5e, 0x01, 0, 0]);
+  await tick();
+  assert.equal(router.portValues.A.relativePosition, 350);
+  assert.equal(typeof router.portValues.A.speed, "number");
+  assert.equal(ext.getRelativePosition({ PORT: "A" }), 350);
+  await router.sendCommand("scratch.motor_start", { port: "A", speed: 25 });
+  assert.deepEqual(
+    device.writes.at(-1),
+    [9, 0, 0x81, 0, 0x11, 0x07, 25, 100, 0]
+  );
+  await router.sendCommand("scratch.motor_stop", {
+    port: "A",
+    stop_mode: "brake",
+  });
+  assert.deepEqual(device.writes.at(-1), [8, 0, 0x81, 0, 0x11, 0x51, 0, 127]);
+  await router.stopAll();
+  assert.deepEqual(device.writes.at(-1), [8, 0, 0x81, 0, 0x11, 0x51, 0, 127]);
+});
+
+test("Essential sensor feeds update color, distance, and force reporters and hats", async () => {
+  const state = setup({ hubKind: "essential" });
+  await connectEssential(state);
+  const { device, ext } = state;
+  device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x3d, 0]);
+  device.emitLWP3([7, 0, 0x04, 1, 0x01, 0x3e, 0]);
+  await tick();
+  device.emitLWP3([5, 0, 0x45, 0, 9]);
+  device.emitLWP3([6, 0, 0x45, 1, 0xd2, 0x04]);
+  await tick();
+  assert.equal(ext._peripheral.portValues.A.color, 9);
+  assert.equal(ext.getColor({ PORT: "A" }), "red");
+  assert.equal(ext.whenColor({ PORT: "A", COLOR: "red" }), true);
+  assert.equal(ext._peripheral.portValues.B.distanceMM, 1234);
+  assert.equal(ext._peripheral.portValues.B.distance, 123.4);
+  assert.equal(ext.getDistance({ PORT: "B" }), 123.4);
+
+  device.emitLWP3([5, 0, 0x04, 0, 0x00]);
+  device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x3f, 0]);
+  await tick();
+  device.emitLWP3([5, 0, 0x45, 0, 24]);
+  await tick();
+  assert.equal(ext._peripheral.portValues.A.force, 24);
+  assert.equal(ext.getForce({ PORT: "A" }), 24);
+  assert.equal(ext._peripheral.portValues.A.pressed, true);
+  assert.equal(ext.whenForceSensor({ PORT: "A", STATE: "hard pressed" }), true);
+  assert.equal(ext.whenForceSensor({ PORT: "A", STATE: "pressed" }), true);
+});
+
+test("Essential matrix commands and value notifications use its 3x3 device", async () => {
+  const state = setup({ hubKind: "essential" });
+  await connectEssential(state);
+  const { device, ext } = state;
+  const port = "B";
+  device.emitLWP3([7, 0, 0x04, 1, 0x01, 0x40, 0]);
+  await tick();
+  const pixels = Array.from({ length: 9 }, (_, index) => [index + 1, 5]);
+  await ext._peripheral.sendCommand("scratch.matrix3_show", { port, pixels });
+  assert.deepEqual(
+    device.writes.at(-1),
+    [
+      16, 0, 0x81, 1, 0x10, 0x51, 0, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57,
+      0x58, 0x59,
+    ]
+  );
+  device.emitLWP3([13, 0, 0x45, 1, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  await tick();
+  assert.deepEqual(
+    Array.from(ext._peripheral.portValues.B.pixels),
+    [1, 2, 3, 4, 5, 6, 7, 8, 9]
+  );
+});
+
+test("Essential detach and reconnect clear stale sensor data while Prime remains SPIKE 3", async () => {
+  const state = setup({ hubKind: "essential" });
+  await connectEssential(state);
+  state.device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x41, 0]);
+  await tick();
+  state.device.emitLWP3([8, 0, 0x45, 0, 10, 0, 0, 0]);
+  await tick();
+  state.device.emitLWP3([5, 0, 0x04, 0, 0x00]);
+  await tick();
+  assert.equal(state.ext._peripheral.portValues.A.connected, false);
+  state.device.gatt.disconnect();
+  assert.equal(state.ext.isConnected(), false);
+  await state.ext._peripheral.scan();
+  assert.equal(state.ext.isConnected(), true);
+  assert.equal(state.ext._peripheral.detectedHubModel, "essential");
+  assert.equal(state.ext._peripheral.portValues.A, undefined);
+
+  const prime = setup();
+  await connect(prime);
+  assert.equal(prime.ext._peripheral.active, prime.ext._peripheral._spike3);
+  assert.equal(prime.ext._peripheral.protocol, "spike3");
+  assert.equal(
+    JSON.parse(prime.ext.getCommunicationDiagnostics()).firmwareVersion,
+    "1.6.62"
   );
 });
 

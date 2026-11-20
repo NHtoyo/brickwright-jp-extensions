@@ -1824,6 +1824,50 @@
     CONTROLLER_START_NOTIFICATION_TIMEOUT_MS: 7000,
   };
 
+  // The legacy Powered Up implementation uses the standard LWP3 UART
+  // service and message layouts for hubs such as SPIKE Essential. Keep this
+  // small transport adapter in the SPIKE extension so the gallery still loads
+  // a single standalone file; its output/input messages intentionally follow
+  // lego_poweredup.js (PoweredUpBLE, PoweredUpHub._setInputMode and
+  // PoweredUpHub.generateOutputCommand).
+  const LWP3 = {
+    SERVICE: "00001623-1212-efde-1623-785feabcd123",
+    CHARACTERISTIC: "00001624-1212-efde-1623-785feabcd123",
+    HUB_PROPERTIES: 0x01,
+    HUB_ATTACHED_IO: 0x04,
+    PORT_INPUT_FORMAT_SETUP_SINGLE: 0x41,
+    PORT_VALUE: 0x45,
+    OUTPUT: 0x81,
+    SYSTEM_TYPE_ID: 0x0b,
+    FW_VERSION: 0x03,
+    BATTERY_VOLTAGE: 0x06,
+    REQUEST_UPDATE: 0x05,
+    UPDATE: 0x06,
+    ATTACHED: 0x01,
+    DETACHED: 0x00,
+    DEVICE_SPIKE_SMALL_MOTOR: 0x41,
+    DEVICE_SPIKE_COLOR_SENSOR: 0x3d,
+    DEVICE_SPIKE_DISTANCE_SENSOR: 0x3e,
+    DEVICE_SPIKE_FORCE_SENSOR: 0x3f,
+    DEVICE_SPIKE_3X3_MATRIX: 0x40,
+  };
+
+  const LWP3Output = {
+    START_SPEED: 0x07,
+    START_SPEED_FOR_TIME: 0x09,
+    START_SPEED_FOR_DEGREES: 0x0b,
+    GO_TO_ABSOLUTE_POSITION: 0x0d,
+    PRESET_ENCODER: 0x14,
+    WRITE_DIRECT_MODE_DATA: 0x51,
+  };
+
+  const decodeLWP3Version = (data) => {
+    const majorMinor = data[3];
+    const bugfix = data[2].toString(16).padStart(2, "0");
+    const build = (data[0] | (data[1] << 8)).toString(16).padStart(4, "0");
+    return `${(majorMinor >> 4) & 0x07}.${majorMinor & 0x0f}.${bugfix}.${build}`;
+  };
+
   // The wire protocol only carries TunnelMessage payloads; it does not define
   // their meaning. This allow-listed controller is uploaded as a hub program
   // and is the interpreter for Brickwright's private JSON command protocol.
@@ -2974,13 +3018,18 @@ runloop.run(main())
       extensionId,
       connectCallback,
       resetCallback = null,
-      errorCallback = null
+      errorCallback = null,
+      selectedHubModel = "auto"
     ) {
       this._runtime = runtime;
       this._extensionId = extensionId;
       this._connectCallback = connectCallback;
       this._resetCallback = resetCallback;
       this._errorCallback = errorCallback;
+      this._selectedHubModel = selectedHubModel;
+      this._protocol = null;
+      this._serviceUUID = null;
+      this._characteristicUUID = null;
       this._device = null;
       this._server = null;
       this._rx = null;
@@ -2999,6 +3048,10 @@ runloop.run(main())
       return "gatt";
     }
 
+    get protocol() {
+      return this._protocol;
+    }
+
     static available() {
       return typeof navigator !== "undefined" && Boolean(navigator.bluetooth);
     }
@@ -3007,9 +3060,15 @@ runloop.run(main())
       if (!WebBLELink.available()) {
         throw new Error("Web Bluetooth is not available in this browser");
       }
+      // Advertised names are editable and are not a model identity. Let the
+      // chooser discover either protocol, then identify the selected device
+      // from the service and a response from the hub itself.
       this._device = await navigator.bluetooth.requestDevice({
-        filters: [{ services: [SPIKE3.SERVICE_LC] }],
-        optionalServices: [SPIKE3.SERVICE_LC],
+        filters: [
+          { services: [SPIKE3.SERVICE_LC] },
+          { services: [LWP3.SERVICE] },
+        ],
+        optionalServices: [SPIKE3.SERVICE_LC, LWP3.SERVICE],
       });
       this._deviceDisconnectListener = (event) => {
         this._connected = false;
@@ -3035,9 +3094,40 @@ runloop.run(main())
     async connectPeripheral() {
       if (!this._device) await this.requestPeripheral();
       this._server = await this._device.gatt.connect();
-      const service = await this._server.getPrimaryService(SPIKE3.SERVICE_LC);
-      this._rx = await service.getCharacteristic(SPIKE3.RX_CHAR_LC);
-      this._tx = await service.getCharacteristic(SPIKE3.TX_CHAR_LC);
+      const preferredServices =
+        this._selectedHubModel === "essential"
+          ? [LWP3.SERVICE, SPIKE3.SERVICE_LC]
+          : [SPIKE3.SERVICE_LC, LWP3.SERVICE];
+      let service = null;
+      let serviceUUID = null;
+      let lastServiceError = null;
+      for (const candidate of preferredServices) {
+        try {
+          service = await this._server.getPrimaryService(candidate);
+          serviceUUID = candidate;
+          break;
+        } catch (error) {
+          lastServiceError = error;
+        }
+      }
+      if (!service) {
+        throw new Error(
+          `Selected hub exposes neither SPIKE nor LWP3 service: ${lastServiceError?.message || "service unavailable"}`
+        );
+      }
+      if (serviceUUID === LWP3.SERVICE) {
+        this._protocol = "lwp3";
+        this._serviceUUID = LWP3.SERVICE;
+        this._characteristicUUID = LWP3.CHARACTERISTIC;
+        this._rx = await service.getCharacteristic(LWP3.CHARACTERISTIC);
+        this._tx = this._rx;
+      } else {
+        this._protocol = "spike3";
+        this._serviceUUID = SPIKE3.SERVICE_LC;
+        this._characteristicUUID = SPIKE3.TX_CHAR_LC;
+        this._rx = await service.getCharacteristic(SPIKE3.RX_CHAR_LC);
+        this._tx = await service.getCharacteristic(SPIKE3.TX_CHAR_LC);
+      }
       await this._tx.startNotifications();
       this._characteristicChangedListener = (event) => {
         if (!this._characteristicDidChangeCallback) return;
@@ -3048,7 +3138,9 @@ runloop.run(main())
           view.byteLength
         );
         this._characteristicDidChangeCallback(
-          Base64Util.uint8ArrayToBase64(bytes)
+          this._protocol === "lwp3"
+            ? Uint8Array.from(bytes)
+            : Base64Util.uint8ArrayToBase64(bytes)
         );
       };
       this._tx.addEventListener(
@@ -3057,7 +3149,7 @@ runloop.run(main())
       );
       this._connected = true;
       this._runtime.emit(this._runtime.constructor.PERIPHERAL_CONNECTED);
-      if (this._connectCallback) this._connectCallback();
+      if (this._connectCallback) await this._connectCallback(this);
     }
 
     disconnect({
@@ -3145,6 +3237,21 @@ runloop.run(main())
         encoding === "base64"
           ? Base64Util.base64ToUint8Array(message)
           : Uint8Array.from(message);
+      if (this._protocol === "lwp3") {
+        // LWP3 messages are sent directly, as one UART protocol message. In
+        // contrast, SPIKE 3 uses COBS frames fragmented by its negotiated MTU.
+        this._writeChain = this._writeChain
+          .catch(() => {})
+          .then(() => {
+            if (!this._rx || !this._connected) {
+              throw new Error("LWP3 characteristic is unavailable");
+            }
+            return this._rx.writeValueWithoutResponse
+              ? this._rx.writeValueWithoutResponse(bytes)
+              : this._rx.writeValue(bytes);
+          });
+        return this._writeChain;
+      }
       let writeAttempted = false;
       this._writeChain = this._writeChain
         .catch(() => {})
@@ -4191,6 +4298,8 @@ continuous_sensor_loop()
         infoResponseMessageHex: null,
         infoResponseFrameHex: null,
         infoResponseStatus: null,
+        productGroupDeviceId: null,
+        detectedHubModel: null,
         notificationRequest: {
           enabled: false,
           intervalMs: 0,
@@ -4378,6 +4487,8 @@ continuous_sensor_loop()
         connected: this.isConnected(),
         connectionMode,
         firmwareVersion: this._firmware,
+        productGroupDeviceId: this._diagnostics.productGroupDeviceId,
+        detectedHubModel: this._diagnostics.detectedHubModel,
         rpcVersion: this._rpcVersion,
         infoResponseReceivedAt: this._diagnostics.infoResponseReceivedAt,
         notificationRequest: { ...this._diagnostics.notificationRequest },
@@ -4457,6 +4568,12 @@ continuous_sensor_loop()
 
     get protocol() {
       return "spike3";
+    }
+    get standaloneCapable() {
+      return this._diagnostics.detectedHubModel === "prime";
+    }
+    get detectedHubModel() {
+      return this._diagnostics.detectedHubModel;
     }
     get firmwareVersion() {
       return this._firmware;
@@ -8128,6 +8245,10 @@ continuous_sensor_loop()
       const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
       this._rpcVersion = `${data[1]}.${data[2]}.${view.getUint16(3, true)}`;
       this._firmware = `${data[5]}.${data[6]}.${view.getUint16(7, true)}`;
+      const productGroupDeviceId = view.getUint16(15, true);
+      this._diagnostics.productGroupDeviceId = productGroupDeviceId;
+      this._diagnostics.detectedHubModel =
+        productGroupDeviceId === 0 ? "prime" : null;
       this._diagnostics.lastFirmwareVersion = this._firmware;
       this._diagnostics.infoResponseReceivedAt = Date.now();
       this._diagnostics.infoResponseMessageHex = this._protocolMessageHex(data);
@@ -8383,8 +8504,982 @@ continuous_sensor_loop()
 
   Spike3Hub.FACES = ["top", "front", "right", "bottom", "back", "left"];
 
+  /**
+   * LWP3 backend for SPIKE Essential and other two-port small hubs. The
+   * command layouts are the same ones used by the legacy Powered Up backend;
+   * this adapter intentionally implements only the SPIKE blocks whose device
+   * operations are defined for the Essential motor, sensors and 3x3 matrix.
+   */
+  class SpikeEssentialHub {
+    constructor(runtime, extensionId) {
+      this._runtime = runtime;
+      this._extensionId = extensionId;
+      this._link = null;
+      this._frame = [];
+      this._systemType = null;
+      this._detectedHubModel = null;
+      this._firmware = null;
+      this._battery = null;
+      this._devices = {};
+      this._portModes = {};
+      this._portValues = {};
+      this._sensorEdges = new Set();
+      this._lastCommunicationError = null;
+      this._motorSettings = Object.fromEntries(
+        SpikePorts.map((port) => [port, new SpikeMotorSetting()])
+      );
+      this._movementMotors = ["A", "B"];
+      this._pixelBrightness = 100;
+      this._volume = 100;
+      this._timer = { start: Date.now(), current: 0 };
+      this._replOutput = "";
+      this._replHistory = [];
+      this._portEdgeValues = {};
+      this._systemTypeWaiter = null;
+    }
+
+    get protocol() {
+      // Router's existing native-command branches are shared with the Prime
+      // SPIKE 3 path. Diagnostics expose the actual `lwp3-essential` protocol.
+      return "spike3";
+    }
+    get standaloneCapable() {
+      return false;
+    }
+    get detectedHubModel() {
+      return this._detectedHubModel;
+    }
+    get firmwareVersion() {
+      return this._firmware;
+    }
+    get angle() {
+      return { pitch: null, roll: null, yaw: null };
+    }
+    get orientation() {
+      return SpikeOrientation.front;
+    }
+    get faceUp() {
+      return null;
+    }
+    get portValues() {
+      return this._portValues;
+    }
+    get pixelBrightness() {
+      return this._pixelBrightness;
+    }
+    set pixelBrightness(value) {
+      this._pixelBrightness = value;
+    }
+    get motorSettings() {
+      return this._motorSettings;
+    }
+    get acceleration() {
+      return { x: null, y: null, z: null };
+    }
+    get accelerationFiltered() {
+      return { x: null, y: null, z: null };
+    }
+    get gyro() {
+      return { x: null, y: null, z: null };
+    }
+    get gyroFiltered() {
+      return { x: null, y: null, z: null };
+    }
+    get battery() {
+      return this._battery;
+    }
+    get temperature() {
+      return null;
+    }
+    get hubTemp() {
+      return null;
+    }
+    get power() {
+      return { current: null, voltage: null };
+    }
+    get gestures() {
+      return {};
+    }
+    get movementMotors() {
+      return this._movementMotors;
+    }
+    get timer() {
+      this._timer.current = (Date.now() - this._timer.start) / 1000;
+      return this._timer;
+    }
+    get volume() {
+      return this._volume;
+    }
+    get replOutput() {
+      return this._replOutput;
+    }
+    get replHistory() {
+      return this._replHistory;
+    }
+    get _sensors() {
+      return {
+        angle: this.angle,
+        motorPositions: Object.fromEntries(
+          Object.entries(this._portValues)
+            .filter(([, value]) => value.type === "motor")
+            .map(([port, value]) => [port, value])
+        ),
+        battery: this._battery,
+        buttons: [null, null, null],
+      };
+    }
+    get _movementMotors() {
+      return this.__movementMotors;
+    }
+    set _movementMotors(value) {
+      this.__movementMotors = value;
+    }
+    get _timer() {
+      return this.__timer;
+    }
+    set _timer(value) {
+      this.__timer = value;
+    }
+    get _volume() {
+      return this.__volume;
+    }
+    set _volume(value) {
+      this.__volume = value;
+    }
+    get _replOutput() {
+      return this.__replOutputValue;
+    }
+    set _replOutput(value) {
+      this.__replOutputValue = value;
+    }
+
+    attach(link) {
+      this._link = link;
+    }
+    isConnected() {
+      return Boolean(this._link && this._link.isConnected());
+    }
+
+    getDiagnostics(connectionMode = "") {
+      return {
+        protocol: "lwp3-essential",
+        connected: this.isConnected(),
+        connectionMode,
+        firmwareVersion: this._firmware,
+        hubSystemType: this._systemType,
+        detectedHubModel: this._detectedHubModel,
+        batteryLevel: this._battery,
+        portDevices: Object.fromEntries(
+          Object.entries(this._devices).map(([port, device]) => [
+            port,
+            { ...device },
+          ])
+        ),
+        portSensors: Object.fromEntries(
+          Object.entries(this._portValues).map(([port, value]) => [
+            port,
+            { ...value },
+          ])
+        ),
+        motorPorts: Object.fromEntries(
+          Object.entries(this._portValues)
+            .filter(([, value]) => value.type === "motor")
+            .map(([port, value]) => [port, { ...value }])
+        ),
+        controllerStatus: "not-applicable",
+        controllerReady: false,
+        standaloneCapable: false,
+        lastCommunicationError: this._lastCommunicationError,
+      };
+    }
+
+    _recordCommunicationError(error) {
+      this._lastCommunicationError =
+        error && error.message ? error.message : String(error);
+      return error;
+    }
+
+    _unsupportedError(detail) {
+      const error = new Error(`SPIKE Essential does not support ${detail}`);
+      error.code = "ERR_ESSENTIAL_UNSUPPORTED";
+      this._recordCommunicationError(error);
+      return error;
+    }
+
+    async _onConnect() {
+      this._frame = [];
+      this._systemType = null;
+      this._detectedHubModel = null;
+      this._firmware = null;
+      this._battery = null;
+      this._devices = {};
+      this._portModes = {};
+      this._portValues = {};
+      this._sensorEdges.clear();
+      if (!this._link) throw new Error("LWP3 transport is not attached");
+      await this._link.startNotifications(
+        LWP3.SERVICE,
+        LWP3.CHARACTERISTIC,
+        (data) => this._onMessage(data)
+      );
+
+      let resolveSystemType;
+      const systemType = new Promise((resolve) => {
+        resolveSystemType = resolve;
+      });
+      this._systemTypeWaiter = resolveSystemType;
+      await this._send([
+        5,
+        0,
+        LWP3.HUB_PROPERTIES,
+        LWP3.SYSTEM_TYPE_ID,
+        LWP3.REQUEST_UPDATE,
+      ]);
+      await this._send([
+        5,
+        0,
+        LWP3.HUB_PROPERTIES,
+        LWP3.FW_VERSION,
+        LWP3.REQUEST_UPDATE,
+      ]);
+      await this._send([
+        5,
+        0,
+        LWP3.HUB_PROPERTIES,
+        LWP3.BATTERY_VOLTAGE,
+        LWP3.REQUEST_UPDATE,
+      ]);
+      await Promise.race([
+        systemType,
+        new Promise((resolve) => setTimeout(resolve, 1500)),
+      ]);
+      this._systemTypeWaiter = null;
+      return this._detectedHubModel;
+    }
+
+    async _send(message) {
+      if (!this.isConnected()) throw new Error("LWP3 hub is not connected");
+      const bytes = Uint8Array.from(message);
+      try {
+        let write;
+        if (this._link instanceof BLELink) {
+          write = this._link.write(
+            LWP3.SERVICE,
+            LWP3.CHARACTERISTIC,
+            Base64Util.uint8ArrayToBase64(bytes),
+            "base64"
+          );
+        } else {
+          write = this._link.write(LWP3.SERVICE, LWP3.CHARACTERISTIC, bytes);
+        }
+        await write;
+      } catch (error) {
+        this._recordCommunicationError(error);
+        throw error;
+      }
+    }
+
+    _onMessage(data) {
+      let bytes;
+      try {
+        if (typeof data === "string")
+          bytes = Base64Util.base64ToUint8Array(data);
+        else if (data && typeof data.message === "string") {
+          bytes = Base64Util.base64ToUint8Array(data.message);
+        } else bytes = Uint8Array.from(data || []);
+      } catch (error) {
+        this._recordCommunicationError(error);
+        return;
+      }
+      this._frame.push(...bytes);
+      while (this._frame.length >= 3) {
+        const length = this._frame[0];
+        if (length < 3 || length > 64) {
+          this._frame.shift();
+          this._recordCommunicationError(
+            `invalid LWP3 message length ${length}`
+          );
+          continue;
+        }
+        if (this._frame.length < length) return;
+        const message = Uint8Array.from(this._frame.splice(0, length));
+        this._handleMessage(message);
+      }
+    }
+
+    _handleMessage(message) {
+      if (message.length < 3 || message[0] !== message.length) {
+        this._recordCommunicationError("malformed LWP3 message");
+        return;
+      }
+      const type = message[2];
+      if (type === LWP3.HUB_PROPERTIES) {
+        this._handleHubProperty(message);
+      } else if (type === LWP3.HUB_ATTACHED_IO) {
+        this._handleAttachedIO(message);
+      } else if (type === LWP3.PORT_VALUE) {
+        this._handlePortValue(message);
+      }
+    }
+
+    _handleHubProperty(message) {
+      const property = message[3];
+      if (message[4] !== LWP3.UPDATE || message.length < 6) return;
+      if (property === LWP3.SYSTEM_TYPE_ID) {
+        this._systemType = message[5];
+        // 0x83 (Technic Small Hub / SPIKE Essential) comes from LWP3 device
+        // identification used by powered-up implementations, not LEGO's
+        // published Product Group Device enum. It is trusted only as a value
+        // received from the connected hub over the LWP3 property response.
+        if (this._systemType === 0x83) this._detectedHubModel = "essential";
+        else if (this._systemType === 0x81) this._detectedHubModel = "prime";
+        else this._detectedHubModel = null;
+        if (this._systemTypeWaiter) this._systemTypeWaiter(this._systemType);
+      } else if (property === LWP3.FW_VERSION && message.length >= 9) {
+        this._firmware = decodeLWP3Version(message.slice(5, 9));
+      } else if (property === LWP3.BATTERY_VOLTAGE) {
+        this._battery = message[5];
+      }
+    }
+
+    _handleAttachedIO(message) {
+      if (message.length < 5) {
+        this._recordCommunicationError("truncated LWP3 HubAttachedIO message");
+        return;
+      }
+      const portId = message[3];
+      const port = portId === 0 ? "A" : portId === 1 ? "B" : null;
+      if (!port) return;
+      const event = message[4];
+      if (event === LWP3.DETACHED) {
+        delete this._devices[port];
+        delete this._portModes[port];
+        this._portValues[port] = {
+          connected: false,
+          type: "unknown",
+          receivedAt: null,
+        };
+        return;
+      }
+      if (event !== LWP3.ATTACHED) return;
+      if (message.length < 7) {
+        this._recordCommunicationError(
+          "truncated LWP3 attached-device message"
+        );
+        return;
+      }
+      const deviceType = message[5] | (message[6] << 8);
+      const typeNames = {
+        [LWP3.DEVICE_SPIKE_SMALL_MOTOR]: "motor",
+        [LWP3.DEVICE_SPIKE_COLOR_SENSOR]: "color",
+        [LWP3.DEVICE_SPIKE_DISTANCE_SENSOR]: "distance",
+        [LWP3.DEVICE_SPIKE_FORCE_SENSOR]: "force",
+        [LWP3.DEVICE_SPIKE_3X3_MATRIX]: "matrix3",
+      };
+      const type = typeNames[deviceType] || "unknown";
+      const now = Date.now();
+      this._devices[port] = {
+        port,
+        deviceType,
+        type,
+        connected: true,
+        attachedAt: now,
+      };
+      this._portValues[port] = {
+        port,
+        deviceType,
+        type,
+        connected: true,
+        attachedAt: now,
+        receivedAt: null,
+      };
+      if (deviceType === LWP3.DEVICE_SPIKE_SMALL_MOTOR) {
+        this._setInputMode(port, 2).catch((error) =>
+          this._recordCommunicationError(error)
+        );
+      } else if (deviceType === LWP3.DEVICE_SPIKE_COLOR_SENSOR) {
+        this._setInputMode(port, 0).catch((error) =>
+          this._recordCommunicationError(error)
+        );
+      } else if (deviceType === LWP3.DEVICE_SPIKE_DISTANCE_SENSOR) {
+        this._setInputMode(port, 1).catch((error) =>
+          this._recordCommunicationError(error)
+        );
+      } else if (deviceType === LWP3.DEVICE_SPIKE_FORCE_SENSOR) {
+        this._setInputMode(port, 0).catch((error) =>
+          this._recordCommunicationError(error)
+        );
+      }
+    }
+
+    async _setInputMode(port, mode) {
+      this._requirePort(port);
+      if (this._portModes[port] === mode) return;
+      const portId = port === "A" ? 0 : 1;
+      // LWP3 §3.17 Port Input Format Setup Single, matching the message used
+      // by PoweredUpHub._setInputMode in lego_poweredup.js.
+      await this._send([
+        10,
+        0,
+        LWP3.PORT_INPUT_FORMAT_SETUP_SINGLE,
+        portId,
+        mode,
+        100,
+        0,
+        0,
+        0,
+        1,
+      ]);
+      this._portModes[port] = mode;
+    }
+
+    _handlePortValue(message) {
+      if (message.length < 5) return;
+      const port = message[3] === 0 ? "A" : message[3] === 1 ? "B" : null;
+      if (!port || !this._devices[port]) return;
+      const device = this._devices[port];
+      const mode = this._portModes[port];
+      const now = Date.now();
+      const previous = this._portValues[port] || {};
+      let next = { ...previous, connected: true, receivedAt: now };
+      if (device.type === "motor" && mode === 2 && message.length >= 8) {
+        let position =
+          message[4] |
+          (message[5] << 8) |
+          (message[6] << 16) |
+          (message[7] << 24);
+        if (position > 2147483647) position -= 4294967296;
+        const elapsed = now - (previous.receivedAt || now);
+        const speed =
+          Number.isFinite(previous.relativePosition) && elapsed > 0
+            ? Math.round(
+                ((position - previous.relativePosition) * 1000) / elapsed
+              )
+            : null;
+        next = {
+          ...next,
+          type: "motor",
+          motorType: device.deviceType,
+          relativePosition: position,
+          absolutePosition: ((position % 360) + 360) % 360,
+          position: ((position % 360) + 360) % 360,
+          degreesCounted: position,
+          speed,
+        };
+      } else if (device.type === "color" && mode === 0) {
+        const color = message[4] > 127 ? message[4] - 256 : message[4];
+        next = { ...next, type: "color", color };
+        this._recordColorEdge(port, previous.color, color);
+      } else if (
+        device.type === "distance" &&
+        mode === 1 &&
+        message.length >= 6
+      ) {
+        let millimeters = message[4] | (message[5] << 8);
+        if (millimeters > 32767) millimeters -= 65536;
+        next = {
+          ...next,
+          type: "distance",
+          distanceMM: millimeters < 0 ? null : millimeters,
+          distance: millimeters < 0 ? null : millimeters / 10,
+        };
+      } else if (device.type === "force" && mode === 0) {
+        const force = message[4];
+        next = { ...next, type: "force", force, pressed: force > 0 };
+        if (Boolean(previous.pressed) !== Boolean(next.pressed)) {
+          this._sensorEdges.add(
+            `force:${port}:${next.pressed ? "pressed" : "released"}`
+          );
+        }
+        if (
+          !(previous.type === "force" && Number(previous.force) > 8) &&
+          force > 8
+        ) {
+          this._sensorEdges.add(`force:${port}:hard pressed`);
+        }
+      } else if (device.type === "matrix3" && message.length >= 13) {
+        next = {
+          ...next,
+          type: "matrix3",
+          pixels: Array.from(message.slice(4, 13)),
+        };
+      }
+      this._portValues[port] = next;
+    }
+
+    _recordColorEdge(port, previous, current) {
+      const colorNames = [
+        "black",
+        "magenta",
+        "purple",
+        "blue",
+        "azure",
+        "turquoise",
+        "green",
+        "yellow",
+        "orange",
+        "red",
+        "white",
+      ];
+      if (current < 0 || current >= colorNames.length || current === previous)
+        return;
+      this._sensorEdges.add(`color:${port}:${colorNames[current]}`);
+    }
+
+    _consumeSensorEdge(key) {
+      if (!this._sensorEdges.has(key)) return false;
+      this._sensorEdges.delete(key);
+      return true;
+    }
+
+    _requirePort(value) {
+      const port = String(value || "")
+        .trim()
+        .toUpperCase();
+      if (port !== "A" && port !== "B") {
+        throw this._unsupportedError(
+          `port ${port || "(empty)"}; only ports A and B exist`
+        );
+      }
+      return port;
+    }
+
+    _requireModel() {
+      if (this._systemType !== 0x83) {
+        throw this._unsupportedError(
+          this._systemType === null
+            ? "commands until a trusted LWP3 System Type response is received"
+            : `hub System Type 0x${this._systemType.toString(16)}; this LWP3 backend requires SPIKE Essential (0x83)`
+        );
+      }
+      if (!this.isConnected())
+        throw new Error("SPIKE Essential is not connected");
+    }
+
+    _output(port, subcommand, payload, feedback = true) {
+      const portId = this._requirePort(port) === "A" ? 0 : 1;
+      const message = [
+        6 + payload.length,
+        0,
+        LWP3.OUTPUT,
+        portId,
+        feedback ? 0x11 : 0x10,
+        subcommand,
+        ...payload,
+      ];
+      return this._send(message);
+    }
+
+    _int32(value) {
+      const n = Math.trunc(Number(value) || 0) | 0;
+      return [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff];
+    }
+
+    _stopMode(value) {
+      const mode = Number.isInteger(value)
+        ? ["coast", "brake", "hold"][value]
+        : String(value ?? "brake").toLowerCase();
+      if (!["coast", "brake", "hold"].includes(mode)) {
+        throw this._unsupportedError(`stop mode ${mode}`);
+      }
+      return mode;
+    }
+
+    _stopMotor(port, stopMode = "brake") {
+      const mode = this._stopMode(stopMode);
+      if (mode === "hold")
+        return this._output(port, LWP3Output.START_SPEED, [0, 100, 0]);
+      return this._output(port, LWP3Output.WRITE_DIRECT_MODE_DATA, [
+        0,
+        mode === "brake" ? 127 : 0,
+      ]);
+    }
+
+    sendCommand(method, params = {}) {
+      try {
+        this._requireModel();
+        const p = params || {};
+        const port = p.port ? this._requirePort(p.port) : "";
+        const speed = Math.max(
+          -100,
+          Math.min(100, Math.round(Number(p.speed) || 0))
+        );
+        const stopMode = this._stopMode(
+          p.stop_mode ??
+            p.stop ??
+            (port ? this._motorSettings[port].stopMode : "brake")
+        );
+        switch (method) {
+          case "scratch.motor_start":
+          case "scratch.motor_set_speed":
+            this._requireMotor(port);
+            return this._output(port, LWP3Output.START_SPEED, [
+              speed & 0xff,
+              100,
+              0,
+            ]);
+          case "scratch.motor_power":
+            this._requireMotor(port);
+            return this._output(port, LWP3Output.WRITE_DIRECT_MODE_DATA, [
+              0,
+              Math.max(-100, Math.min(100, Math.round(Number(p.power) || 0))) &
+                0xff,
+            ]);
+          case "scratch.motor_stop":
+            this._requireMotor(port);
+            return this._stopMotor(port, stopMode);
+          case "scratch.motor_run_for_degrees": {
+            this._requireMotor(port);
+            const degrees = Math.max(
+              -36000,
+              Math.min(36000, Math.trunc(Number(p.degrees) || 0))
+            );
+            const direction = Math.sign(degrees) || 1;
+            return this._output(port, LWP3Output.START_SPEED_FOR_DEGREES, [
+              ...this._int32(Math.abs(degrees)),
+              (Math.abs(speed) * direction) & 0xff,
+              100,
+              stopMode === "coast" ? 0 : stopMode === "hold" ? 126 : 127,
+              0,
+            ]);
+          }
+          case "scratch.motor_run_timed": {
+            this._requireMotor(port);
+            const ms = Math.max(
+              10,
+              Math.min(60000, Math.trunc(Number(p.time) || 10))
+            );
+            const units = Math.ceil(ms / 10);
+            return this._output(port, LWP3Output.START_SPEED_FOR_TIME, [
+              units & 0xff,
+              (units >> 8) & 0xff,
+              speed & 0xff,
+              100,
+              stopMode === "coast" ? 0 : stopMode === "hold" ? 126 : 127,
+              0,
+            ]);
+          }
+          case "scratch.motor_run_to_position": {
+            this._requireMotor(port);
+            const position = Math.max(
+              -36000,
+              Math.min(36000, Math.trunc(Number(p.position) || 0))
+            );
+            return this._output(port, LWP3Output.GO_TO_ABSOLUTE_POSITION, [
+              ...this._int32(position),
+              2,
+              Math.max(1, Math.abs(speed)),
+              stopMode === "coast" ? 0 : stopMode === "hold" ? 126 : 127,
+              0,
+            ]);
+          }
+          case "scratch.motor_reset_position":
+            this._requireMotor(port);
+            return this._output(
+              port,
+              LWP3Output.PRESET_ENCODER,
+              this._int32(p.position)
+            );
+          case "scratch.motor_set_stop_action":
+            this._requireMotor(port);
+            this._motorSettings[port].stopMode = {
+              coast: 0,
+              brake: 1,
+              hold: 2,
+            }[stopMode];
+            return Promise.resolve();
+          case "scratch.motor_pair_configure": {
+            const left = this._requirePort(p.left_port);
+            const right = this._requirePort(p.right_port);
+            if (left === right)
+              throw this._unsupportedError(
+                "a motor pair using the same port twice"
+              );
+            this._movementMotors = [left, right];
+            return Promise.resolve();
+          }
+          case "scratch.motor_pair_stop":
+            return Promise.all(
+              this._movementMotors.map((motorPort) =>
+                this._stopMotor(motorPort, stopMode)
+              )
+            );
+          case "scratch.motor_pair_move":
+            return this._pairSpeeds(
+              Math.round(
+                (Number(p.speed) || 0) * (1 - Number(p.steering || 0) / 100)
+              ),
+              Math.round(
+                (Number(p.speed) || 0) * (1 + Number(p.steering || 0) / 100)
+              )
+            );
+          case "scratch.motor_pair_move_tank":
+            return this._pairSpeeds(
+              Number(p.left_speed) || 0,
+              Number(p.right_speed) || 0
+            );
+          case "scratch.motor_pair_move_degrees":
+            return this._pairDegrees(p, stopMode);
+          case "scratch.motor_pair_move_time":
+            return this._pairTime(p, stopMode);
+          case "scratch.motor_pair_move_tank_degrees":
+            return this._pairDegrees(
+              {
+                ...p,
+                steering: 0,
+                left_speed: p.left_speed,
+                right_speed: p.right_speed,
+                tank: true,
+              },
+              stopMode
+            );
+          case "scratch.motor_pair_move_tank_time":
+            return this._pairTime(
+              {
+                ...p,
+                steering: 0,
+                left_speed: p.left_speed,
+                right_speed: p.right_speed,
+                tank: true,
+              },
+              stopMode
+            );
+          case "scratch.matrix3_show":
+            return this._matrixWrite(port, p.pixels);
+          case "scratch.matrix3_clear":
+            return this._matrixWrite(
+              port,
+              Array.from({ length: 9 }, () => [0, 0])
+            );
+          case "scratch.matrix3_pixel": {
+            const current =
+              this._portValues[port]?.pixels?.slice() || Array(9).fill(0);
+            const x = Math.trunc(Number(p.x));
+            const y = Math.trunc(Number(p.y));
+            if (x < 0 || x > 2 || y < 0 || y > 2)
+              throw this._unsupportedError(
+                "pixel coordinates outside the 3x3 matrix"
+              );
+            const index = y * 3 + x;
+            const color = current[index] & 0x0f;
+            const brightness = Math.max(
+              0,
+              Math.min(10, Math.trunc(Number(p.intensity) || 0))
+            );
+            current[index] = brightness * 16 + color;
+            return this._matrixWrite(
+              port,
+              current.map((pixel) => [pixel & 0x0f, pixel >> 4])
+            );
+          }
+          default:
+            return Promise.reject(this._unsupportedError(`command ${method}`));
+        }
+      } catch (error) {
+        this._recordCommunicationError(error);
+        return Promise.reject(error);
+      }
+    }
+
+    _requireMotor(port) {
+      if (
+        !this._devices[port] ||
+        this._devices[port].deviceType !== LWP3.DEVICE_SPIKE_SMALL_MOTOR
+      ) {
+        throw this._unsupportedError(`a motor on port ${port}`);
+      }
+    }
+
+    _pairSpeeds(leftSpeed, rightSpeed) {
+      const [left, right] = this._movementMotors;
+      this._requireMotor(left);
+      this._requireMotor(right);
+      return Promise.all([
+        this._output(left, LWP3Output.START_SPEED, [
+          Math.max(-100, Math.min(100, Math.round(leftSpeed))) & 0xff,
+          100,
+          0,
+        ]),
+        this._output(right, LWP3Output.START_SPEED, [
+          Math.max(-100, Math.min(100, Math.round(rightSpeed))) & 0xff,
+          100,
+          0,
+        ]),
+      ]);
+    }
+
+    _pairDegrees(p, stopMode) {
+      const [left, right] = this._movementMotors;
+      this._requireMotor(left);
+      this._requireMotor(right);
+      const degrees = Math.trunc(Number(p.degrees) || 0);
+      const steering = Math.max(-100, Math.min(100, Number(p.steering) || 0));
+      const base = Number(p.speed) || 0;
+      const leftSpeed = p.tank
+        ? Number(p.left_speed) || 0
+        : base * (1 - steering / 100);
+      const rightSpeed = p.tank
+        ? Number(p.right_speed) || 0
+        : base * (1 + steering / 100);
+      const endState =
+        stopMode === "coast" ? 0 : stopMode === "hold" ? 126 : 127;
+      return Promise.all([
+        this._output(left, LWP3Output.START_SPEED_FOR_DEGREES, [
+          ...this._int32(Math.abs(degrees)),
+          (Math.sign(degrees || 1) *
+            Math.sign(leftSpeed || 1) *
+            Math.abs(leftSpeed)) &
+            0xff,
+          100,
+          endState,
+          0,
+        ]),
+        this._output(right, LWP3Output.START_SPEED_FOR_DEGREES, [
+          ...this._int32(Math.abs(degrees)),
+          (Math.sign(degrees || 1) *
+            Math.sign(rightSpeed || 1) *
+            Math.abs(rightSpeed)) &
+            0xff,
+          100,
+          endState,
+          0,
+        ]),
+      ]);
+    }
+
+    _pairTime(p, stopMode) {
+      const duration = Math.max(
+        10,
+        Math.min(60000, Math.trunc(Number(p.duration_ms) || 10))
+      );
+      const units = Math.ceil(duration / 10);
+      const [left, right] = this._movementMotors;
+      this._requireMotor(left);
+      this._requireMotor(right);
+      const steering = Math.max(-100, Math.min(100, Number(p.steering) || 0));
+      const base = Number(p.speed) || 0;
+      const leftSpeed = p.tank
+        ? Number(p.left_speed) || 0
+        : base * (1 - steering / 100);
+      const rightSpeed = p.tank
+        ? Number(p.right_speed) || 0
+        : base * (1 + steering / 100);
+      const endState =
+        stopMode === "coast" ? 0 : stopMode === "hold" ? 126 : 127;
+      const command = (speed) => [
+        units & 0xff,
+        (units >> 8) & 0xff,
+        Math.round(speed) & 0xff,
+        100,
+        endState,
+        0,
+      ];
+      return Promise.all([
+        this._output(left, LWP3Output.START_SPEED_FOR_TIME, command(leftSpeed)),
+        this._output(
+          right,
+          LWP3Output.START_SPEED_FOR_TIME,
+          command(rightSpeed)
+        ),
+      ]);
+    }
+
+    _matrixWrite(port, pixels) {
+      port = this._requirePort(port);
+      if (this._devices[port]?.deviceType !== LWP3.DEVICE_SPIKE_3X3_MATRIX) {
+        throw this._unsupportedError(
+          `a SPIKE Essential 3x3 matrix on port ${port}`
+        );
+      }
+      if (!Array.isArray(pixels) || pixels.length !== 9) {
+        throw this._unsupportedError(
+          "a 3x3 matrix pattern containing exactly nine pixels"
+        );
+      }
+      const packed = pixels.map((pixel) => {
+        if (Array.isArray(pixel)) {
+          const color = Math.max(
+            0,
+            Math.min(10, Math.trunc(Number(pixel[0]) || 0))
+          );
+          const brightness = Math.max(
+            0,
+            Math.min(10, Math.trunc(Number(pixel[1]) || 0))
+          );
+          return (brightness << 4) | color;
+        }
+        return Math.max(0, Math.min(255, Math.trunc(Number(pixel) || 0)));
+      });
+      return this._output(
+        port,
+        LWP3Output.WRITE_DIRECT_MODE_DATA,
+        [0, ...packed],
+        false
+      );
+    }
+
+    sendPythonCommand() {
+      return Promise.reject(
+        this._unsupportedError(
+          "Python-over-BLE; Essential uses LWP3 hardware commands"
+        )
+      );
+    }
+    sendRaw() {
+      return Promise.reject(this._unsupportedError("REPL commands"));
+    }
+    sendReplCommand() {
+      return Promise.reject(this._unsupportedError("REPL commands"));
+    }
+    stopSound() {
+      return Promise.resolve();
+    }
+    stopAll() {
+      return this.stopAllMotors();
+    }
+    stopAllMotors() {
+      if (!this.isConnected()) return Promise.resolve();
+      const ports = Object.entries(this._devices)
+        .filter(
+          ([, device]) => device.deviceType === LWP3.DEVICE_SPIKE_SMALL_MOTOR
+        )
+        .map(([port]) => port);
+      return Promise.all(ports.map((port) => this._stopMotor(port, "brake")));
+    }
+
+    reset({ origin = "user-requested", error = null } = {}) {
+      if (error) this._recordCommunicationError(error);
+      this._frame = [];
+      this._devices = {};
+      this._portModes = {};
+      this._portValues = {};
+      this._sensorEdges.clear();
+      this._systemType = null;
+      this._detectedHubModel = null;
+      this._firmware = null;
+      this._battery = null;
+      if (this._systemTypeWaiter) this._systemTypeWaiter(null);
+      this._systemTypeWaiter = null;
+      if (origin !== "user-requested" && !error) {
+        this._recordCommunicationError(
+          "SPIKE Essential disconnected unexpectedly"
+        );
+      }
+    }
+
+    async disconnect() {
+      if (this.isConnected())
+        await this.stopAllMotors().catch((error) =>
+          this._recordCommunicationError(error)
+        );
+      if (this._link) this._link.disconnect();
+      this.reset();
+      this._link = null;
+    }
+  }
+
   // ============================================================================
-  // HUB ROUTER — one extension, five ways in
+  // HUB ROUTER — one extension and one shared physical connection
   //
   // This is what replaces the five separate extension ids. It holds both hubs
   // (the 2.x REPL one and the 3.x binary one), picks a transport, and is the
@@ -8475,9 +9570,11 @@ continuous_sensor_loop()
       this._controlCenterAPI = null;
       this._candidates = [];
       this._bridgeURL = "localhost:8081";
+      this._selectedHubModel = "auto";
 
       this._repl = new SpikePrime(this._runtime, extensionId);
       this._spike3 = new Spike3Hub(this._runtime, extensionId);
+      this._essential = new SpikeEssentialHub(this._runtime, extensionId);
       this._activeProtocol = "repl";
 
       // A runtime that cannot hold a peripheral (a headless one, a harness)
@@ -8513,6 +9610,53 @@ continuous_sensor_loop()
       return this._mode;
     }
 
+    get selectedHubModel() {
+      return this._selectedHubModel;
+    }
+
+    setHubModel(model) {
+      const wanted = String(model || "auto")
+        .trim()
+        .toLowerCase();
+      this._selectedHubModel = ["auto", "prime", "essential"].includes(wanted)
+        ? wanted
+        : "auto";
+      return this._selectedHubModel;
+    }
+
+    get detectedHubModel() {
+      if (this._activeProtocol === "essential")
+        return this._essential.detectedHubModel;
+      if (this._activeProtocol === "spike3")
+        return this._spike3.detectedHubModel;
+      return null;
+    }
+
+    get effectiveHubModel() {
+      return this.detectedHubModel;
+    }
+
+    get availablePorts() {
+      if (this.isConnected()) {
+        if (this._activeProtocol === "essential") {
+          if (this._essential.detectedHubModel === "essential")
+            return ["A", "B"];
+          if (this._essential.detectedHubModel === "prime")
+            return [...SpikePorts];
+          return [];
+        }
+        if (this._activeProtocol === "spike3") {
+          return this._spike3.detectedHubModel === "prime"
+            ? [...SpikePorts]
+            : [];
+        }
+        return [...SpikePorts];
+      }
+      if (this._selectedHubModel === "essential") return ["A", "B"];
+      if (this._selectedHubModel === "auto") return [...SpikePorts];
+      return [...SpikePorts];
+    }
+
     get resolvedMode() {
       return this._resolvedMode;
     }
@@ -8535,6 +9679,7 @@ continuous_sensor_loop()
 
     /** The hub currently driving the blocks. */
     get active() {
+      if (this._activeProtocol === "essential") return this._essential;
       return this._activeProtocol === "spike3" ? this._spike3 : this._repl;
     }
 
@@ -8548,6 +9693,9 @@ continuous_sensor_loop()
      */
     get hubDescription() {
       if (!this.isConnected()) return "";
+      if (this._activeProtocol === "essential") {
+        return `SPIKE Essential (firmware ${this._essential.firmwareVersion || "unknown"})`;
+      }
       return describeHub(
         this._activeProtocol,
         this.active.firmwareVersion,
@@ -8662,19 +9810,22 @@ continuous_sensor_loop()
         }
 
         case HubMode.WEB_BLE: {
+          let webBLELink = null;
           const link = new WebBLELink(
             this._runtime,
             this._extensionId,
-            this._spike3._onConnect,
-            this._spike3.reset,
-            this._spike3._recordTransportError.bind(this._spike3)
+            (connectedLink) => this._handleWebBLEConnect(connectedLink),
+            (context) => this._handleWebBLEReset(webBLELink, context),
+            (error, context) =>
+              this._handleWebBLEError(webBLELink, error, context),
+            this._selectedHubModel
           );
-          this._spike3.attach(link);
+          webBLELink = link;
           // Web Bluetooth has no discovery step of its own: the browser's
           // chooser IS the discovery, and it must run from the gesture that
           // opened it. So this goes straight to connecting.
           return link.connectPeripheral().catch((error) => {
-            this._spike3._recordTransportError(error);
+            this._handleWebBLEError(link, error);
             this._emitRequestError();
             throw error;
           });
@@ -8700,9 +9851,59 @@ continuous_sensor_loop()
       return Promise.resolve();
     }
 
+    async _handleWebBLEConnect(link) {
+      if (link.protocol === "lwp3") {
+        this._activeProtocol = "essential";
+        this._essential.attach(link);
+        const model = await this._essential._onConnect();
+        if (model !== "essential") {
+          const error = new Error(
+            model === "prime"
+              ? "The selected LWP3 hub is SPIKE Prime; this LWP3 route currently supports SPIKE Essential only"
+              : "The hub did not identify itself as SPIKE Essential over LWP3"
+          );
+          this._essential._recordCommunicationError(error);
+          throw error;
+        }
+        if (
+          this._selectedHubModel !== "auto" &&
+          this._selectedHubModel !== model
+        ) {
+          throw new Error(
+            `Selected hub model is ${this._selectedHubModel}, but LWP3 identified ${model}`
+          );
+        }
+        return;
+      }
+      if (this._selectedHubModel === "essential") {
+        throw new Error(
+          "Selected hub model is SPIKE Essential, but the connected hub exposes the SPIKE service"
+        );
+      }
+      this._activeProtocol = "spike3";
+      this._spike3.attach(link);
+      await this._spike3._onConnect();
+    }
+
+    _handleWebBLEReset(link, context = {}) {
+      if (link?.protocol === "lwp3") this._essential.reset(context);
+      else this._spike3.reset(context);
+    }
+
+    _handleWebBLEError(link, error, context) {
+      if (link?.protocol === "lwp3") {
+        this._essential._recordCommunicationError(error);
+      } else {
+        this._spike3._recordTransportError(error, context);
+      }
+    }
+
     connect(id) {
-      if (this._activeProtocol === "spike3") {
-        const link = this._spike3._link;
+      if (
+        this._activeProtocol === "spike3" ||
+        this._activeProtocol === "essential"
+      ) {
+        const link = this.active._link;
         if (link && link.connectPeripheral) {
           const result = link.connectPeripheral(id);
           if (result && typeof result.catch === "function") {
@@ -8715,13 +9916,18 @@ continuous_sensor_loop()
     }
 
     disconnect() {
-      this._repl.disconnect();
-      this._spike3.disconnect();
+      if (this._activeProtocol === "essential") this._essential.disconnect();
+      else if (this._activeProtocol === "spike3") this._spike3.disconnect();
+      else this._repl.disconnect();
       this._resolvedMode = null;
     }
 
     isConnected() {
-      return this._repl.isConnected() || this._spike3.isConnected();
+      return (
+        this._repl.isConnected() ||
+        this._spike3.isConnected() ||
+        this._essential.isConnected()
+      );
     }
 
     _emitNoTransport() {
@@ -8824,6 +10030,7 @@ continuous_sensor_loop()
       // on, and movementMotors reads the same pair on either firmware.
       this._repl._movementMotors = value;
       this._spike3._movementMotors = value;
+      this._essential._movementMotors = value;
     }
     get _timer() {
       return this.active._timer;
@@ -8869,16 +10076,51 @@ continuous_sensor_loop()
      */
     supports(capability) {
       const caps =
-        this._activeProtocol === "spike3"
-          ? HubRouter.SPIKE3_CAPABILITIES
-          : HubRouter.REPL_CAPABILITIES;
+        this._activeProtocol === "essential"
+          ? HubRouter.ESSENTIAL_CAPABILITIES
+          : this._activeProtocol === "spike3"
+            ? HubRouter.SPIKE3_CAPABILITIES
+            : HubRouter.REPL_CAPABILITIES;
       return caps.indexOf(capability) !== -1;
     }
 
     getCommunicationDiagnostics() {
       const connectionMode = this._resolvedMode || this._mode;
+      if (this._activeProtocol === "essential") {
+        const detectedHubModel = this._essential.detectedHubModel;
+        return {
+          ...this._essential.getDiagnostics(connectionMode),
+          selectedHubModel: this._selectedHubModel,
+          detectedHubModel,
+          effectiveHubModel: this._essential.isConnected()
+            ? detectedHubModel
+            : null,
+          availablePorts: this._essential.isConnected()
+            ? detectedHubModel === "essential"
+              ? ["A", "B"]
+              : detectedHubModel === "prime"
+                ? [...SpikePorts]
+                : []
+            : this._selectedHubModel === "essential"
+              ? ["A", "B"]
+              : [...SpikePorts],
+        };
+      }
       if (this._activeProtocol === "spike3") {
-        return this._spike3.getDiagnostics(connectionMode);
+        return {
+          ...this._spike3.getDiagnostics(connectionMode),
+          selectedHubModel: this._selectedHubModel,
+          detectedHubModel: this._spike3.detectedHubModel,
+          effectiveHubModel: this._spike3.detectedHubModel,
+          availablePorts: this._spike3.isConnected()
+            ? this._spike3.detectedHubModel === "prime"
+              ? [...SpikePorts]
+              : []
+            : this._selectedHubModel === "essential"
+              ? ["A", "B"]
+              : [...SpikePorts],
+          standaloneCapable: this._spike3.standaloneCapable,
+        };
       }
       return {
         protocol: "repl",
@@ -8886,7 +10128,16 @@ continuous_sensor_loop()
         connectionMode,
         firmwareVersion: this._repl.firmwareVersion || null,
         sensorNotifications: "not-applicable-to-repl-protocol",
+        selectedHubModel: this._selectedHubModel,
+        availablePorts:
+          this._selectedHubModel === "essential" ? ["A", "B"] : [...SpikePorts],
       };
+    }
+
+    _consumeSensorEdge(key) {
+      return this.active._consumeSensorEdge
+        ? this.active._consumeSensorEdge(key)
+        : false;
     }
   }
 
@@ -8950,6 +10201,16 @@ continuous_sensor_loop()
     "matrix3x3",
     "center-button",
     "rotate-display",
+  ];
+
+  HubRouter.ESSENTIAL_CAPABILITIES = [
+    "motor",
+    "motor-pair",
+    "color",
+    "distance",
+    "force",
+    "battery",
+    "matrix3x3",
   ];
 
   // ============================================================================
@@ -11130,6 +12391,7 @@ continuous_sensor_loop()
           this.connectPeripheralFromControlCenter(peripheralId),
         disconnect: () => this.disconnectHub(),
         setMode: (mode) => this._peripheral.setMode(mode),
+        setHubModel: (model) => this._peripheral.setHubModel(model),
         installController: (slot, options) =>
           this.installControllerFromControlCenter(slot, options),
         stop: () => this.stopHubFromControlCenter(),
@@ -11155,6 +12417,21 @@ continuous_sensor_loop()
         ),
         sourceURL: SPIKE_EXTENSION_SOURCE_URL,
         selectedConnectionMode: this._peripheral.mode,
+        selectedHubModel: this._peripheral.selectedHubModel,
+        detectedHubModel:
+          diagnostics.detectedHubModel || diagnostics.effectiveHubModel || null,
+        effectiveHubModel: diagnostics.effectiveHubModel || null,
+        modelStatus: !connected
+          ? "not-connected"
+          : diagnostics.detectedHubModel || diagnostics.effectiveHubModel
+            ? this._peripheral.selectedHubModel !== "auto" &&
+              this._peripheral.selectedHubModel !==
+                (diagnostics.detectedHubModel || diagnostics.effectiveHubModel)
+              ? "selection-mismatch"
+              : "confirmed"
+            : "unidentified",
+        availablePorts: diagnostics.availablePorts || [],
+        standaloneCapable: diagnostics.standaloneCapable === true,
         connected,
         protocol: diagnostics.protocol,
         connectionMode:
@@ -11199,12 +12476,11 @@ continuous_sensor_loop()
           "The selected connection route did not connect to a SPIKE hub"
         );
       }
-      if (this._peripheral.protocol !== "spike3")
-        return this.getControlCenterState();
-
-      const hub = this._peripheral.active;
-      await hub._waitForInfoResponse();
-      await this._verifyOrStartController(hub);
+      if (this._peripheral._activeProtocol === "spike3") {
+        const hub = this._peripheral.active;
+        await hub._waitForInfoResponse();
+        if (hub.standaloneCapable) await this._verifyOrStartController(hub);
+      }
       return this.getControlCenterState();
     }
 
@@ -11253,9 +12529,10 @@ continuous_sensor_loop()
         }
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
-      if (this._peripheral.protocol === "spike3") {
-        await this._peripheral.active._waitForInfoResponse();
-        await this._verifyOrStartController(this._peripheral.active);
+      if (this._peripheral._activeProtocol === "spike3") {
+        const hub = this._peripheral.active;
+        await hub._waitForInfoResponse();
+        if (hub.standaloneCapable) await this._verifyOrStartController(hub);
       }
       // Keep this parameter read so that accidental use of a different VM
       // instance is visible in diagnostics during development.
@@ -11275,7 +12552,7 @@ continuous_sensor_loop()
       }
       if (
         !this._peripheral.isConnected() ||
-        this._peripheral.protocol !== "spike3"
+        this._peripheral.active?.standaloneCapable !== true
       ) {
         throw new Error(t("controllerUnsupported"));
       }
@@ -11480,7 +12757,11 @@ continuous_sensor_loop()
         );
       }
       const hub = this._peripheral.active;
-      if (this._peripheral.protocol !== "spike3" || !hub.isConnected()) {
+      if (
+        this._peripheral.protocol !== "spike3" ||
+        hub.standaloneCapable !== true ||
+        !hub.isConnected()
+      ) {
         throw new Error(
           "Offline program transfer requires a connected SPIKE 3 hub"
         );
@@ -11504,6 +12785,7 @@ continuous_sensor_loop()
       }
       if (
         this._peripheral.protocol !== "spike3" ||
+        this._peripheral.active?.standaloneCapable !== true ||
         !this._peripheral.isConnected()
       ) {
         throw new Error("Starting a program requires a connected SPIKE 3 hub");
@@ -13094,6 +14376,11 @@ continuous_sensor_loop()
           this._peripheral.sendPythonCommand("f.close()")
         );
       }
+      if (this._peripheral.active?.standaloneCapable !== true) {
+        return this._rejectOperation(
+          new Error("SPIKE Essential does not support program-slot transfer")
+        );
+      }
       const active = this._peripheral.active;
       return active
         .uploadProgramToSlot(code, slot)
@@ -13133,6 +14420,11 @@ continuous_sensor_loop()
           `exec(open(${pyStringLiteral(filename)}).read())`
         );
       }
+      if (this._peripheral.active?.standaloneCapable !== true) {
+        return this._rejectOperation(
+          new Error("SPIKE Essential does not support program-slot execution")
+        );
+      }
       const slot = this._readProgramSlots().get(filename);
       if (!Number.isInteger(slot)) {
         return this._rejectOperation(
@@ -13161,6 +14453,11 @@ continuous_sensor_loop()
       if (this._peripheral.protocol !== "spike3") {
         return this._peripheral.sendPythonCommand(
           `import uos; uos.rename(${pyStringLiteral(oldName)}, ${pyStringLiteral(newName)})`
+        );
+      }
+      if (this._peripheral.active?.standaloneCapable !== true) {
+        return this._rejectOperation(
+          new Error("SPIKE Essential does not support program files")
         );
       }
       const slots = this._readProgramSlots();
@@ -14677,7 +15974,7 @@ continuous_sensor_loop()
       if (!this._peripheral.isConnected()) {
         return this._rejectOperation(new Error(t("notConnected")));
       }
-      if (this._peripheral.protocol !== "spike3") {
+      if (this._peripheral.active?.standaloneCapable !== true) {
         const error = new Error(t("controllerUnsupported"));
         error.code = "ERR_UNSUPPORTED_HUB_COMMAND";
         return this._rejectOperation(error);
@@ -14706,7 +16003,7 @@ continuous_sensor_loop()
       if (!this._peripheral.isConnected()) {
         return this._rejectOperation(new Error(t("notConnected")));
       }
-      if (this._peripheral.protocol !== "spike3") {
+      if (this._peripheral.active?.standaloneCapable !== true) {
         const error = new Error(t("controllerUnsupported"));
         error.code = "ERR_UNSUPPORTED_HUB_COMMAND";
         return this._rejectOperation(error);
