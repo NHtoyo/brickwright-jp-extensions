@@ -1833,6 +1833,46 @@
     CONTROLLER_START_NOTIFICATION_TIMEOUT_MS: 7000,
   };
 
+  // Only explicit hub work may recover a saved controller. A stop operation
+  // must never start a program merely to ask it to stop, and connection or
+  // reporter paths never enter this command allow-list.
+  const SPIKE3_CONTROLLER_STARTABLE_COMMANDS = new Set([
+    "scratch.motor_start",
+    "scratch.motor_set_speed",
+    "scratch.motor_power",
+    "scratch.motor_run_for_degrees",
+    "scratch.motor_run_timed",
+    "scratch.motor_run_to_position",
+    "scratch.display_set_pixel",
+    "scratch.display_clear",
+    "scratch.display_pattern",
+    "scratch.display_text",
+    "scratch.display_image",
+    "scratch.display_orientation",
+    "scratch.center_button_lights",
+    "scratch.matrix3_show",
+    "scratch.matrix3_pixel",
+    "scratch.matrix3_clear",
+    "scratch.distance_lights",
+    "scratch.motor_reset_position",
+    "scratch.motor_set_stop_action",
+    "scratch.motion_reset_yaw",
+    "scratch.motor_pair_configure",
+    "scratch.motor_pair_move",
+    "scratch.motor_pair_move_degrees",
+    "scratch.motor_pair_move_time",
+    "scratch.motor_pair_move_tank",
+    "scratch.motor_pair_move_tank_degrees",
+    "scratch.motor_pair_move_tank_time",
+    "scratch.sound_beep",
+    "scratch.sound_wave",
+    "scratch.sound_volume",
+    "scratch.file_write",
+    "scratch.file_read",
+    "scratch.file_delete",
+    "scratch.file_list",
+  ]);
+
   // The legacy Powered Up implementation uses the standard LWP3 UART
   // service and message layouts for hubs such as SPIKE Essential. Keep this
   // small transport adapter in the SPIKE extension so the gallery still loads
@@ -5596,27 +5636,111 @@ continuous_sensor_loop()
       }
     }
 
+    _startRegisteredControllerForScratchCommand(method) {
+      if (!SPIKE3_CONTROLLER_STARTABLE_COMMANDS.has(method)) return null;
+      const runtime = this._runtime;
+      const router = runtime?.peripheralExtensions?.spikeprime;
+      const api = router?.getControlCenterAPI?.();
+      if (
+        !router ||
+        router.active !== this ||
+        api !== runtime?.brickwrightSpikePrimeControl ||
+        api?.extensionId !== "spikeprime" ||
+        api?.hubRouterId !== router.instanceId ||
+        typeof api.startSavedController !== "function" ||
+        typeof api.getState !== "function"
+      ) {
+        return null;
+      }
+      const state = api.getState();
+      if (
+        state.connected !== true ||
+        state.protocol !== "spike3" ||
+        state.effectiveHubModel !== "prime" ||
+        state.standaloneCapable !== true ||
+        !Number.isInteger(state.controllerSlot) ||
+        state.controllerSlot < 0 ||
+        state.controllerSlot > 19
+      ) {
+        return null;
+      }
+      const currentSessionProgramSlot =
+        this._runningControllerSession === this._connectionSession
+          ? this._runningControllerSlot
+          : this._pendingProgramFlowStart?.sessionId === this._connectionSession
+            ? this._pendingProgramFlowStart.slot
+            : null;
+      if (
+        Number.isInteger(currentSessionProgramSlot) &&
+        currentSessionProgramSlot !== state.controllerSlot
+      ) {
+        // Do not interrupt a known standalone program to make room for the
+        // Brickwright controller. The normal readiness check below will
+        // explain why this Scratch command cannot use the controller.
+        return null;
+      }
+      // startSavedController revalidates the slot against this physical hub's
+      // identity and performs only ProgramFlow start + marker + hello. It does
+      // not clear or upload a slot.
+      return api.startSavedController(state.controllerSlot);
+    }
+
     _sendCommand(method, params) {
       // Report controller state before validating command-specific metadata.
       // Otherwise a project that runs a motor block too early gets a
       // misleading "motor type unknown" error instead of the actual missing
       // hello handshake.
-      if (this._controllerStopping) {
+      if (
+        this._controllerStopping &&
+        (this._controllerStopPromise ||
+          this._diagnostics.controllerStatus !== "stopped" ||
+          this._diagnostics.lastStopAttempt?.outcome !== "success")
+      ) {
         return Promise.reject(this._controllerCommandCancelledError());
       }
       if (!this._controllerReady) {
         const link = this._link;
         const sessionId = this._connectionSession;
-        const generation = this._controllerCommandGeneration;
-        return this.ensureControllerReady().then(() => {
+        const installGeneration = this._controllerInstallGeneration;
+        const prepareController = async () => {
+          // PROJECT_STOP_ALL is deferred one microtask to distinguish a red
+          // stop from Scratch's same-turn green-flag restart. Let that
+          // classification settle before deciding whether a saved controller
+          // can be restarted. Commands that began before a real stop are
+          // invalidated by the generation checks below.
+          if (this._pendingProjectStop && this._projectStopPromise) {
+            await this._projectStopPromise;
+          }
           if (
             !this.isConnected() ||
             this._link !== link ||
             this._connectionSession !== sessionId ||
-            this._controllerCommandGeneration !== generation ||
+            this._controllerInstallGeneration !== installGeneration
+          ) {
+            throw this._controllerCommandCancelledError();
+          }
+          if (this._controllerStopping && this._controllerStopPromise) {
+            throw this._controllerCommandCancelledError();
+          }
+          const savedStart =
+            this._startRegisteredControllerForScratchCommand(method);
+          if (savedStart) return savedStart;
+          return this.ensureControllerReady();
+        };
+        return prepareController().then(() => {
+          if (
+            !this.isConnected() ||
+            this._link !== link ||
+            this._connectionSession !== sessionId ||
+            this._controllerInstallGeneration !== installGeneration ||
             this._controllerStopping
           ) {
             throw this._controllerCommandCancelledError();
+          }
+          if (!this._controllerReady) {
+            const error = new Error(t("controllerNotReady"));
+            error.code = "ERR_CONTROLLER_NOT_READY";
+            throw error;
           }
           return this._sendCommand(method, params);
         });
