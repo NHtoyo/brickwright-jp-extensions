@@ -332,6 +332,7 @@ function imuRecord({ yaw = 0, pitch = 0, roll = 0 } = {}) {
 
 function motorRecord({
   port = 0,
+  motorType = 0x31,
   absolute = -37,
   speed = -12,
   position = -123456,
@@ -339,7 +340,7 @@ function motorRecord({
   const bytes = new Uint8Array(12);
   bytes[0] = 0x0a;
   bytes[1] = port;
-  bytes[2] = 0x31; // Large motor.
+  bytes[2] = motorType;
   const view = new DataView(bytes.buffer);
   view.setInt16(3, absolute, true);
   view.setInt16(5, -500, true);
@@ -2229,6 +2230,72 @@ test("the first standalone Scratch motorRunFor starts only this hub's registered
     false,
     "automatic reuse starts the saved slot without clearing or uploading"
   );
+});
+
+test("Prime motorRunFor rejects a force sensor port and runs the reported motor port", async () => {
+  const state = setup({ locale: "ja" });
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state, { motorPorts: [] });
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+  await state.ext.installHubController({ SLOT: 19 });
+
+  // Current-session SPIKE 3 notification records from the user's report:
+  // B is a force sensor, while D reports DeviceMotor type 0x41 (small motor).
+  state.device.tx.emit(
+    packMessage(
+      notification(
+        bytes(
+          Uint8Array.from([0x0b, 1, 62, 1]),
+          motorRecord({ port: 3, motorType: 0x41, absolute: 0, speed: 0 })
+        )
+      )
+    )
+  );
+  const hub = state.ext._peripheral._spike3;
+  assert.equal(hub.portValues.B.type, "force");
+  assert.equal(hub.portValues.D.type, "motor");
+  assert.equal(hub.portValues.D.motorType, 0x41);
+
+  const writesBeforeWrongPort = state.device.writes.length;
+  await assert.rejects(
+    state.ext.motorRunFor({
+      PORT: "B",
+      DIRECTION: 1,
+      VALUE: 1,
+      UNIT: "rotations",
+    }),
+    (error) => {
+      assert.equal(error.code, "ERR_SPIKE_PORT_NOT_MOTOR");
+      assert.equal(
+        error.message,
+        "Bはフォースセンサーです。モーターはDに接続されています。"
+      );
+      return true;
+    }
+  );
+  assert.equal(
+    state.device.writes.length,
+    writesBeforeWrongPort,
+    "a known non-motor port is rejected before any BLE write"
+  );
+  assert.equal(
+    fakeHub.actions.some((action) => action.cmd === "motor.run_degrees"),
+    false,
+    "the selected force-sensor port is never rerouted to a motor"
+  );
+
+  await state.ext.motorRunFor({
+    PORT: "D",
+    DIRECTION: 1,
+    VALUE: 1,
+    UNIT: "rotations",
+  });
+  const motorAction = fakeHub.actions.find(
+    (action) => action.cmd === "motor.run_degrees"
+  );
+  assert.equal(motorAction.port, "D");
+  assert.equal(motorAction.degrees, 360);
+  assert.equal(motorAction.velocity, 495);
 });
 
 test("a Scratch hardware command after a confirmed red stop restarts the saved controller", async () => {

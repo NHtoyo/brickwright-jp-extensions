@@ -137,6 +137,24 @@
       controllerInvalidSlot: "Program slot must be between 0 and 19.",
       controllerInvalidMotorPair: "Choose two different motor ports.",
       controllerInvalidMoveUnit: "Choose a supported movement unit.",
+      controllerPortNotMotor:
+        "Port {0} is a {1}, not a motor. Motors are connected to {2}.",
+      controllerPortNotMotorNoMotors:
+        "Port {0} is a {1}, not a motor. No motor port is currently identified.",
+      controllerPortReadingPending:
+        "Device information for port {0} has not arrived yet. Check the connection and wait for a fresh port reading.",
+      controllerPortDisconnected: "No device is connected to port {0}.",
+      controllerPortUnknownDevice:
+        "Port {0} has an unrecognized device (device ID 0x{1}), not a known motor.",
+      controllerMotorTypePending:
+        "Port {0} is identified as a motor, but its motor type has not arrived yet.",
+      controllerMotorTypeUnknown:
+        "Port {0} has an unrecognized motor type (DeviceMotor 0x{1}).",
+      "portType.force": "force sensor",
+      "portType.distance": "distance sensor",
+      "portType.color": "color sensor",
+      "portType.matrix3": "3x3 color matrix",
+      "portType.unknown": "unidentified device",
       controllerInvalidDisplayOrientation:
         "Choose a supported display orientation.",
       operationFailed: "SPIKE operation failed: {0}",
@@ -513,6 +531,23 @@
       controllerInvalidSlot: "プログラムスロットは0〜19で指定してください。",
       controllerInvalidMotorPair: "異なる2つのモーターポートを選んでください。",
       controllerInvalidMoveUnit: "対応している移動単位を選んでください。",
+      controllerPortNotMotor: "{0}は{1}です。モーターは{2}に接続されています。",
+      controllerPortNotMotorNoMotors:
+        "{0}は{1}です。モーターの接続先は確認できていません。",
+      controllerPortReadingPending:
+        "ポート{0}の機器情報はまだ届いていません。接続を確認し、新しいポート情報が届いてから再実行してください。",
+      controllerPortDisconnected: "ポート{0}に機器が接続されていません。",
+      controllerPortUnknownDevice:
+        "ポート{0}の機器ID（0x{1}）は未対応のため、モーターとして扱えません。",
+      controllerMotorTypePending:
+        "ポート{0}はモーターとして検出されていますが、機種情報をまだ受信していません。",
+      controllerMotorTypeUnknown:
+        "ポート{0}のモーター機種ID（DeviceMotor 0x{1}）には対応していません。",
+      "portType.force": "フォースセンサー",
+      "portType.distance": "距離センサー",
+      "portType.color": "カラーセンサー",
+      "portType.matrix3": "3×3カラーライトマトリクス",
+      "portType.unknown": "種類を判別できない機器",
       controllerInvalidDisplayOrientation:
         "対応している表示の向きを選んでください。",
       operationFailed: "SPIKEの操作に失敗しました: {0}",
@@ -5582,18 +5617,105 @@ continuous_sensor_loop()
     }
 
     _motorMaxVelocity(port) {
-      const reading = this._sensors.motorPositions[port];
+      const reading =
+        this._sensors.motorPositions[port] || this._portValues[port];
       return SPIKE3_MOTOR_MAX_VELOCITY[reading?.motorType] || null;
+    }
+
+    _motorPortRequirementError(port) {
+      const device = this._portValues[port];
+      if (!device) {
+        const error = new Error(t("controllerPortReadingPending", port));
+        error.code = "ERR_SPIKE_PORT_READING_PENDING";
+        return error;
+      }
+      if (device.connected === false) {
+        const error = new Error(t("controllerPortDisconnected", port));
+        error.code = "ERR_SPIKE_PORT_DISCONNECTED";
+        return error;
+      }
+
+      if (
+        device.type === "unknown" &&
+        Number.isInteger(device.deviceType ?? device.deviceId)
+      ) {
+        const deviceType = device.deviceType ?? device.deviceId;
+        const error = new Error(
+          t(
+            "controllerPortUnknownDevice",
+            port,
+            deviceType.toString(16).padStart(2, "0")
+          )
+        );
+        error.code = "ERR_SPIKE_DEVICE_TYPE_UNKNOWN";
+        error.port = port;
+        error.deviceType = deviceType;
+        return error;
+      }
+
+      const knownMotor = device.type === "motor";
+      const motorReading =
+        this._sensors.motorPositions[port] || (knownMotor ? device : null);
+      if (device.type && device.type !== "motor") {
+        const labels = {
+          force: "portType.force",
+          distance: "portType.distance",
+          color: "portType.color",
+          matrix3: "portType.matrix3",
+          unknown: "portType.unknown",
+        };
+        const label = labels[device.type]
+          ? t(labels[device.type])
+          : device.deviceName || t("portType.unknown");
+        const motors = SpikePorts.filter((candidate) => {
+          const reading = this._portValues[candidate];
+          return reading?.type === "motor" && reading.connected !== false;
+        });
+        const error = new Error(
+          motors.length
+            ? t("controllerPortNotMotor", port, label, motors.join(", "))
+            : t("controllerPortNotMotorNoMotors", port, label)
+        );
+        error.code = "ERR_SPIKE_PORT_NOT_MOTOR";
+        error.port = port;
+        error.deviceType = device.deviceType ?? device.deviceId ?? null;
+        error.motorPorts = motors;
+        return error;
+      }
+
+      if (!motorReading) {
+        const error = new Error(t("controllerPortReadingPending", port));
+        error.code = "ERR_SPIKE_PORT_READING_PENDING";
+        return error;
+      }
+      if (!Number.isInteger(motorReading.motorType)) {
+        const error = new Error(t("controllerMotorTypePending", port));
+        error.code = "ERR_SPIKE_MOTOR_TYPE_PENDING";
+        return error;
+      }
+      const error = new Error(
+        t(
+          "controllerMotorTypeUnknown",
+          port,
+          motorReading.motorType.toString(16).padStart(2, "0")
+        )
+      );
+      error.code = "ERR_SPIKE_MOTOR_TYPE_UNKNOWN";
+      error.port = port;
+      error.motorType = motorReading.motorType;
+      return error;
     }
 
     _motorVelocityForPercent(port, value) {
       const percent = this._speed(value);
+      const device = this._portValues[port];
+      if (device?.type && device.type !== "motor") {
+        throw this._motorPortRequirementError(port);
+      }
       if (percent === 0) return 0;
       const maximum = this._motorMaxVelocity(port);
       if (!maximum) {
-        throw this._unsupportedError(
-          `motor type is not known for port ${port}; wait for a DeviceMotor notification`
-        );
+        throw this._motorPortRequirementError(port);
       }
       return Math.round((percent * maximum) / 100);
     }
