@@ -16692,9 +16692,11 @@ continuous_sensor_loop()
         this._peripheral.motorSettings[port].speed = Math.abs(speed);
         return this._peripheral
           .sendCommand("scratch.motor_start", { port: port, speed: speed })
-          .catch(() =>
-            this._peripheral.sendPythonCommand(
-              `import hub; hub.port.${port}.motor.run_at_speed(${Math.round(speed * 9.3)})`
+          .catch((error) =>
+            this._sendPythonFallback(error, () =>
+              this._peripheral.sendPythonCommand(
+                `import hub; hub.port.${port}.motor.run_at_speed(${Math.round(speed * 9.3)})`
+              )
             )
           );
       });
@@ -16733,9 +16735,11 @@ continuous_sensor_loop()
       const promises = ports.map((port) =>
         this._peripheral
           .sendCommand("scratch.motor_stop", { port: port, stop: action })
-          .catch(() =>
-            this._peripheral.sendPythonCommand(
-              `import hub; hub.port.${port}.motor.pwm(0); hub.port.${port}.motor.${call}`
+          .catch((error) =>
+            this._sendPythonFallback(error, () =>
+              this._peripheral.sendPythonCommand(
+                `import hub; hub.port.${port}.motor.pwm(0); hub.port.${port}.motor.${call}`
+              )
             )
           )
       );

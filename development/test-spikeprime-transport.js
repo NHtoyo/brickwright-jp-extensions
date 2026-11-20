@@ -3456,6 +3456,18 @@ test("Essential classifies the real Medium Angular Motor ID from AttachedIO", as
   assert.deepEqual(device.writes.at(-1), [8, 0, 0x81, 0, 0x11, 0x51, 0, 127]);
 
   assert.equal(router.protocol, "spike3");
+  const writesBeforeFailure = device.writes.length;
+  device.rx.failNextWrite = true;
+  await assert.rejects(
+    ext.motorStart({ PORT: "A", DIRECTION: 1 }),
+    /simulated fake-device write failure/
+  );
+  assert.equal(device.writes.length, writesBeforeFailure);
+  assert.match(
+    JSON.parse(ext.getCommunicationDiagnostics()).lastCommunicationError,
+    /simulated fake-device write failure/
+  );
+
   await ext.motorSetSpeed({ PORT: "A", SPEED: 20 });
   await ext.motorStart({ PORT: "A", DIRECTION: 1 });
   assert.deepEqual(
