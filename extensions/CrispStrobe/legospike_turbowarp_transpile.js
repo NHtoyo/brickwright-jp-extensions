@@ -719,15 +719,15 @@
       motorRunFor: "[PORT] のモーターを [DIRECTION] に [VALUE] [UNIT] 動かす",
       motorRunToPosition: "[PORT] のモーターを位置 [POSITION] 度まで動かす",
       motorStart: "[PORT] のモーターを [DIRECTION] に回転させる",
-      motorStop: "[PORT] のモーターを止める",
-      motorSetSpeed: "[PORT] モーターの回転速度を [SPEED]% に設定する",
+      motorStop: "[PORT] のモーターを停止する",
+      motorSetSpeed: "[PORT] のスピードを [SPEED] % にする",
       motorStartPower: "[PORT] のモーターを出力 [POWER]% で回転させる",
       motorSetStopAction: "[PORT] モーターの停止方法を [ACTION] にする",
-      getPosition: "[PORT] モーターの位置（度）",
-      getRelativePosition: "[PORT] モーターの相対位置（度）",
-      getAbsolutePosition: "[PORT] モーターの絶対位置（度）",
+      getPosition: "[PORT] の回転位置（度）",
+      getRelativePosition: "[PORT] モーターの相対角度（度）",
+      getAbsolutePosition: "[PORT] モーターの絶対角度（度）",
       getSpeed: "[PORT] モーターの回転速度（度/秒）",
-      resetMotorPosition: "[PORT] モーターの位置を [POSITION] 度に設定する",
+      resetMotorPosition: "[PORT] モーターの角度を [POSITION] 度に設定する",
       displayImage: "ハブのLEDライトマトリクスに [MATRIX] を表示する",
       displayPattern:
         "ハブのLEDライトマトリクスにパターン [PATTERN] を表示する",
@@ -741,7 +741,7 @@
       getFilteredGyroRate: "[AXIS] のフィルター済みジャイロ角速度（度/秒）",
       getAcceleration: "[AXIS] の加速度（ミリg）",
       getFilteredAcceleration: "[AXIS] のフィルター済み加速度（ミリg）",
-      resetYaw: "Yaw角を0にする",
+      resetYaw: "ヨー角を0に設定",
       presetYaw: "Yaw角を [ANGLE] 度に設定する",
       setMatrix3x3ColorGrid:
         "[PORT] のカラー・ライトマトリクスを色設定する：[P1][P2][P3] [P4][P5][P6] [P7][P8][P9]",
@@ -758,15 +758,15 @@
       playNote: "音符 [NOTE] を [SECS] 秒鳴らす",
       playWaveBeep:
         "[WAVEFORM] 波形の [FREQUENCY] Hz の音を [DURATION] ms 鳴らす",
-      setVolume: "音量を [VOLUME]% に設定する",
+      setVolume: "音量を [VOLUME] % にする",
       stopSound: "すべての音を止める",
       getBatteryLevel: "バッテリー残量（%）",
       getBatteryTemperature: "バッテリーの温度",
       getHubTemperature: "ハブの温度",
       getHubCurrent: "ハブの電流（mA）",
       getHubVoltage: "ハブの電圧（mV）",
-      getTimer: "タイマーの値",
-      resetTimer: "タイマーをリセットする",
+      getTimer: "タイマー",
+      resetTimer: "タイマーリセット",
       getDistance: "[PORT] の距離",
       setDistanceLights:
         "[PORT] の距離センサーのライトを [TL] [TR] [BL] [BR] に設定する",
@@ -1821,6 +1821,7 @@
     DEV_DISTANCE: 0x0d,
     DEV_MATRIX_3X3: 0x0e,
     NOTIFICATION_RESPONSE_TIMEOUT_MS: 2000,
+    NOTIFICATION_RECOVERY_DELAY_MS: 500,
     CONTROLLER_START_NOTIFICATION_TIMEOUT_MS: 7000,
   };
 
@@ -1835,8 +1836,13 @@
     CHARACTERISTIC: "00001624-1212-efde-1623-785feabcd123",
     HUB_PROPERTIES: 0x01,
     HUB_ATTACHED_IO: 0x04,
+    PORT_INFORMATION_REQUEST: 0x21,
+    PORT_MODE_INFORMATION_REQUEST: 0x22,
     PORT_INPUT_FORMAT_SETUP_SINGLE: 0x41,
+    PORT_MODE_INFORMATION: 0x44,
     PORT_VALUE: 0x45,
+    PORT_INPUT_FORMAT: 0x47,
+    MODE_VALUE_FORMAT: 0x80,
     OUTPUT: 0x81,
     SYSTEM_TYPE_ID: 0x0b,
     FW_VERSION: 0x03,
@@ -4213,6 +4219,11 @@ continuous_sensor_loop()
       this._streamingRequested = false;
       this._streamingFallback = null;
       this._pendingNotificationRequest = null;
+      this._connectionSession = 0;
+      this._notificationRequestSequence = 0;
+      this._notificationRecoveryTimer = null;
+      this._notificationRecoveryAttempts = 0;
+      this._lastTimedOutNotificationRequest = null;
       this._pendingProtocolResponses = new Map();
       this._pendingControllerCommands = new Map();
       this._controllerStartWaiters = new Set();
@@ -4363,8 +4374,11 @@ continuous_sensor_loop()
         productGroupDeviceId: null,
         detectedHubModel: null,
         notificationRequest: {
+          requestId: null,
+          sessionId: null,
           enabled: false,
           intervalMs: 0,
+          source: null,
           status: "not-requested",
           requestedAt: null,
           responseAt: null,
@@ -4376,7 +4390,23 @@ continuous_sensor_loop()
           writeCompletedAt: null,
           responseMessageHex: null,
           responseFrameHex: null,
+          responseAttribution: null,
         },
+        notificationTelemetry: {
+          status: "not-received",
+          sessionId: null,
+          validNotificationCount: 0,
+          lastReceivedAt: null,
+        },
+        notificationRecovery: {
+          status: "not-needed",
+          attempts: 0,
+          maxAttempts: 1,
+          lastAttemptAt: null,
+          lastError: null,
+        },
+        lastLateNotificationResponse: null,
+        lateNotificationResponseCount: 0,
         lastImuReceivedAt: null,
         imuNotificationCount: 0,
         motorNotificationCount: 0,
@@ -4422,6 +4452,17 @@ continuous_sensor_loop()
         clearTimeout(this._notificationResponseTimeout);
         this._notificationResponseTimeout = null;
       }
+    }
+
+    _clearNotificationRecoveryTimer() {
+      if (this._notificationRecoveryTimer !== null) {
+        clearTimeout(this._notificationRecoveryTimer);
+        this._notificationRecoveryTimer = null;
+      }
+    }
+
+    _isCurrentConnectionSession(sessionId, link = this._link) {
+      return sessionId === this._connectionSession && link === this._link;
     }
 
     _recordCommunicationError(error) {
@@ -4529,13 +4570,99 @@ continuous_sensor_loop()
       });
     }
 
-    _settleNotificationRequest(error, responseCode = null) {
-      const pending = this._pendingNotificationRequest;
-      if (!pending) return;
+    _settleNotificationRequest(
+      error,
+      responseCode = null,
+      expectedPending = this._pendingNotificationRequest
+    ) {
+      const pending = expectedPending;
+      if (!pending || this._pendingNotificationRequest !== pending) return;
       this._pendingNotificationRequest = null;
       this._clearNotificationResponseTimeout();
       if (error) pending.reject(error);
       else pending.resolve(responseCode);
+    }
+
+    _scheduleNotificationRecovery(timedOutRequest) {
+      const recovery = this._diagnostics.notificationRecovery;
+      const telemetry = this._diagnostics.notificationTelemetry;
+      if (!timedOutRequest.request.enabled) {
+        recovery.status = "not-retried-disabled";
+        return;
+      }
+      if (timedOutRequest.request.source !== "connection") {
+        recovery.status = "not-retried-manual-request";
+        return;
+      }
+      if (telemetry.validNotificationCount > 0) {
+        recovery.status = "suppressed-telemetry-received";
+        return;
+      }
+      if (this._notificationRecoveryAttempts >= 1) {
+        recovery.status = "retry-limit-reached";
+        return;
+      }
+
+      const sessionId = timedOutRequest.sessionId;
+      const link = timedOutRequest.link;
+      recovery.status = "waiting-for-late-response";
+      recovery.lastError = "device notification response timed out";
+      this._notificationRecoveryTimer = setTimeout(() => {
+        this._notificationRecoveryTimer = null;
+        if (
+          !this._isCurrentConnectionSession(sessionId, link) ||
+          !this.isConnected() ||
+          this._streaming !== true
+        ) {
+          recovery.status = "cancelled-session-changed";
+          return;
+        }
+        if (
+          this._diagnostics.notificationTelemetry.validNotificationCount > 0
+        ) {
+          recovery.status = "suppressed-telemetry-received";
+          return;
+        }
+        if (timedOutRequest.lateResponseObserved) {
+          recovery.status = "suppressed-late-response";
+          return;
+        }
+        if (this._pendingNotificationRequest) {
+          recovery.status = "suppressed-request-in-flight";
+          return;
+        }
+
+        this._notificationRecoveryAttempts++;
+        recovery.attempts = this._notificationRecoveryAttempts;
+        recovery.status = "retrying-read-only-subscription";
+        recovery.lastAttemptAt = Date.now();
+        this._recordDiagnosticEvent("device-notification-recovery-started", {
+          sessionId,
+          attempt: recovery.attempts,
+          requestId: timedOutRequest.request.requestId,
+          reason: "acknowledgement-and-telemetry-missing",
+        });
+        this.setDeviceNotifications(
+          timedOutRequest.request.enabled,
+          timedOutRequest.request.intervalMs,
+          {
+            source: "bounded-recovery",
+            recoveryAttempt: recovery.attempts,
+            priorRequestId: timedOutRequest.request.requestId,
+          }
+        )
+          .then(() => {
+            recovery.status = "retry-acknowledged";
+          })
+          .catch((error) => {
+            recovery.status =
+              error?.code === "ERR_DEVICE_NOTIFICATION_RESPONSE_TIMEOUT" &&
+              this._notificationRecoveryAttempts >= 1
+                ? "retry-limit-reached"
+                : "retry-failed";
+            recovery.lastError = error?.message || String(error);
+          });
+      }, SPIKE3.NOTIFICATION_RECOVERY_DELAY_MS);
     }
 
     _recordMalformedNotification(message) {
@@ -4554,6 +4681,16 @@ continuous_sensor_loop()
         rpcVersion: this._rpcVersion,
         infoResponseReceivedAt: this._diagnostics.infoResponseReceivedAt,
         notificationRequest: { ...this._diagnostics.notificationRequest },
+        notificationTelemetry: {
+          ...this._diagnostics.notificationTelemetry,
+        },
+        notificationRecovery: { ...this._diagnostics.notificationRecovery },
+        lastLateNotificationResponse: this._diagnostics
+          .lastLateNotificationResponse
+          ? { ...this._diagnostics.lastLateNotificationResponse }
+          : null,
+        lateNotificationResponseCount:
+          this._diagnostics.lateNotificationResponseCount,
         lastImuReceivedAt: this._diagnostics.lastImuReceivedAt,
         imuNotificationCount: this._diagnostics.imuNotificationCount,
         imuReceived: this._diagnostics.lastImuReceivedAt !== null,
@@ -4722,6 +4859,13 @@ continuous_sensor_loop()
     }
 
     reset(details = {}) {
+      this._connectionSession++;
+      if (this._notificationRecoveryTimer !== null) {
+        this._diagnostics.notificationRecovery.status =
+          "cancelled-disconnected";
+      }
+      this._clearNotificationRecoveryTimer();
+      this._lastTimedOutNotificationRequest = null;
       const disconnect =
         details && typeof details === "object"
           ? details
@@ -4879,7 +5023,7 @@ continuous_sensor_loop()
         );
       }
       this._pendingControllerCommands.clear();
-      if (this._diagnostics.notificationRequest.status !== "write-error") {
+      if (this._diagnostics.notificationRequest.status === "pending") {
         this._diagnostics.notificationRequest.status = "disconnected";
       }
       this._frame = [];
@@ -7787,68 +7931,100 @@ continuous_sensor_loop()
     // --------------------------------------------------------------- receive
 
     _onConnect() {
+      const sessionId = ++this._connectionSession;
+      const link = this._link;
       this._clearNotificationResponseTimeout();
+      this._clearNotificationRecoveryTimer();
+      if (this._pendingNotificationRequest) {
+        const stalePending = this._pendingNotificationRequest;
+        stalePending.request.status = "disconnected";
+        this._settleNotificationRequest(
+          new Error("notification request belongs to a previous connection"),
+          null,
+          stalePending
+        );
+      }
       if (this._streamingFallback !== null)
         clearTimeout(this._streamingFallback);
       this._streamingFallback = null;
+      this._notificationRecoveryAttempts = 0;
+      this._lastTimedOutNotificationRequest = null;
       this._frame = [];
       this._firmware = null;
       this._rpcVersion = null;
       this._resetCommunicationDiagnostics({ preserveHistory: true });
+      this._diagnostics.notificationTelemetry.sessionId = sessionId;
       this._streamingRequested = false;
-      const notifications = this._link.startNotifications(
-        SPIKE3.SERVICE,
-        SPIKE3.TX_CHAR,
-        this._onMessage
-      );
-      if (notifications && typeof notifications.catch === "function") {
-        notifications.catch((error) => this._recordTransportError(error));
-      }
-      // Ask what we are talking to. Device streaming is requested the moment
-      // it answers (see _handleInfoResponse) rather than after a fixed wait:
-      // the InfoResponse is also what carries the packet size, so asking
-      // before it arrives means sending at the wrong MTU. Both BLE extensions
-      // used a 500 ms timer instead, which was slower when the hub was quick
-      // and still too early when it was not.
-      const infoRequest = this._diagnostics.infoRequest;
-      const infoMessage = Uint8Array.from([SPIKE3.INFO_REQUEST]);
-      infoRequest.requestedAt = Date.now();
-      infoRequest.requestMessageHex = this._protocolMessageHex(infoMessage);
-      infoRequest.status = "pending";
-      this._send(infoMessage, false, infoRequest)
+      return Promise.resolve()
+        .then(() =>
+          link.startNotifications(SPIKE3.SERVICE, SPIKE3.TX_CHAR, (message) => {
+            if (this._isCurrentConnectionSession(sessionId, link)) {
+              this._onMessage(message, sessionId, link);
+            }
+          })
+        )
         .then(() => {
-          infoRequest.status = "write-completed";
-          infoRequest.writeCompletedAt = Date.now();
+          if (!this._isCurrentConnectionSession(sessionId, link)) return;
+          // Ask what we are talking to. Device streaming is requested the moment
+          // it answers (see _handleInfoResponse) rather than after a fixed wait:
+          // the InfoResponse is also what carries the packet size, so asking
+          // before it arrives means sending at the wrong MTU. Both BLE extensions
+          // used a 500 ms timer instead, which was slower when the hub was quick
+          // and still too early when it was not.
+          const infoRequest = this._diagnostics.infoRequest;
+          const infoMessage = Uint8Array.from([SPIKE3.INFO_REQUEST]);
+          infoRequest.requestedAt = Date.now();
+          infoRequest.requestMessageHex = this._protocolMessageHex(infoMessage);
+          infoRequest.status = "pending";
+          this._send(infoMessage, false, infoRequest)
+            .then(() => {
+              infoRequest.status = "write-completed";
+              infoRequest.writeCompletedAt = Date.now();
+            })
+            .catch((error) => {
+              infoRequest.status = "write-failed";
+              infoRequest.error = {
+                name: error?.name || "Error",
+                message: error?.message || String(error),
+                stack: error?.stack || "",
+              };
+              this._recordTransportError(error);
+            });
+          // A hub that never answers still gets asked, so a missing InfoResponse
+          // costs the packet size rather than every sensor reading.
+          this._streamingFallback = setTimeout(() => {
+            if (this._isCurrentConnectionSession(sessionId, link)) {
+              this._requestStreamingOnce();
+            }
+          }, 1000);
         })
         .catch((error) => {
-          infoRequest.status = "write-failed";
-          infoRequest.error = {
-            name: error?.name || "Error",
-            message: error?.message || String(error),
-            stack: error?.stack || "",
-          };
-          this._recordTransportError(error);
+          if (this._isCurrentConnectionSession(sessionId, link)) {
+            this._recordTransportError(error);
+          }
         });
-      // A hub that never answers still gets asked, so a missing InfoResponse
-      // costs the packet size rather than every sensor reading.
-      this._streamingFallback = setTimeout(
-        () => this._requestStreamingOnce(),
-        1000
-      );
     }
 
     _requestStreamingOnce() {
       if (this._streamingRequested) return;
       this._streamingRequested = true;
+      const sessionId = this._connectionSession;
+      const link = this._link;
       if (this._streamingFallback) {
         clearTimeout(this._streamingFallback);
         this._streamingFallback = null;
       }
-      this.setDeviceNotifications(true).catch((error) => {
-        if (error?.code !== "ERR_NOTIFICATION_REQUEST_SUPERSEDED") {
-          this._recordTransportError(error);
+      this.setDeviceNotifications(true, 100, { source: "connection" }).catch(
+        (error) => {
+          if (!this._isCurrentConnectionSession(sessionId, link)) return;
+          if (
+            error?.code !== "ERR_NOTIFICATION_REQUEST_SUPERSEDED" &&
+            error?.code !== "ERR_DEVICE_NOTIFICATION_RESPONSE_TIMEOUT"
+          ) {
+            this._recordTransportError(error);
+          }
         }
-      });
+      );
     }
 
     /**
@@ -7856,24 +8032,45 @@ continuous_sensor_loop()
      * off leaves the sensor getters holding their last value, which is what
      * the legacy "streaming mode" blocks controlled.
      */
-    setDeviceNotifications(enabled, intervalMs = 100) {
-      this._streaming = Boolean(enabled);
-      const interval = this._streaming ? intervalMs : 0;
+    setDeviceNotifications(enabled, intervalMs = 100, options = {}) {
+      const requestedStreaming = Boolean(enabled);
+      const interval = requestedStreaming ? intervalMs : 0;
       const message = new Uint8Array(3);
       message[0] = SPIKE3.DEVICE_NOTIFICATION_REQUEST;
       message[1] = interval & 0xff;
       message[2] = (interval >> 8) & 0xff;
+      const messageHex = this._protocolMessageHex(message);
+      const sessionId = this._connectionSession;
       if (this._pendingNotificationRequest) {
-        this._pendingNotificationRequest.request.status = "superseded";
-        const error = new Error("device notification request superseded");
-        error.code = "ERR_NOTIFICATION_REQUEST_SUPERSEDED";
-        this._settleNotificationRequest(error);
+        const pending = this._pendingNotificationRequest;
+        if (
+          pending.sessionId === sessionId &&
+          pending.messageHex === messageHex
+        ) {
+          return pending.promise;
+        }
+        const error = new Error(
+          "a different device notification request is already awaiting a response"
+        );
+        error.code = "ERR_NOTIFICATION_REQUEST_IN_FLIGHT";
+        return Promise.reject(error);
+      }
+      if (
+        this._notificationRecoveryTimer !== null &&
+        !options.recoveryAttempt
+      ) {
+        this._clearNotificationRecoveryTimer();
+        this._diagnostics.notificationRecovery.status =
+          "cancelled-by-new-subscription-request";
       }
       const request = this._diagnostics.notificationRequest;
       this._clearNotificationResponseTimeout();
-      request.enabled = this._streaming;
+      request.requestId = ++this._notificationRequestSequence;
+      request.sessionId = sessionId;
+      request.enabled = requestedStreaming;
       request.intervalMs = interval;
-      request.requestMessageHex = this._protocolMessageHex(message);
+      request.source = options.source || "manual";
+      request.requestMessageHex = messageHex;
       request.requestFrameHex = null;
       request.requestPacketLengths = [];
       request.writeAttemptedAt = null;
@@ -7885,40 +8082,71 @@ continuous_sensor_loop()
       request.responseAt = null;
       request.responseCode = null;
       request.responseMessageHex = null;
+      request.responseAttribution = null;
       if (request.status === "not-connected") {
         return Promise.reject(new Error("not connected to SPIKE hub"));
       }
+      this._streaming = requestedStreaming;
       let resolveResponse;
       let rejectResponse;
       const responsePromise = new Promise((resolve, reject) => {
         resolveResponse = resolve;
         rejectResponse = reject;
       });
-      this._pendingNotificationRequest = {
+      const pending = {
         request,
+        sessionId,
+        link: this._link,
+        messageHex,
+        telemetryCountAtRequest:
+          this._diagnostics.notificationTelemetry.validNotificationCount,
+        recoveryAttempt: options.recoveryAttempt || 0,
+        priorRequestId: options.priorRequestId || null,
+        lateResponseObserved: false,
         resolve: resolveResponse,
         reject: rejectResponse,
+        promise: null,
       };
+      this._pendingNotificationRequest = pending;
       if (request.status === "pending") {
         this._notificationResponseTimeout = setTimeout(() => {
-          if (this._pendingNotificationRequest?.request !== request) return;
+          if (this._pendingNotificationRequest !== pending) return;
           request.status = "timeout";
           const error = new Error("device notification response timed out");
+          error.code = "ERR_DEVICE_NOTIFICATION_RESPONSE_TIMEOUT";
           this._recordCommunicationError(error);
-          this._settleNotificationRequest(error);
+          this._recordDiagnosticEvent("device-notification-response-timeout", {
+            requestId: request.requestId,
+            sessionId,
+            validNotificationCount:
+              this._diagnostics.notificationTelemetry.validNotificationCount,
+          });
+          this._settleNotificationRequest(error, null, pending);
+          const timedOutRequest = {
+            ...pending,
+            request: { ...pending.request },
+          };
+          this._lastTimedOutNotificationRequest = timedOutRequest;
+          this._scheduleNotificationRecovery(timedOutRequest);
         }, SPIKE3.NOTIFICATION_RESPONSE_TIMEOUT_MS);
       }
       const writePromise = Promise.resolve().then(() =>
         this._send(message, false, request)
       );
-      return Promise.all([writePromise, responsePromise])
+      pending.promise = Promise.all([writePromise, responsePromise])
         .then(([, responseCode]) => responseCode)
         .catch((error) => {
-          if (error?.code !== "ERR_NOTIFICATION_REQUEST_SUPERSEDED") {
+          if (
+            this._isCurrentConnectionSession(sessionId, pending.link) &&
+            error?.code !== "ERR_NOTIFICATION_REQUEST_SUPERSEDED" &&
+            error?.code !== "ERR_DEVICE_NOTIFICATION_RESPONSE_TIMEOUT" &&
+            error?.code !== "ERR_NOTIFICATION_RESPONSE_AMBIGUOUS"
+          ) {
             this._recordTransportError(error);
           }
           throw error;
         });
+      return pending.promise;
     }
 
     get streaming() {
@@ -7926,7 +8154,12 @@ continuous_sensor_loop()
     }
 
     /** Bytes arrive base64-encoded, in MTU-sized pieces, delimited by 0x02. */
-    _onMessage(message) {
+    _onMessage(
+      message,
+      sessionId = this._connectionSession,
+      link = this._link
+    ) {
+      if (!this._isCurrentConnectionSession(sessionId, link)) return;
       let bytes;
       try {
         bytes = Base64Util.base64ToUint8Array(message);
@@ -8255,40 +8488,138 @@ continuous_sensor_loop()
     }
 
     _handleDeviceNotificationResponse(data, wireFrame = null) {
+      const receivedAt = Date.now();
+      const pending = this._pendingNotificationRequest;
       if (data.length < 2) {
         this._diagnostics.malformedMessageCount++;
         const error = new Error("truncated device notification response");
         this._recordCommunicationError(error);
-        if (this._pendingNotificationRequest) {
-          this._pendingNotificationRequest.request.status =
-            "malformed-response";
-          this._settleNotificationRequest(error);
+        if (pending?.sessionId === this._connectionSession) {
+          pending.request.status = "malformed-response";
+          this._settleNotificationRequest(error, null, pending);
+        } else {
+          this._recordDiagnosticEvent(
+            "unsolicited-malformed-device-notification-response",
+            { sessionId: this._connectionSession }
+          );
         }
         return;
       }
-      const request = this._diagnostics.notificationRequest;
+
+      const responseDetails = {
+        receivedAt,
+        sessionId: this._connectionSession,
+        responseCode: data[1],
+        responseMessageHex: this._protocolMessageHex(data),
+        responseFrameHex: wireFrame
+          ? this._protocolMessageHex(wireFrame)
+          : null,
+      };
+      if (!pending || pending.sessionId !== this._connectionSession) {
+        this._diagnostics.lastLateNotificationResponse = responseDetails;
+        this._diagnostics.lateNotificationResponseCount++;
+        const timedOut = this._lastTimedOutNotificationRequest;
+        if (
+          timedOut?.sessionId === this._connectionSession &&
+          timedOut.request.status === "timeout"
+        ) {
+          timedOut.lateResponseObserved = true;
+          this._clearNotificationRecoveryTimer();
+          this._diagnostics.notificationRecovery.status =
+            "suppressed-late-response";
+          this._recordDiagnosticEvent("late-device-notification-response", {
+            ...responseDetails,
+            requestId: timedOut.request.requestId,
+          });
+        } else {
+          this._recordDiagnosticEvent(
+            "unsolicited-device-notification-response",
+            responseDetails
+          );
+        }
+        return;
+      }
+
+      const request = pending.request;
+      if (request.status !== "pending") {
+        this._diagnostics.lastLateNotificationResponse = responseDetails;
+        this._diagnostics.lateNotificationResponseCount++;
+        this._recordDiagnosticEvent("late-device-notification-response", {
+          ...responseDetails,
+          requestId: request.requestId,
+        });
+        return;
+      }
+      if (request.writeAttemptedAt === null) {
+        this._diagnostics.lastLateNotificationResponse = responseDetails;
+        this._diagnostics.lateNotificationResponseCount++;
+        this._recordDiagnosticEvent(
+          "device-notification-response-before-write",
+          { ...responseDetails, requestId: request.requestId }
+        );
+        return;
+      }
+
       this._clearNotificationResponseTimeout();
-      request.responseAt = Date.now();
+      request.responseAt = receivedAt;
       request.responseCode = data[1];
       request.responseMessageHex = this._protocolMessageHex(data);
       request.responseFrameHex = wireFrame
         ? this._protocolMessageHex(wireFrame)
         : null;
+      const priorTimedOut = this._lastTimedOutNotificationRequest;
+      const hasUnresolvedPreviousTimeout = Boolean(
+        priorTimedOut &&
+          priorTimedOut.sessionId === this._connectionSession &&
+          priorTimedOut.request.requestId !== request.requestId &&
+          !priorTimedOut.lateResponseObserved
+      );
+      const sameCommandAsTimedOut =
+        hasUnresolvedPreviousTimeout &&
+        priorTimedOut.messageHex === pending.messageHex;
+      request.responseAttribution = hasUnresolvedPreviousTimeout
+        ? sameCommandAsTimedOut
+          ? "same-session-identical-command-ambiguous"
+          : "uncorrelated-after-previous-timeout"
+        : pending.recoveryAttempt
+          ? "same-session-retry-response-ambiguous"
+          : "active-request";
+      if (hasUnresolvedPreviousTimeout && !sameCommandAsTimedOut) {
+        request.status = "ambiguous-response";
+        this._diagnostics.lastLateNotificationResponse = responseDetails;
+        this._diagnostics.lateNotificationResponseCount++;
+        const error = new Error(
+          "device notification response may belong to a previous timed-out request"
+        );
+        error.code = "ERR_NOTIFICATION_RESPONSE_AMBIGUOUS";
+        this._recordCommunicationError(error);
+        this._recordDiagnosticEvent("ambiguous-device-notification-response", {
+          ...responseDetails,
+          requestId: request.requestId,
+          previousRequestId: priorTimedOut.request.requestId,
+        });
+        this._settleNotificationRequest(error, null, pending);
+        return;
+      }
       if (data[1] === 0) {
-        request.status = "acknowledged";
-        this._settleNotificationRequest(null, data[1]);
+        request.status = sameCommandAsTimedOut
+          ? "acknowledged-ambiguous-attribution"
+          : "acknowledged";
+        this._settleNotificationRequest(null, data[1], pending);
       } else if (data[1] === 1) {
-        request.status = "not-acknowledged";
+        request.status = sameCommandAsTimedOut
+          ? "not-acknowledged-ambiguous-attribution"
+          : "not-acknowledged";
         const error = new Error("hub did not acknowledge device notifications");
         this._recordCommunicationError(error);
-        this._settleNotificationRequest(error);
+        this._settleNotificationRequest(error, null, pending);
       } else {
         request.status = "unknown-response-status";
         const error = new Error(
           `unknown device notification response status: ${data[1]}`
         );
         this._recordCommunicationError(error);
-        this._settleNotificationRequest(error);
+        this._settleNotificationRequest(error, null, pending);
       }
     }
 
@@ -8561,6 +8892,26 @@ continuous_sensor_loop()
             return;
         }
       }
+      // Track actual, fully parsed 0x3c telemetry independently from the
+      // 0x29 request acknowledgement. A syntactically valid but empty frame
+      // is not evidence that sensor streaming is active.
+      if (offset > 3) {
+        const telemetry = this._diagnostics.notificationTelemetry;
+        telemetry.status = "received";
+        telemetry.sessionId = this._connectionSession;
+        telemetry.validNotificationCount++;
+        telemetry.lastReceivedAt = Date.now();
+        const timedOutRequest = this._lastTimedOutNotificationRequest;
+        if (
+          this._notificationRecoveryTimer !== null &&
+          timedOutRequest?.sessionId === this._connectionSession &&
+          telemetry.validNotificationCount > 0
+        ) {
+          this._clearNotificationRecoveryTimer();
+          this._diagnostics.notificationRecovery.status =
+            "suppressed-telemetry-received";
+        }
+      }
     }
   }
 
@@ -8584,6 +8935,9 @@ continuous_sensor_loop()
       this._battery = null;
       this._devices = {};
       this._portModes = {};
+      this._modeInfoRequests = {};
+      this._modeValueFormats = {};
+      this._inputFormats = {};
       this._portValues = {};
       this._sensorEdges = new Set();
       this._lastCommunicationError = null;
@@ -8864,6 +9218,9 @@ continuous_sensor_loop()
       this._battery = null;
       this._devices = {};
       this._portModes = {};
+      this._modeInfoRequests = {};
+      this._modeValueFormats = {};
+      this._inputFormats = {};
       this._portValues = {};
       this._sensorEdges.clear();
       this._lastUnsupportedOperation = null;
@@ -8969,8 +9326,12 @@ continuous_sensor_loop()
         this._handleHubProperty(message);
       } else if (type === LWP3.HUB_ATTACHED_IO) {
         this._handleAttachedIO(message);
+      } else if (type === LWP3.PORT_MODE_INFORMATION) {
+        this._handlePortModeInformation(message);
       } else if (type === LWP3.PORT_VALUE) {
         this._handlePortValue(message);
+      } else if (type === LWP3.PORT_INPUT_FORMAT) {
+        this._handlePortInputFormat(message);
       }
     }
 
@@ -9006,6 +9367,9 @@ continuous_sensor_loop()
       if (event === LWP3.DETACHED) {
         delete this._devices[port];
         delete this._portModes[port];
+        delete this._modeInfoRequests[port];
+        delete this._modeValueFormats[port];
+        delete this._inputFormats[port];
         this._portValues[port] = {
           port,
           connected: false,
@@ -9039,6 +9403,16 @@ continuous_sensor_loop()
         deviceModelName: definition?.modelName || null,
         connected: true,
         attachedAt: now,
+        inputMode: Number.isInteger(definition?.inputMode)
+          ? definition.inputMode
+          : null,
+        inputFormatStatus: Number.isInteger(definition?.inputMode)
+          ? definition?.type === "motor"
+            ? "mode-value-format-pending"
+            : "pending"
+          : "not-requested",
+        modeValueFormatStatus:
+          definition?.type === "motor" ? "pending" : "not-requested",
       };
       this._portValues[port] = {
         port,
@@ -9052,11 +9426,144 @@ continuous_sensor_loop()
         // Connection discovery and the first PortValue are separate events.
         // A null sample time means "measurement pending", not "not attached".
         receivedAt: null,
+        inputMode: Number.isInteger(definition?.inputMode)
+          ? definition.inputMode
+          : null,
+        inputFormatStatus: Number.isInteger(definition?.inputMode)
+          ? definition?.type === "motor"
+            ? "mode-value-format-pending"
+            : "pending"
+          : "not-requested",
+        modeValueFormatStatus:
+          definition?.type === "motor" ? "pending" : "not-requested",
       };
       if (definition && Number.isInteger(definition.inputMode)) {
-        this._setInputMode(port, definition.inputMode).catch((error) =>
-          this._recordCommunicationError(error)
+        const setupInputMode =
+          definition.type === "motor"
+            ? this._prepareMotorPositionMode(port, definition.inputMode)
+            : this._setInputMode(port, definition.inputMode);
+        setupInputMode.catch((error) => this._recordCommunicationError(error));
+      }
+    }
+
+    async _prepareMotorPositionMode(port, mode) {
+      const attachedDevice = this._devices[port];
+      try {
+        await this._requestModeValueFormat(port, mode);
+      } catch (error) {
+        // The 0x22 format query is diagnostic for a known angular motor, not
+        // a prerequisite for the existing mode-2 POS notification path.
+        this._recordCommunicationError(error);
+      }
+      if (this._devices[port] !== attachedDevice) return;
+      await this._setInputMode(port, mode);
+    }
+
+    async _requestModeValueFormat(port, mode) {
+      this._requirePort(port);
+      const portId = port === "A" ? 0 : 1;
+      const request = {
+        mode,
+        informationType: LWP3.MODE_VALUE_FORMAT,
+        requestedAt: Date.now(),
+        status: "pending",
+      };
+      this._modeInfoRequests[port] = request;
+      try {
+        await this._send([
+          6,
+          0,
+          LWP3.PORT_MODE_INFORMATION_REQUEST,
+          portId,
+          mode,
+          LWP3.MODE_VALUE_FORMAT,
+        ]);
+      } catch (error) {
+        if (this._modeInfoRequests[port] === request) {
+          request.status = "write-failed";
+          this._portValues[port] = {
+            ...this._portValues[port],
+            modeValueFormatStatus: request.status,
+            inputFormatStatus: request.status,
+          };
+        }
+        throw error;
+      }
+    }
+
+    _handlePortModeInformation(message) {
+      // LWP3 §3.20 specifies a 10-byte 0x44 response for VALUE FORMAT 0x80:
+      // dataset count, data type, significant figures, and decimal places.
+      if (message.length < 6) {
+        this._recordCommunicationError(
+          "truncated LWP3 Port Mode Information response"
         );
+        return;
+      }
+      const port = message[3] === 0 ? "A" : message[3] === 1 ? "B" : null;
+      if (!port || !this._devices[port]) return;
+      const request = this._modeInfoRequests[port];
+      const mode = message[4];
+      const informationType = message[5];
+      if (
+        informationType !== LWP3.MODE_VALUE_FORMAT ||
+        !request ||
+        request.status !== "pending" ||
+        request.mode !== mode ||
+        request.informationType !== informationType
+      ) {
+        return;
+      }
+      if (message.length !== 10) {
+        request.status = "malformed-response";
+        this._portValues[port] = {
+          ...this._portValues[port],
+          modeValueFormatStatus: request.status,
+          inputFormatStatus: request.status,
+        };
+        this._recordCommunicationError(
+          `LWP3 mode value format response length ${message.length} on port ${port}`
+        );
+        return;
+      }
+      const format = {
+        mode,
+        dataSets: message[6],
+        dataType: message[7],
+        figures: message[8],
+        decimals: message[9],
+        receivedAt: Date.now(),
+      };
+      const isSignedInt32Position =
+        format.dataSets === 1 && format.dataType === 2;
+      format.status = isSignedInt32Position ? "verified" : "unsupported-format";
+      this._modeValueFormats[port] = format;
+      request.status = format.status;
+      this._portValues[port] = {
+        ...this._portValues[port],
+        modeValueFormat: { ...format },
+        modeValueFormatStatus: format.status,
+        inputFormatStatus: isSignedInt32Position
+          ? "pending"
+          : "unsupported-value-format",
+      };
+      this._devices[port] = {
+        ...this._devices[port],
+        modeValueFormat: { ...format },
+        modeValueFormatStatus: format.status,
+        inputFormatStatus: this._portValues[port].inputFormatStatus,
+      };
+      if (!isSignedInt32Position) {
+        const current = this._portValues[port];
+        this._portValues[port] = {
+          ...current,
+          relativePosition: null,
+          absolutePosition: null,
+          position: null,
+          degreesCounted: null,
+          speed: null,
+          receivedAt: null,
+        };
       }
     }
 
@@ -9067,19 +9574,131 @@ continuous_sensor_loop()
       // LWP3 §3.17 Port Input Format Setup Single. Delta 1 requests changes
       // at the device's least significant reporting unit; delta 0 can request
       // every available sample and create avoidable BLE traffic.
-      await this._send([
-        10,
-        0,
-        LWP3.PORT_INPUT_FORMAT_SETUP_SINGLE,
-        portId,
+      const previousMode = this._portModes[port];
+      const request = {
         mode,
-        LWP3.PORT_VALUE_DELTA,
-        0,
-        0,
-        0,
-        1,
-      ]);
+        delta: LWP3.PORT_VALUE_DELTA,
+        notificationEnabled: true,
+        requestedAt: Date.now(),
+        status: "pending",
+      };
+      // A fast 0x47 acknowledgement or 0x45 value can arrive as soon as the
+      // characteristic write finishes. Publish the requested mode before the
+      // await so the first sample is decoded against that mode.
       this._portModes[port] = mode;
+      this._inputFormats[port] = request;
+      if (this._portValues[port]) {
+        this._portValues[port] = {
+          ...this._portValues[port],
+          inputMode: mode,
+          inputFormatStatus: "pending",
+        };
+      }
+      try {
+        await this._send([
+          10,
+          0,
+          LWP3.PORT_INPUT_FORMAT_SETUP_SINGLE,
+          portId,
+          mode,
+          LWP3.PORT_VALUE_DELTA,
+          0,
+          0,
+          0,
+          1,
+        ]);
+      } catch (error) {
+        if (this._inputFormats[port] === request) {
+          if (previousMode === undefined) delete this._portModes[port];
+          else this._portModes[port] = previousMode;
+          request.status = "write-failed";
+          if (this._portValues[port]) {
+            this._portValues[port] = {
+              ...this._portValues[port],
+              inputFormatStatus: request.status,
+            };
+          }
+        }
+        throw error;
+      }
+    }
+
+    _handlePortInputFormat(message) {
+      // LWP3 §3.23: 0x47 echoes port, mode, uint32 LE delta, and notify flag.
+      if (message.length !== 10) {
+        this._recordCommunicationError(
+          "malformed LWP3 Port Input Format (Single) response"
+        );
+        return;
+      }
+      const port = message[3] === 0 ? "A" : message[3] === 1 ? "B" : null;
+      if (!port || !this._devices[port]) return;
+      const mode = message[4];
+      const delta =
+        message[5] |
+        (message[6] << 8) |
+        (message[7] << 16) |
+        (message[8] << 24);
+      const notificationEnabled = message[9] === 1;
+      const request = this._inputFormats[port];
+      if (!request || request.status !== "pending") return;
+      const matchesRequest =
+        request.mode === mode &&
+        request.delta === delta &&
+        request.notificationEnabled === notificationEnabled;
+      const requestInitialValue = Boolean(
+        matchesRequest &&
+          this._devices[port].type === "motor" &&
+          this._modeValueFormats[port]?.status !== "unsupported-format"
+      );
+      const status = matchesRequest ? "acknowledged" : "rejected-or-mismatched";
+      if (!matchesRequest) {
+        // Do not interpret later values using a mode the hub did not confirm.
+        delete this._portModes[port];
+        this._recordCommunicationError(
+          `LWP3 input format acknowledgement did not match the request on port ${port}`
+        );
+      }
+      const response = {
+        mode,
+        delta,
+        notificationEnabled,
+        receivedAt: Date.now(),
+      };
+      this._inputFormats[port] = {
+        ...request,
+        status,
+        response,
+        acknowledgedAt: response.receivedAt,
+      };
+      this._portValues[port] = {
+        ...(this._portValues[port] || {}),
+        inputMode: request.mode,
+        inputDelta: request.delta,
+        notificationsEnabled: request.notificationEnabled,
+        inputFormatResponse: response,
+        inputFormatStatus: status,
+      };
+      if (this._devices[port]) {
+        this._devices[port] = {
+          ...this._devices[port],
+          inputMode: request.mode,
+          inputDelta: request.delta,
+          notificationsEnabled: request.notificationEnabled,
+          inputFormatResponse: response,
+          inputFormatStatus: status,
+        };
+      }
+      if (requestInitialValue) {
+        const initialRead = this._send([
+          5,
+          0,
+          LWP3.PORT_INFORMATION_REQUEST,
+          message[3],
+          0,
+        ]);
+        initialRead.catch((error) => this._recordCommunicationError(error));
+      }
     }
 
     _handlePortValue(message) {
@@ -9091,13 +9710,30 @@ continuous_sensor_loop()
       const now = Date.now();
       const previous = this._portValues[port] || {};
       let next = { ...previous, connected: true };
-      if (device.type === "motor" && mode === 2 && message.length >= 8) {
-        let position =
+      const modeValueFormat = this._modeValueFormats[port];
+      const knownAngularMotor = [
+        LWP3.DEVICE_SPIKE_MEDIUM_MOTOR,
+        LWP3.DEVICE_SPIKE_LARGE_MOTOR,
+        LWP3.DEVICE_SPIKE_SMALL_MOTOR,
+      ].includes(device.deviceType);
+      const positionFormatVerified = Boolean(
+        modeValueFormat?.status === "verified" &&
+          modeValueFormat.mode === 2 &&
+          modeValueFormat.dataSets === 1 &&
+          modeValueFormat.dataType === 2
+      );
+      const canUseKnownPositionFormat = !modeValueFormat && knownAngularMotor;
+      if (
+        device.type === "motor" &&
+        mode === 2 &&
+        (positionFormatVerified || canUseKnownPositionFormat) &&
+        message.length === 8
+      ) {
+        const position =
           message[4] |
           (message[5] << 8) |
           (message[6] << 16) |
           (message[7] << 24);
-        if (position > 2147483647) position -= 4294967296;
         const elapsed =
           typeof previous.receivedAt === "number"
             ? now - previous.receivedAt
@@ -9112,14 +9748,23 @@ continuous_sensor_loop()
           ...next,
           type: "motor",
           motorType: device.deviceType,
+          // Mode 2 is signed cumulative POS. Mode 3 APOS is not requested, so
+          // its physical absolute-angle value stays explicitly unavailable.
+          positionMode: "POS",
+          positionSemantics: "relative-cumulative-degrees",
           relativePosition: position,
-          absolutePosition: ((position % 360) + 360) % 360,
-          position: ((position % 360) + 360) % 360,
+          absolutePosition: null,
+          absolutePositionAvailable: false,
+          position,
           degreesCounted: position,
           speed,
           speedDerived: true,
           speedUnit: "degrees-per-second",
           speedSource: "delta-angle-over-received-time",
+          modeValueFormatStatus: positionFormatVerified
+            ? "verified"
+            : "known-device-format-fallback",
+          positionResetPending: false,
         };
       } else if (device.type === "color" && mode === 0) {
         const color = message[4] > 127 ? message[4] - 256 : message[4];
@@ -9337,11 +9982,68 @@ continuous_sensor_loop()
           }
           case "scratch.motor_reset_position":
             this._requireMotor(port);
-            return this._output(
-              port,
-              LWP3Output.PRESET_ENCODER,
-              this._int32(p.position)
-            );
+            {
+              const attachedDevice = this._devices[port];
+              const previous = this._portValues[port] || {};
+              const resetState = {
+                ...previous,
+                connected: true,
+                positionMode: "POS",
+                positionSemantics: "relative-cumulative-degrees",
+                relativePosition: null,
+                absolutePosition: null,
+                absolutePositionAvailable: false,
+                position: null,
+                degreesCounted: null,
+                speed: null,
+                speedDerived: true,
+                speedUnit: "degrees-per-second",
+                speedSource: "delta-angle-over-received-time",
+                positionResetPending: true,
+                positionResetReadRequestedAt: null,
+                receivedAt: null,
+              };
+              // Invalidate before the write. A notification may arrive before
+              // the write Promise resolves; it must replace this placeholder
+              // rather than be overwritten by completion handling.
+              this._portValues[port] = resetState;
+              return this._output(port, LWP3Output.WRITE_DIRECT_MODE_DATA, [
+                2,
+                ...this._int32(p.position),
+              ])
+                .then(async () => {
+                  if (
+                    this._devices[port] !== attachedDevice ||
+                    this._portValues[port] !== resetState ||
+                    this._inputFormats[port]?.status !== "acknowledged"
+                  ) {
+                    return;
+                  }
+                  const readState = {
+                    ...resetState,
+                    positionResetReadRequestedAt: Date.now(),
+                  };
+                  this._portValues[port] = readState;
+                  // A single documented Port Value read handles unchanged POS
+                  // values; subsequent updates use the normal delta=1 stream.
+                  await this._send([
+                    5,
+                    0,
+                    LWP3.PORT_INFORMATION_REQUEST,
+                    port === "A" ? 0 : 1,
+                    0,
+                  ]).catch((error) => this._recordCommunicationError(error));
+                })
+                .catch((error) => {
+                  if (
+                    this._devices[port] === attachedDevice &&
+                    this._portValues[port] === resetState
+                  ) {
+                    this._portValues[port] = previous;
+                  }
+                  throw error;
+                });
+            }
           case "scratch.motor_set_stop_action":
             this._requireMotor(port);
             this._motorSettings[port].stopMode = {
@@ -9612,6 +10314,9 @@ continuous_sensor_loop()
       this._frame = [];
       this._devices = {};
       this._portModes = {};
+      this._modeInfoRequests = {};
+      this._modeValueFormats = {};
+      this._inputFormats = {};
       this._portValues = {};
       this._sensorEdges.clear();
       this._lastUnsupportedOperation = null;
@@ -10071,15 +10776,27 @@ continuous_sensor_loop()
     }
 
     _handleWebBLEReset(link, context = {}) {
-      if (link?.protocol === "lwp3") this._essential.reset(context);
-      else this._spike3.reset(context);
+      if (link?.protocol === "lwp3") {
+        if (this._essential._link !== link) return;
+        this._essential.reset(context);
+      } else {
+        if (this._spike3._link !== link) {
+          this._spike3._recordDiagnosticEvent("stale-webble-reset-ignored", {
+            protocol: link?.protocol || "unknown",
+          });
+          return;
+        }
+        this._spike3.reset(context);
+      }
       this._emitModelChange("hub-disconnected");
     }
 
     _handleWebBLEError(link, error, context) {
       if (link?.protocol === "lwp3") {
+        if (this._essential._link !== link) return;
         this._essential._recordCommunicationError(error);
       } else {
+        if (link?.protocol === "spike3" && this._spike3._link !== link) return;
         this._spike3._recordTransportError(error, context);
       }
     }
@@ -12660,7 +13377,8 @@ continuous_sensor_loop()
         sourceURL: SPIKE_EXTENSION_SOURCE_URL,
         modelChangeEvent: HubRouter.MODEL_CHANGE_EVENT,
         getState: () => this.getControlCenterState(),
-        getSupportedBlockOpcodes: () => this.getSupportedBlockOpcodes(),
+        getSupportedBlockOpcodes: (model) =>
+          this.getSupportedBlockOpcodes(model),
         supports: (capability) => this._peripheral.supports(capability),
         connect: (mode) => this.connectHubFromControlCenter(mode),
         connectPeripheral: (peripheralId) =>
@@ -12738,15 +13456,23 @@ continuous_sensor_loop()
       };
     }
 
-    getSupportedBlockOpcodes() {
+    getPortMenu() {
+      const model =
+        this._peripheral.effectiveHubModel || this._peripheral.selectedHubModel;
+      return model === "essential" ? ["A", "B"] : [...SpikePorts];
+    }
+
+    getSupportedBlockOpcodes(modelOverride = null) {
       if (!this._cachedBlockOpcodes) {
         this._cachedBlockOpcodes = this.getInfo()
           .blocks.map((block) => block && block.opcode)
           .filter((opcode) => typeof opcode === "string");
       }
       const opcodes = this._cachedBlockOpcodes;
-      const model =
-        this._peripheral.effectiveHubModel || this._peripheral.selectedHubModel;
+      const model = ["essential", "prime"].includes(modelOverride)
+        ? modelOverride
+        : this._peripheral.effectiveHubModel ||
+          this._peripheral.selectedHubModel;
       if (model !== "essential") return opcodes;
       return opcodes.filter((opcode) =>
         HubRouter.ESSENTIAL_SUPPORTED_BLOCK_OPCODES.has(opcode)
@@ -14382,7 +15108,7 @@ continuous_sensor_loop()
           },
         ],
         menus: {
-          PORT: { acceptReporters: true, items: SpikePorts },
+          PORT: { acceptReporters: true, items: "getPortMenu" },
           ...(isStartupProbeDeveloperMode()
             ? {
                 SPIKE_STARTUP_PROBE: {

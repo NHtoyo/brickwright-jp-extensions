@@ -515,6 +515,11 @@ async function connect(setupResult) {
       [0x28, 100, 0],
       "the hub is asked for 100 ms device notifications"
     );
+    assert.equal(
+      Buffer.from(device.writes[1]).toString("hex"),
+      "062b670002",
+      "the raw 0x28 request uses LEGO's expected SPIKE COBS framing"
+    );
   }
 }
 
@@ -532,6 +537,36 @@ async function connectEssential(setupResult) {
   assert.equal(diagnostics.hubSystemType, 0x83);
   assert.equal(diagnostics.detectedHubModel, "essential");
   assert.deepEqual(diagnostics.availablePorts, ["A", "B"]);
+}
+
+async function acknowledgeEssentialMotorPositionMode(state, portId) {
+  const { device, ext } = state;
+  const query = device.writes
+    .filter(
+      (message) =>
+        message[2] === 0x22 &&
+        message[3] === portId &&
+        message[4] === 2 &&
+        message[5] === 0x80
+    )
+    .at(-1);
+  assert.deepEqual(query, [6, 0, 0x22, portId, 2, 0x80]);
+  // The official 0x44 VALUE FORMAT response declares one int32 dataset.
+  device.emitLWP3([10, 0, 0x44, portId, 2, 0x80, 1, 2, 4, 0]);
+  await tick();
+  const subscription = device.writes
+    .filter(
+      (message) =>
+        message[2] === 0x41 && message[3] === portId && message[4] === 2
+    )
+    .at(-1);
+  assert.deepEqual(subscription, [10, 0, 0x41, portId, 2, 1, 0, 0, 0, 1]);
+  device.emitLWP3([10, 0, 0x47, portId, 2, 1, 0, 0, 0, 1]);
+  await tick();
+  assert.equal(
+    ext._peripheral.portValues[portId === 0 ? "A" : "B"].inputFormatStatus,
+    "acknowledged"
+  );
 }
 
 const tests = [];
@@ -1147,9 +1182,22 @@ test("Web Bluetooth requests notifications and records the hub acknowledgement",
   assert.equal(diagnostics.notificationRequest.responseCode, 0);
   assert.equal(diagnostics.notificationRequest.requestMessageHex, "286400");
   assert.equal(diagnostics.notificationRequest.responseMessageHex, "2900");
+  assert.equal(
+    diagnostics.notificationTelemetry.validNotificationCount,
+    0,
+    "a 0x29 acknowledgement is not evidence of a 0x3c sensor sample"
+  );
+  assert.equal(diagnostics.notificationTelemetry.status, "not-received");
+  const acknowledgedAt = diagnostics.notificationRequest.responseAt;
+  state.device.tx.emit(packMessage([0x29, 0x00]));
+  const afterDuplicate = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(afterDuplicate.notificationRequest.status, "acknowledged");
+  assert.equal(afterDuplicate.notificationRequest.responseAt, acknowledgedAt);
+  assert.equal(afterDuplicate.lateNotificationResponseCount, 1);
 
   const rejectedRequest =
     state.ext._peripheral._spike3.setDeviceNotifications(true);
+  await tick();
   state.device.tx.emit(packMessage([0x29, 0x01]));
   await assert.rejects(rejectedRequest, /did not acknowledge/);
   assert.equal(
@@ -1334,7 +1382,7 @@ test("broken frames, malformed sizes, and unknown records are diagnosed and reco
   );
 });
 
-test("a missing notification acknowledgement times out without a hardware write", async () => {
+test("a missing notification acknowledgement gets at most one read-only recovery attempt", async () => {
   const state = setup();
   await connect(state);
   const request = state.ext._peripheral._spike3.setDeviceNotifications(true);
@@ -1342,16 +1390,164 @@ test("a missing notification acknowledgement times out without a hardware write"
   const writesAfterRequest = state.device.writes.length;
   state.clock.advance(2001);
   await assert.rejects(request, /device notification response timed out/);
+  let diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.notificationRequest.status, "timeout");
+  assert.equal(diagnostics.notificationTelemetry.validNotificationCount, 0);
+  assert.equal(state.ext.isConnected(), true);
+  assert.equal(diagnostics.disconnectCount, 0);
   assert.equal(
-    JSON.parse(state.ext.getCommunicationDiagnostics()).notificationRequest
-      .status,
-    "timeout"
+    diagnostics.notificationRecovery.status,
+    "waiting-for-late-response"
+  );
+  assert.equal(state.device.writes.length, writesAfterRequest);
+
+  state.clock.advance(500);
+  await tick();
+  diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(
+    diagnostics.notificationRecovery.status,
+    "retrying-read-only-subscription"
+  );
+  assert.equal(diagnostics.notificationRecovery.attempts, 1);
+  const requests = unpackWrittenMessages(state.device.writes).filter(
+    ([type]) => type === 0x28
+  );
+  assert.equal(requests.length, 2);
+  assert.deepEqual(requests[0], [0x28, 100, 0]);
+  assert.deepEqual(requests[1], [0x28, 100, 0]);
+  assert.equal(
+    unpackWrittenMessages(state.device.writes).some(([type]) =>
+      [0x1e, 0x32, 0x46, 0x0c, 0x10].includes(type)
+    ),
+    false,
+    "recovery is read-only and does not start a program or controller"
+  );
+
+  state.clock.advance(2001);
+  await tick();
+  diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.notificationRequest.status, "timeout");
+  assert.equal(diagnostics.notificationRecovery.status, "retry-limit-reached");
+  assert.equal(diagnostics.notificationRecovery.attempts, 1);
+  assert.equal(
+    unpackWrittenMessages(state.device.writes).filter(([type]) => type === 0x28)
+      .length,
+    2,
+    "the retry limit prevents an unbounded request loop"
+  );
+});
+
+test("a delayed acknowledgement is retained without a duplicate subscription request", async () => {
+  const state = setup();
+  await connect(state);
+  const hub = state.ext._peripheral._spike3;
+  const pending = hub._pendingNotificationRequest.promise;
+  state.clock.advance(1999);
+  state.device.tx.emit(packMessage([0x29, 0x00]));
+  await assert.doesNotReject(pending);
+  const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.notificationRequest.status, "acknowledged");
+  assert.equal(
+    diagnostics.notificationRequest.responseAttribution,
+    "active-request"
+  );
+  state.clock.advance(600);
+  await tick();
+  assert.equal(
+    unpackWrittenMessages(state.device.writes).filter(([type]) => type === 0x28)
+      .length,
+    1
+  );
+});
+
+test("a late acknowledgement does not falsely acknowledge a changed subscription intent", async () => {
+  const state = setup();
+  await connect(state);
+  const hub = state.ext._peripheral._spike3;
+  const pending = hub._pendingNotificationRequest.promise;
+  state.clock.advance(2001);
+  await assert.rejects(pending, /device notification response timed out/);
+  const manualDisable = hub.setDeviceNotifications(false);
+  await tick();
+  assert.equal(
+    unpackWrittenMessages(state.device.writes).filter(([type]) => type === 0x28)
+      .length,
+    2,
+    "the caller's changed subscription intent is still sent"
+  );
+  assert.deepEqual(
+    unpackWrittenMessages(state.device.writes).filter(
+      ([type]) => type === 0x28
+    )[1],
+    [0x28, 0, 0]
+  );
+  state.device.tx.emit(packMessage([0x29, 0x00]));
+  await assert.rejects(
+    manualDisable,
+    /may belong to a previous timed-out request/
+  );
+  const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.notificationRequest.status, "ambiguous-response");
+  assert.equal(diagnostics.notificationRequest.responseCode, 0);
+  assert.equal(
+    diagnostics.notificationRequest.responseAttribution,
+    "uncorrelated-after-previous-timeout"
+  );
+  assert.equal(diagnostics.lastLateNotificationResponse.responseCode, 0);
+  assert.equal(diagnostics.lateNotificationResponseCount, 1);
+  assert.equal(
+    diagnostics.notificationRecovery.status,
+    "cancelled-by-new-subscription-request"
+  );
+  state.clock.advance(600);
+  await tick();
+  assert.equal(
+    unpackWrittenMessages(state.device.writes).filter(([type]) => type === 0x28)
+      .length,
+    2
+  );
+});
+
+test("valid telemetry without an acknowledgement is not conflated and suppresses recovery", async () => {
+  const state = setup();
+  await connect(state);
+  const hub = state.ext._peripheral._spike3;
+  const pending = hub._pendingNotificationRequest.promise;
+  state.device.tx.emit(packMessage(notification(imuRecord({ pitch: 1 }))));
+  let diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.notificationTelemetry.status, "received");
+  assert.equal(diagnostics.notificationTelemetry.validNotificationCount, 1);
+  assert.equal(diagnostics.notificationRequest.status, "pending");
+  state.clock.advance(2001);
+  await assert.rejects(pending, /device notification response timed out/);
+  state.clock.advance(500);
+  await tick();
+  diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.notificationRequest.status, "timeout");
+  assert.equal(
+    diagnostics.notificationRecovery.status,
+    "suppressed-telemetry-received"
   );
   assert.equal(
-    state.device.writes.length,
-    writesAfterRequest,
-    "timeout sends no additional command"
+    unpackWrittenMessages(state.device.writes).filter(([type]) => type === 0x28)
+      .length,
+    1
   );
+  assert.equal(hub.angle.pitch, 0.1);
+});
+
+test("connection monitoring sends no tunnel or program-flow commands", async () => {
+  const state = setup();
+  await connect(state);
+  state.device.tx.emit(packMessage([0x29, 0x00]));
+  state.device.tx.emit(packMessage(notification(imuRecord())));
+  const sentTypes = unpackWrittenMessages(state.device.writes).map(
+    ([type]) => type
+  );
+  assert.deepEqual(sentTypes, [0x00, 0x28]);
+  const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.controllerStatus, "not-installed");
+  assert.equal(diagnostics.notificationTelemetry.validNotificationCount, 1);
 });
 
 test("SPIKE 3.x never writes an output command before a controller handshake", async () => {
@@ -1399,6 +1595,62 @@ test("GATT disconnect clears the partial frame but preserves its diagnostic hist
   assert.equal(state.ext._peripheral._spike3.angle.pitch, 2);
 });
 
+test("old notification callbacks and request timers cannot affect a reconnected Prime session", async () => {
+  const state = setup();
+  await connect(state);
+  const hub = state.ext._peripheral._spike3;
+  state.device.tx.emit(packMessage([0x29, 0x00]));
+  const oldLink = hub._link;
+  const oldReceiver = hub._link._characteristicDidChangeCallback;
+  const oldRequest = hub.setDeviceNotifications(true);
+  await tick();
+  state.device.gatt.disconnect();
+  await assert.rejects(oldRequest, /disconnected while awaiting/);
+  assert.equal(hub._connectionSession > 0, true);
+
+  await state.ext._peripheral.scan();
+  await tick();
+  const newSessionId = hub._connectionSession;
+  assert.ok(newSessionId > 1);
+  state.ext._peripheral._handleWebBLEReset(oldLink, {
+    origin: "stale-test-callback",
+  });
+  assert.equal(
+    state.ext.isConnected(),
+    true,
+    "a prior link's delayed reset cannot clear the new active connection"
+  );
+  state.clock.advance(1000);
+  await tick();
+  const diagnosticsBeforeStaleFrame = JSON.parse(
+    state.ext.getCommunicationDiagnostics()
+  );
+  assert.equal(
+    diagnosticsBeforeStaleFrame.notificationRequest.status,
+    "pending"
+  );
+  oldReceiver(Buffer.from(packMessage([0x29, 0x00])).toString("base64"));
+  let diagnosticsAfterStaleFrame = JSON.parse(
+    state.ext.getCommunicationDiagnostics()
+  );
+  assert.equal(
+    diagnosticsAfterStaleFrame.notificationRequest.status,
+    "pending",
+    "a prior link's 0x29 frame is ignored"
+  );
+  state.clock.advance(1000);
+  diagnosticsAfterStaleFrame = JSON.parse(
+    state.ext.getCommunicationDiagnostics()
+  );
+  assert.equal(
+    diagnosticsAfterStaleFrame.recentEvents.some(
+      (event) => event.type === "device-notification-response-timeout"
+    ),
+    false,
+    "the previous session's timeout does not fire into the new session"
+  );
+});
+
 test("a requested local disconnect is recorded separately from a GATT disconnect event", async () => {
   const state = setup();
   await connect(state);
@@ -1434,6 +1686,12 @@ test("a fake-device write failure is surfaced in diagnostics", async () => {
     /simulated fake-device write failure/
   );
   assert.equal(diagnostics.lastDisconnect.origin, "ble-write-exception");
+  assert.equal(
+    diagnostics.recentEvents.filter((event) => event.type === "transport-error")
+      .length,
+    1,
+    "the write callback and rejected command must not log the same transport error twice"
+  );
   assert.equal(diagnostics.lastTransportError.messageType, 0x28);
   assert.equal(
     diagnostics.lastTransportError.messageName,
@@ -3367,6 +3625,7 @@ test("Essential rejects nonexistent ports and executes motor commands on real LW
   const motorAttached = [7, 0, 0x04, 0, 0x01, 0x41, 0x00];
   device.emitLWP3(motorAttached);
   await tick();
+  await acknowledgeEssentialMotorPositionMode(state, 0);
 
   const inputFormat = device.writes.find((message) => message[2] === 0x41);
   assert.deepEqual(
@@ -3417,6 +3676,7 @@ test("Essential classifies the real Medium Angular Motor ID from AttachedIO", as
   // The real reported packet: A attached with DeviceType 0x0030.
   device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x30, 0x00]);
   await tick();
+  await acknowledgeEssentialMotorPositionMode(state, 0);
 
   const controlState = state.runtime.brickwrightSpikePrimeControl.getState();
   assert.equal(controlState.portSensors.A.connected, true);
@@ -3480,6 +3740,84 @@ test("Essential classifies the real Medium Angular Motor ID from AttachedIO", as
   assert.deepEqual(device.writes.at(-1), [8, 0, 0x81, 0, 0x11, 0x51, 0, 0]);
 });
 
+test("Essential mode-2 POS uses signed cumulative degrees and reset waits for a real sample", async () => {
+  const state = setup({ hubKind: "essential" });
+  await connectEssential(state);
+  const { device, ext } = state;
+  const router = ext._peripheral;
+  device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x30, 0x00]);
+  await tick();
+
+  assert.deepEqual(
+    device.writes.filter((message) => message[2] === 0x22).at(-1),
+    [6, 0, 0x22, 0, 2, 0x80],
+    "request mode-2 Value Format metadata before decoding Port Value"
+  );
+  device.emitLWP3([10, 0, 0x44, 0, 2, 0x80, 1, 2, 4, 0]);
+  await tick();
+  assert.deepEqual(
+    device.writes.find((message) => message[2] === 0x41),
+    [10, 0, 0x41, 0, 2, 1, 0, 0, 0, 1],
+    "0x41 requests mode 2 POS with delta=1 and notifications enabled"
+  );
+  assert.equal(router.portValues.A.inputFormatStatus, "pending");
+  device.emitLWP3([10, 0, 0x47, 0, 2, 1, 0, 0, 0, 1]);
+  await tick();
+  assert.equal(router.portValues.A.inputFormatStatus, "acknowledged");
+  assert.equal(router.portValues.A.inputMode, 2);
+  assert.equal(router.portValues.A.inputDelta, 1);
+  assert.deepEqual(
+    device.writes.at(-1),
+    [5, 0, 0x21, 0, 0],
+    "after notifications are acknowledged, issue one documented initial value read"
+  );
+
+  // 0x45 POS payload is an int32 little-endian value. It must not be reduced
+  // modulo 360 into a fabricated APOS angle.
+  device.emitLWP3([8, 0, 0x45, 0, 0x90, 0x01, 0, 0]); // +400 degrees
+  await tick();
+  assert.equal(router.portValues.A.relativePosition, 400);
+  assert.equal(router.portValues.A.position, 400);
+  assert.equal(router.portValues.A.degreesCounted, 400);
+  assert.equal(router.portValues.A.absolutePosition, null);
+  assert.equal(router.portValues.A.absolutePositionAvailable, false);
+  assert.equal(ext.getPosition({ PORT: "A" }), 400);
+  assert.equal(ext.getAbsolutePosition({ PORT: "A" }), "");
+
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  device.emitLWP3([8, 0, 0x45, 0, 0xe7, 0xff, 0xff, 0xff]); // -25 degrees
+  await tick();
+  assert.equal(router.portValues.A.relativePosition, -25);
+  assert.equal(router.portValues.A.position, -25);
+  assert.ok(router.portValues.A.speed < 0, "reverse delta is negative speed");
+
+  await ext.resetMotorPosition({ PORT: "A", POSITION: 10 });
+  assert.deepEqual(
+    device.writes
+      .filter(
+        (message) =>
+          message[2] === 0x81 && message[5] === 0x51 && message[6] === 2
+      )
+      .at(-1),
+    [11, 0, 0x81, 0, 0x11, 0x51, 2, 10, 0, 0, 0]
+  );
+  assert.deepEqual(
+    device.writes.at(-1),
+    [5, 0, 0x21, 0, 0],
+    "read the reset value once instead of synthesizing it or polling continuously"
+  );
+  assert.equal(router.portValues.A.positionResetPending, true);
+  assert.equal(router.portValues.A.receivedAt, null);
+  assert.equal(router.portValues.A.position, null);
+  assert.equal(ext.getPosition({ PORT: "A" }), "");
+
+  device.emitLWP3([8, 0, 0x45, 0, 10, 0, 0, 0]);
+  await tick();
+  assert.equal(router.portValues.A.positionResetPending, false);
+  assert.equal(router.portValues.A.position, 10);
+  assert.equal(typeof router.portValues.A.receivedAt, "number");
+});
+
 test("Essential supports the Small and Large Angular Motor IDs through one table", async () => {
   const state = setup({ hubKind: "essential" });
   await connectEssential(state);
@@ -3492,11 +3830,18 @@ test("Essential supports the Small and Large Angular Motor IDs through one table
   ]) {
     device.emitLWP3([7, 0, 0x04, portId, 0x01, deviceType, 0]);
     await tick();
+    await acknowledgeEssentialMotorPositionMode(state, portId);
     const port = portId === 0 ? "A" : "B";
     assert.equal(router.portValues[port].connected, true);
     assert.equal(router.portValues[port].type, "motor");
     assert.equal(router.portValues[port].deviceId, deviceType);
     assert.equal(router.portValues[port].deviceName, expectedName);
+    if (deviceType === 0x41) {
+      device.emitLWP3([8, 0, 0x45, portId, 0xd0, 0x02, 0, 0]); // +720 degrees
+      await tick();
+      assert.equal(router.portValues[port].position, 720);
+      assert.equal(router.portValues[port].absolutePosition, null);
+    }
     await router.sendCommand("scratch.motor_start", { port, speed: -10 });
     await router.sendCommand("scratch.motor_stop", {
       port,
@@ -3505,6 +3850,170 @@ test("Essential supports the Small and Large Angular Motor IDs through one table
   }
   await router.stopAllMotors();
   assert.deepEqual(device.writes.at(-1), [8, 0, 0x81, 1, 0x11, 0x51, 0, 127]);
+});
+
+test("Essential does not guess motor position width when 0x44 declares another format", async () => {
+  const state = setup({ hubKind: "essential" });
+  await connectEssential(state);
+  const { device, ext } = state;
+  device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x30, 0]);
+  await tick();
+  device.emitLWP3([10, 0, 0x44, 0, 2, 0x80, 1, 1, 3, 0]);
+  await tick();
+
+  assert.equal(
+    device.writes.some((message) => message[2] === 0x41),
+    true,
+    "use the known motor's mode-2 stream without blocking on optional format metadata"
+  );
+  assert.equal(ext._peripheral.portValues.A.connected, true);
+  assert.equal(
+    ext._peripheral.portValues.A.modeValueFormatStatus,
+    "unsupported-format"
+  );
+  assert.equal(ext._peripheral.portValues.A.receivedAt, null);
+  assert.equal(
+    JSON.parse(ext.getCommunicationDiagnostics()).lastCommunicationError,
+    null,
+    "an unsupported sensor format is not a BLE transport failure"
+  );
+  device.emitLWP3([6, 0, 0x45, 0, 0x2c, 0x01]);
+  await tick();
+  assert.equal(ext._peripheral.portValues.A.receivedAt, null);
+  assert.equal(ext._peripheral.portValues.A.position, null);
+});
+
+test("Essential retains the known mode-2 POS stream when a mode-format reply is absent", async () => {
+  const state = setup({ hubKind: "essential" });
+  await connectEssential(state);
+  const { device, ext } = state;
+  device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x30, 0]);
+  await tick();
+
+  assert.deepEqual(
+    device.writes.filter((message) => message[2] === 0x41).at(-1),
+    [10, 0, 0x41, 0, 2, 1, 0, 0, 0, 1],
+    "mode 2 notification setup is not blocked waiting for optional 0x44 metadata"
+  );
+  device.emitLWP3([10, 0, 0x47, 0, 2, 1, 0, 0, 0, 1]);
+  await tick();
+  device.emitLWP3([8, 0, 0x45, 0, 0x90, 0x01, 0, 0]);
+  await tick();
+  assert.equal(ext._peripheral.portValues.A.position, 400);
+  assert.equal(
+    ext._peripheral.portValues.A.modeValueFormatStatus,
+    "known-device-format-fallback"
+  );
+  assert.equal(ext._peripheral.portValues.A.connected, true);
+  assert.equal(
+    JSON.parse(ext.getCommunicationDiagnostics()).lastCommunicationError,
+    null
+  );
+});
+
+test("Essential motor reset preserves an early value sample while the write is pending", async () => {
+  const state = setup({ hubKind: "essential" });
+  await connectEssential(state);
+  const { device, ext } = state;
+  device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x30, 0]);
+  await tick();
+  await acknowledgeEssentialMotorPositionMode(state, 0);
+  device.emitLWP3([8, 0, 0x45, 0, 0x2c, 0x01, 0, 0]);
+  await tick();
+
+  const originalWrite = device.rx.writeValueWithoutResponse.bind(device.rx);
+  let injected = false;
+  device.rx.writeValueWithoutResponse = async (packet) => {
+    await originalWrite(packet);
+    const message = device.writes.at(-1);
+    if (
+      !injected &&
+      message[2] === 0x81 &&
+      message[5] === 0x51 &&
+      message[6] === 2
+    ) {
+      injected = true;
+      device.emitLWP3([8, 0, 0x45, 0, 0x55, 0, 0, 0]);
+    }
+  };
+
+  await ext.resetMotorPosition({ PORT: "A", POSITION: 0 });
+  assert.equal(injected, true);
+  assert.equal(ext._peripheral.portValues.A.position, 85);
+  assert.equal(ext._peripheral.portValues.A.positionResetPending, false);
+  assert.equal(typeof ext._peripheral.portValues.A.receivedAt, "number");
+});
+
+test("Essential motor reset does not overwrite a detach or replacement attachment", async () => {
+  const state = setup({ hubKind: "essential" });
+  await connectEssential(state);
+  const { device, ext } = state;
+  device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x30, 0]);
+  await tick();
+  await acknowledgeEssentialMotorPositionMode(state, 0);
+  device.emitLWP3([8, 0, 0x45, 0, 0x2c, 0x01, 0, 0]);
+  await tick();
+
+  const originalWrite = device.rx.writeValueWithoutResponse.bind(device.rx);
+  let detached = false;
+  device.rx.writeValueWithoutResponse = async (packet) => {
+    await originalWrite(packet);
+    const message = device.writes.at(-1);
+    if (
+      !detached &&
+      message[2] === 0x81 &&
+      message[5] === 0x51 &&
+      message[6] === 2
+    ) {
+      detached = true;
+      device.emitLWP3([5, 0, 0x04, 0, 0]);
+      device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x41, 0]);
+    }
+  };
+
+  await ext.resetMotorPosition({ PORT: "A", POSITION: 0 });
+  assert.equal(detached, true);
+  assert.equal(ext._peripheral.portValues.A.connected, true);
+  assert.equal(ext._peripheral.portValues.A.deviceId, 0x41);
+  assert.equal(ext._peripheral.portValues.A.receivedAt, null);
+  assert.equal(Object.hasOwn(ext._peripheral.portValues.A, "position"), false);
+});
+
+test("Essential ignores duplicate and unsolicited mode-format replies and preserves 0x41 request fields", async () => {
+  const state = setup({ hubKind: "essential" });
+  await connectEssential(state);
+  const { device, ext } = state;
+  device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x30, 0]);
+  await tick();
+  device.emitLWP3([10, 0, 0x44, 0, 2, 0x80, 1, 2, 4, 0]);
+  await tick();
+  const modeRequestsBeforeDuplicate = device.writes.filter(
+    (message) => message[2] === 0x41
+  ).length;
+  device.emitLWP3([10, 0, 0x44, 0, 2, 0x80, 1, 2, 4, 0]);
+  device.emitLWP3([10, 0, 0x44, 0, 3, 0x80, 1, 1, 3, 0]);
+  await tick();
+  assert.equal(
+    device.writes.filter((message) => message[2] === 0x41).length,
+    modeRequestsBeforeDuplicate
+  );
+
+  device.emitLWP3([10, 0, 0x47, 0, 2, 2, 0, 0, 0, 0]);
+  await tick();
+  const port = ext._peripheral.portValues.A;
+  assert.equal(port.inputFormatStatus, "rejected-or-mismatched");
+  assert.equal(port.inputMode, 2);
+  assert.equal(port.inputDelta, 1);
+  assert.equal(port.notificationsEnabled, true);
+  assert.equal(port.inputFormatResponse.mode, 2);
+  assert.equal(port.inputFormatResponse.delta, 2);
+  assert.equal(port.inputFormatResponse.notificationEnabled, false);
+  assert.equal(typeof port.inputFormatResponse.receivedAt, "number");
+  assert.equal(
+    device.writes.some((message) => message[2] === 0x21),
+    false,
+    "mismatched setup acknowledgement does not issue a value request"
+  );
 });
 
 test("Essential separates unsupported commands and missing motors from link failures", async () => {
@@ -3567,6 +4076,12 @@ test("Essential toolbox availability follows model selection without removing re
   state.runtime.on(api.modelChangeEvent, (event) => emitted.push(event));
 
   api.setHubModel("essential");
+  assert.deepEqual(Array.from(state.ext.getPortMenu()), ["A", "B"]);
+  assert.equal(state.ext.getInfo().menus.PORT.items, "getPortMenu");
+  assert.ok(api.getSupportedBlockOpcodes("essential").includes("motorStart"));
+  assert.ok(
+    !api.getSupportedBlockOpcodes("essential").includes("installHubController")
+  );
   const essentialOpcodes = api.getSupportedBlockOpcodes();
   assert.ok(essentialOpcodes.includes("motorStart"));
   assert.ok(essentialOpcodes.includes("setLightMatrixPixel"));
@@ -3596,6 +4111,14 @@ test("Essential toolbox availability follows model selection without removing re
   const primeState = setup();
   const primeAPI = primeState.runtime.brickwrightSpikePrimeControl;
   primeAPI.setHubModel("prime");
+  assert.deepEqual(Array.from(primeState.ext.getPortMenu()), [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+  ]);
   assert.ok(
     primeAPI.getSupportedBlockOpcodes().includes("installHubController")
   );
@@ -3660,6 +4183,7 @@ test("Essential detach and reconnect clear stale sensor data while Prime remains
   await connectEssential(state);
   state.device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x41, 0]);
   await tick();
+  await acknowledgeEssentialMotorPositionMode(state, 0);
   state.device.emitLWP3([8, 0, 0x45, 0, 10, 0, 0, 0]);
   await tick();
   state.device.emitLWP3([5, 0, 0x04, 0, 0x00]);
