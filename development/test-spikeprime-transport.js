@@ -3371,8 +3371,8 @@ test("Essential rejects nonexistent ports and executes motor commands on real LW
   const inputFormat = device.writes.find((message) => message[2] === 0x41);
   assert.deepEqual(
     inputFormat,
-    [10, 0, 0x41, 0, 2, 100, 0, 0, 0, 1],
-    "motor angle updates are enabled with a finite 100 ms LWP3 delta"
+    [10, 0, 0x41, 0, 2, 1, 0, 0, 0, 1],
+    "motor angle reports are enabled for each changed degree without requesting every sample"
   );
   const writesBeforeInvalidPort = device.writes.length;
   await assert.rejects(
@@ -3390,7 +3390,10 @@ test("Essential rejects nonexistent ports and executes motor commands on real LW
   await tick();
   assert.equal(router.portValues.A.relativePosition, 350);
   assert.equal(typeof router.portValues.A.speed, "number");
+  assert.equal(router.portValues.A.speedDerived, true);
+  assert.equal(router.portValues.A.speedUnit, "degrees-per-second");
   assert.equal(ext.getRelativePosition({ PORT: "A" }), 350);
+  assert.equal(ext.getSpeed({ PORT: "A" }), router.portValues.A.speed);
   await router.sendCommand("scratch.motor_start", { port: "A", speed: 25 });
   assert.deepEqual(
     device.writes.at(-1),
@@ -3403,6 +3406,188 @@ test("Essential rejects nonexistent ports and executes motor commands on real LW
   assert.deepEqual(device.writes.at(-1), [8, 0, 0x81, 0, 0x11, 0x51, 0, 127]);
   await router.stopAll();
   assert.deepEqual(device.writes.at(-1), [8, 0, 0x81, 0, 0x11, 0x51, 0, 127]);
+});
+
+test("Essential classifies the real Medium Angular Motor ID from AttachedIO", async () => {
+  const state = setup({ hubKind: "essential" });
+  await connectEssential(state);
+  const { device, ext } = state;
+  const router = ext._peripheral;
+
+  // The real reported packet: A attached with DeviceType 0x0030.
+  device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x30, 0x00]);
+  await tick();
+
+  const controlState = state.runtime.brickwrightSpikePrimeControl.getState();
+  assert.equal(controlState.portSensors.A.connected, true);
+  assert.equal(controlState.portSensors.A.deviceId, 0x30);
+  assert.equal(controlState.portSensors.A.deviceType, 0x30);
+  assert.equal(controlState.portSensors.A.type, "motor");
+  assert.equal(controlState.portSensors.A.deviceName, "Medium Angular Motor");
+  assert.equal(controlState.portSensors.A.receivedAt, null);
+  assert.equal(controlState.portDevices.A.type, "motor");
+  assert.equal(controlState.motorPorts.A.receivedAt, null);
+
+  const modeRequest = device.writes.find(
+    (message) => message[2] === 0x41 && message[3] === 0 && message[4] === 2
+  );
+  assert.deepEqual(modeRequest, [10, 0, 0x41, 0, 2, 1, 0, 0, 0, 1]);
+
+  device.emitLWP3([8, 0, 0x45, 0, 0x2c, 0x01, 0, 0]);
+  await tick();
+  assert.equal(router.portValues.A.relativePosition, 300);
+  assert.equal(typeof router.portValues.A.receivedAt, "number");
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  device.emitLWP3([8, 0, 0x45, 0, 0x5e, 0x01, 0, 0]);
+  await tick();
+  assert.equal(router.portValues.A.relativePosition, 350);
+  assert.equal(typeof router.portValues.A.speed, "number");
+  assert.equal(ext.getRelativePosition({ PORT: "A" }), 350);
+
+  const beforeMotorCommand = device.writes.length;
+  await router.sendCommand("scratch.motor_start", { port: "A", speed: 25 });
+  assert.deepEqual(
+    device.writes[beforeMotorCommand],
+    [9, 0, 0x81, 0, 0x11, 0x07, 25, 100, 0]
+  );
+  await router.sendCommand("scratch.motor_stop", { port: "A" });
+  assert.deepEqual(device.writes.at(-1), [8, 0, 0x81, 0, 0x11, 0x51, 0, 127]);
+  await router.stopAllMotors();
+  assert.deepEqual(device.writes.at(-1), [8, 0, 0x81, 0, 0x11, 0x51, 0, 127]);
+
+  assert.equal(router.protocol, "spike3");
+  await ext.motorSetSpeed({ PORT: "A", SPEED: 20 });
+  await ext.motorStart({ PORT: "A", DIRECTION: 1 });
+  assert.deepEqual(
+    device.writes.at(-1),
+    [9, 0, 0x81, 0, 0x11, 0x07, 20, 100, 0]
+  );
+  await ext.motorStop({ PORT: "A" });
+  assert.deepEqual(device.writes.at(-1), [8, 0, 0x81, 0, 0x11, 0x51, 0, 127]);
+  await ext.stopMotor({ PORT: "A", ACTION: "coast" });
+  assert.deepEqual(device.writes.at(-1), [8, 0, 0x81, 0, 0x11, 0x51, 0, 0]);
+});
+
+test("Essential supports the Small and Large Angular Motor IDs through one table", async () => {
+  const state = setup({ hubKind: "essential" });
+  await connectEssential(state);
+  const { device, ext } = state;
+  const router = ext._peripheral;
+
+  for (const [portId, deviceType, expectedName] of [
+    [0, 0x41, "Small Angular Motor"],
+    [1, 0x31, "Large Angular Motor"],
+  ]) {
+    device.emitLWP3([7, 0, 0x04, portId, 0x01, deviceType, 0]);
+    await tick();
+    const port = portId === 0 ? "A" : "B";
+    assert.equal(router.portValues[port].connected, true);
+    assert.equal(router.portValues[port].type, "motor");
+    assert.equal(router.portValues[port].deviceId, deviceType);
+    assert.equal(router.portValues[port].deviceName, expectedName);
+    await router.sendCommand("scratch.motor_start", { port, speed: -10 });
+    await router.sendCommand("scratch.motor_stop", {
+      port,
+      stop_mode: "coast",
+    });
+  }
+  await router.stopAllMotors();
+  assert.deepEqual(device.writes.at(-1), [8, 0, 0x81, 1, 0x11, 0x51, 0, 127]);
+});
+
+test("Essential separates unsupported commands and missing motors from link failures", async () => {
+  const state = setup({ hubKind: "essential" });
+  await connectEssential(state);
+  const router = state.ext._peripheral;
+
+  await assert.rejects(
+    router.sendCommand("scratch.motor_start", { port: "A", speed: 10 }),
+    (error) =>
+      error.code === "ERR_SPIKE_DEVICE_NOT_CONNECTED" &&
+      error.kind === "device-not-connected"
+  );
+  assert.equal(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).lastCommunicationError,
+    null
+  );
+  assert.equal(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).lastDeviceError.code,
+    "ERR_SPIKE_DEVICE_NOT_CONNECTED"
+  );
+
+  state.device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x3d, 0]);
+  await tick();
+  const writesBeforeUnsupportedDevice = state.device.writes.length;
+  await assert.rejects(
+    router.sendCommand("scratch.motor_start", { port: "A", speed: 10 }),
+    (error) =>
+      error.code === "ERR_SPIKE_DEVICE_UNSUPPORTED" &&
+      error.kind === "unsupported-device"
+  );
+  assert.equal(state.device.writes.length, writesBeforeUnsupportedDevice);
+  assert.equal(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).lastCommunicationError,
+    null
+  );
+  assert.equal(
+    JSON.parse(state.ext.getCommunicationDiagnostics()).lastDeviceError.kind,
+    "unsupported-device"
+  );
+
+  await assert.rejects(
+    router.sendPythonCommand("print('not supported')"),
+    (error) =>
+      error.code === "ERR_SPIKE_UNSUPPORTED_CAPABILITY" &&
+      error.kind === "unsupported-capability"
+  );
+  const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.lastCommunicationError, null);
+  assert.equal(
+    diagnostics.lastUnsupportedOperation.code,
+    "ERR_SPIKE_UNSUPPORTED_CAPABILITY"
+  );
+});
+
+test("Essential toolbox availability follows model selection without removing registered opcodes", async () => {
+  const state = setup({ hubKind: "essential" });
+  const api = state.runtime.brickwrightSpikePrimeControl;
+  const emitted = [];
+  state.runtime.on(api.modelChangeEvent, (event) => emitted.push(event));
+
+  api.setHubModel("essential");
+  const essentialOpcodes = api.getSupportedBlockOpcodes();
+  assert.ok(essentialOpcodes.includes("motorStart"));
+  assert.ok(essentialOpcodes.includes("setLightMatrixPixel"));
+  assert.ok(!essentialOpcodes.includes("installHubController"));
+  assert.ok(!essentialOpcodes.includes("displayText"));
+  assert.ok(!essentialOpcodes.includes("setPixel"));
+  assert.ok(
+    state.ext
+      .getInfo()
+      .blocks.some((block) => block.opcode === "installHubController"),
+    "the opcode remains registered for existing workspace blocks"
+  );
+  assert.ok(emitted.some((event) => event.reason === "hub-model-selected"));
+  await connectEssential(state);
+  assert.equal(api.getState().effectiveHubModel, "essential");
+  assert.ok(
+    emitted.some(
+      (event) =>
+        event.reason === "hub-model-detected" &&
+        event.effectiveHubModel === "essential" &&
+        event.supportedBlockOpcodes.includes("motorStart") &&
+        !event.supportedBlockOpcodes.includes("installHubController")
+    ),
+    "the toolbox refresh event carries the detected Essential model and supported blocks"
+  );
+
+  const primeState = setup();
+  const primeAPI = primeState.runtime.brickwrightSpikePrimeControl;
+  primeAPI.setHubModel("prime");
+  assert.ok(
+    primeAPI.getSupportedBlockOpcodes().includes("installHubController")
+  );
+  assert.ok(primeAPI.getSupportedBlockOpcodes().includes("setPixel"));
 });
 
 test("Essential sensor feeds update color, distance, and force reporters and hats", async () => {
@@ -3468,6 +3653,23 @@ test("Essential detach and reconnect clear stale sensor data while Prime remains
   state.device.emitLWP3([5, 0, 0x04, 0, 0x00]);
   await tick();
   assert.equal(state.ext._peripheral.portValues.A.connected, false);
+  assert.equal(state.ext._peripheral.portValues.A.receivedAt, null);
+  assert.equal(state.ext._peripheral.portValues.A.deviceId, null);
+  assert.equal(
+    Object.hasOwn(state.ext._peripheral.portValues.A, "relativePosition"),
+    false,
+    "a detached motor's old angle is not retained as a current measurement"
+  );
+  state.device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x30, 0]);
+  await tick();
+  assert.equal(state.ext._peripheral.portValues.A.connected, true);
+  assert.equal(state.ext._peripheral.portValues.A.deviceId, 0x30);
+  assert.equal(state.ext._peripheral.portValues.A.receivedAt, null);
+  assert.equal(
+    Object.hasOwn(state.ext._peripheral.portValues.A, "relativePosition"),
+    false,
+    "reattach waits for a fresh angle instead of reusing the previous motor's reading"
+  );
   state.device.gatt.disconnect();
   assert.equal(state.ext.isConnected(), false);
   await state.ext._peripheral.scan();

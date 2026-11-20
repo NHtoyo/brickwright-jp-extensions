@@ -1,6 +1,6 @@
-// Name: LEGO SPIKE Prime / Robot Inventor
+// Name: LEGO SPIKE
 // ID: spikeprime
-// Description: Control a SPIKE Prime or Robot Inventor hub over Scratch Link, Web Bluetooth or a local bridge, on either firmware generation, and transpile blocks to SPIKE Python.
+// Description: Control SPIKE Essential, SPIKE Prime, or Robot Inventor hubs and transpile supported blocks to SPIKE Python.
 // By: CrispStrobe <https://github.com/CrispStrobe>
 // License: MPL-2.0
 //
@@ -89,7 +89,7 @@
   // ============================================================================
   const translations = {
     en: {
-      extensionName: "LEGO SPIKE Prime",
+      extensionName: "LEGO SPIKE",
       // Connection & modes — the blocks the four folded-in extensions had
       connectionLabel: "🔌 Connection",
       connectHub: "connect to hub",
@@ -461,7 +461,7 @@
       confirmDelete: "Delete {0} from hub?",
     },
     ja: {
-      extensionName: "LEGO SPIKE Prime",
+      extensionName: "LEGO SPIKE",
       connectionLabel: "🔌 接続",
       connectHub: "ハブに接続",
       connectHubAt: "ブリッジに接続 [URL]",
@@ -842,7 +842,7 @@
         "Setze 3x3-Matrix [PORT] Pixel x:[X] y:[Y] Helligkeit [BRIGHTNESS]%",
       getFaceUp: "Hub-Oberseite",
       getDistanceIn: "[PORT] Abstand in [UNIT]",
-      extensionName: "LEGO SPIKE Prime",
+      extensionName: "LEGO SPIKE",
       // Transpilation Section
       transpilationLabel: "📝 Code-Generierung",
       transpileProject: "Projekt zu SPIKE Python transpilieren",
@@ -978,7 +978,7 @@
       // Carried over from the two folded-in extensions that shipped French
       // (legospike_bridge and legospike_ble), re-keyed onto the unified block
       // names. Keys without a French original fall back to English in t().
-      extensionName: "SPIKE Prime",
+      extensionName: "LEGO SPIKE",
       connectionLabel: "🔌 Connexion",
       connectHub: "se connecter au SPIKE Prime",
       connectHubAt: "🔌 se connecter à [URL]",
@@ -1845,12 +1845,74 @@
     UPDATE: 0x06,
     ATTACHED: 0x01,
     DETACHED: 0x00,
-    DEVICE_SPIKE_SMALL_MOTOR: 0x41,
+    DEVICE_SPIKE_MEDIUM_MOTOR: 0x30,
+    DEVICE_SPIKE_LARGE_MOTOR: 0x31,
     DEVICE_SPIKE_COLOR_SENSOR: 0x3d,
     DEVICE_SPIKE_DISTANCE_SENSOR: 0x3e,
     DEVICE_SPIKE_FORCE_SENSOR: 0x3f,
     DEVICE_SPIKE_3X3_MATRIX: 0x40,
+    DEVICE_SPIKE_SMALL_MOTOR: 0x41,
+    // These are LWP3 DeviceType IDs. Keep classification, labels, and input
+    // modes together so a known motor cannot be decoded differently by the
+    // attach, read, and output paths.
+    PORT_VALUE_DELTA: 1,
   };
+
+  const LWP3_DEVICE_TYPES = Object.freeze({
+    [LWP3.DEVICE_SPIKE_MEDIUM_MOTOR]: Object.freeze({
+      id: LWP3.DEVICE_SPIKE_MEDIUM_MOTOR,
+      type: "motor",
+      name: "Medium Angular Motor",
+      modelName: "SPIKE Prime Medium Angular Motor",
+      inputMode: 2,
+      hasPosition: true,
+    }),
+    [LWP3.DEVICE_SPIKE_LARGE_MOTOR]: Object.freeze({
+      id: LWP3.DEVICE_SPIKE_LARGE_MOTOR,
+      type: "motor",
+      name: "Large Angular Motor",
+      modelName: "SPIKE Prime Large Angular Motor",
+      inputMode: 2,
+      hasPosition: true,
+    }),
+    [LWP3.DEVICE_SPIKE_COLOR_SENSOR]: Object.freeze({
+      id: LWP3.DEVICE_SPIKE_COLOR_SENSOR,
+      type: "color",
+      name: "Color Sensor",
+      modelName: "SPIKE Color Sensor",
+      inputMode: 0,
+    }),
+    [LWP3.DEVICE_SPIKE_DISTANCE_SENSOR]: Object.freeze({
+      id: LWP3.DEVICE_SPIKE_DISTANCE_SENSOR,
+      type: "distance",
+      name: "Distance Sensor",
+      modelName: "SPIKE Distance Sensor",
+      inputMode: 1,
+    }),
+    [LWP3.DEVICE_SPIKE_FORCE_SENSOR]: Object.freeze({
+      id: LWP3.DEVICE_SPIKE_FORCE_SENSOR,
+      type: "force",
+      name: "Force Sensor",
+      modelName: "SPIKE Force Sensor",
+      inputMode: 0,
+    }),
+    [LWP3.DEVICE_SPIKE_3X3_MATRIX]: Object.freeze({
+      id: LWP3.DEVICE_SPIKE_3X3_MATRIX,
+      type: "matrix3",
+      name: "3×3 Color Light Matrix",
+      modelName: "SPIKE 3×3 Color Light Matrix",
+    }),
+    [LWP3.DEVICE_SPIKE_SMALL_MOTOR]: Object.freeze({
+      id: LWP3.DEVICE_SPIKE_SMALL_MOTOR,
+      type: "motor",
+      name: "Small Angular Motor",
+      modelName: "SPIKE Essential Small Angular Motor",
+      inputMode: 2,
+      hasPosition: true,
+    }),
+  });
+
+  const lwp3DeviceType = (deviceType) => LWP3_DEVICE_TYPES[deviceType] || null;
 
   const LWP3Output = {
     START_SPEED: 0x07,
@@ -8525,6 +8587,8 @@ continuous_sensor_loop()
       this._portValues = {};
       this._sensorEdges = new Set();
       this._lastCommunicationError = null;
+      this._lastUnsupportedOperation = null;
+      this._lastDeviceError = null;
       this._motorSettings = Object.fromEntries(
         SpikePorts.map((port) => [port, new SpikeMotorSetting()])
       );
@@ -8686,6 +8750,12 @@ continuous_sensor_loop()
             .filter(([, value]) => value.type === "motor")
             .map(([port, value]) => [port, { ...value }])
         ),
+        lastUnsupportedOperation: this._lastUnsupportedOperation
+          ? { ...this._lastUnsupportedOperation }
+          : null,
+        lastDeviceError: this._lastDeviceError
+          ? { ...this._lastDeviceError }
+          : null,
         controllerStatus: "not-applicable",
         controllerReady: false,
         standaloneCapable: false,
@@ -8700,10 +8770,90 @@ continuous_sensor_loop()
     }
 
     _unsupportedError(detail) {
-      const error = new Error(`SPIKE Essential does not support ${detail}`);
-      error.code = "ERR_ESSENTIAL_UNSUPPORTED";
-      this._recordCommunicationError(error);
+      const error = Object.assign(
+        new Error(`SPIKE Essential does not support ${detail}`),
+        {
+          code: "ERR_SPIKE_UNSUPPORTED_CAPABILITY",
+          kind: "unsupported-capability",
+        }
+      );
+      this._lastUnsupportedOperation = {
+        code: error.code,
+        kind: error.kind,
+        message: error.message,
+        timestamp: Date.now(),
+      };
       return error;
+    }
+
+    _deviceNotConnectedError(port, deviceName = "device") {
+      const error = Object.assign(
+        new Error(`${deviceName} is not connected to port ${port}`),
+        {
+          code: "ERR_SPIKE_DEVICE_NOT_CONNECTED",
+          kind: "device-not-connected",
+        }
+      );
+      this._lastDeviceError = {
+        code: error.code,
+        kind: error.kind,
+        message: error.message,
+        port,
+        timestamp: Date.now(),
+      };
+      return error;
+    }
+
+    _deviceUnsupportedError(port, device = null) {
+      const name =
+        device?.deviceName ||
+        (Number.isInteger(device?.deviceType)
+          ? `device 0x${device.deviceType.toString(16)}`
+          : "attached device");
+      const error = Object.assign(
+        new Error(`${name} on port ${port} does not support this operation`),
+        {
+          code: "ERR_SPIKE_DEVICE_UNSUPPORTED",
+          kind: "unsupported-device",
+          port,
+        }
+      );
+      this._lastDeviceError = {
+        code: error.code,
+        kind: error.kind,
+        message: error.message,
+        port,
+        timestamp: Date.now(),
+      };
+      return error;
+    }
+
+    _recordOperationError(error) {
+      if (error?.code === "ERR_SPIKE_UNSUPPORTED_CAPABILITY") {
+        this._lastUnsupportedOperation = {
+          code: error.code,
+          kind: error.kind,
+          message: error.message,
+          timestamp: Date.now(),
+        };
+      } else if (error?.code === "ERR_SPIKE_DEVICE_NOT_CONNECTED") {
+        this._lastDeviceError = {
+          code: error.code,
+          kind: error.kind,
+          message: error.message,
+          timestamp: Date.now(),
+        };
+      } else if (error?.code === "ERR_SPIKE_DEVICE_UNSUPPORTED") {
+        this._lastDeviceError = {
+          code: error.code,
+          kind: error.kind,
+          message: error.message,
+          port: error.port || null,
+          timestamp: Date.now(),
+        };
+      } else {
+        this._recordCommunicationError(error);
+      }
     }
 
     async _onConnect() {
@@ -8716,6 +8866,8 @@ continuous_sensor_loop()
       this._portModes = {};
       this._portValues = {};
       this._sensorEdges.clear();
+      this._lastUnsupportedOperation = null;
+      this._lastDeviceError = null;
       if (!this._link) throw new Error("LWP3 transport is not attached");
       await this._link.startNotifications(
         LWP3.SERVICE,
@@ -8855,8 +9007,14 @@ continuous_sensor_loop()
         delete this._devices[port];
         delete this._portModes[port];
         this._portValues[port] = {
+          port,
           connected: false,
           type: "unknown",
+          deviceId: null,
+          deviceType: null,
+          deviceName: null,
+          deviceModelName: null,
+          attachedAt: null,
           receivedAt: null,
         };
         return;
@@ -8869,44 +9027,34 @@ continuous_sensor_loop()
         return;
       }
       const deviceType = message[5] | (message[6] << 8);
-      const typeNames = {
-        [LWP3.DEVICE_SPIKE_SMALL_MOTOR]: "motor",
-        [LWP3.DEVICE_SPIKE_COLOR_SENSOR]: "color",
-        [LWP3.DEVICE_SPIKE_DISTANCE_SENSOR]: "distance",
-        [LWP3.DEVICE_SPIKE_FORCE_SENSOR]: "force",
-        [LWP3.DEVICE_SPIKE_3X3_MATRIX]: "matrix3",
-      };
-      const type = typeNames[deviceType] || "unknown";
+      const definition = lwp3DeviceType(deviceType);
+      const type = definition?.type || "unknown";
       const now = Date.now();
       this._devices[port] = {
         port,
+        deviceId: deviceType,
         deviceType,
         type,
+        deviceName: definition?.name || null,
+        deviceModelName: definition?.modelName || null,
         connected: true,
         attachedAt: now,
       };
       this._portValues[port] = {
         port,
+        deviceId: deviceType,
         deviceType,
         type,
+        deviceName: definition?.name || null,
+        deviceModelName: definition?.modelName || null,
         connected: true,
         attachedAt: now,
+        // Connection discovery and the first PortValue are separate events.
+        // A null sample time means "measurement pending", not "not attached".
         receivedAt: null,
       };
-      if (deviceType === LWP3.DEVICE_SPIKE_SMALL_MOTOR) {
-        this._setInputMode(port, 2).catch((error) =>
-          this._recordCommunicationError(error)
-        );
-      } else if (deviceType === LWP3.DEVICE_SPIKE_COLOR_SENSOR) {
-        this._setInputMode(port, 0).catch((error) =>
-          this._recordCommunicationError(error)
-        );
-      } else if (deviceType === LWP3.DEVICE_SPIKE_DISTANCE_SENSOR) {
-        this._setInputMode(port, 1).catch((error) =>
-          this._recordCommunicationError(error)
-        );
-      } else if (deviceType === LWP3.DEVICE_SPIKE_FORCE_SENSOR) {
-        this._setInputMode(port, 0).catch((error) =>
+      if (definition && Number.isInteger(definition.inputMode)) {
+        this._setInputMode(port, definition.inputMode).catch((error) =>
           this._recordCommunicationError(error)
         );
       }
@@ -8916,15 +9064,16 @@ continuous_sensor_loop()
       this._requirePort(port);
       if (this._portModes[port] === mode) return;
       const portId = port === "A" ? 0 : 1;
-      // LWP3 §3.17 Port Input Format Setup Single, matching the message used
-      // by PoweredUpHub._setInputMode in lego_poweredup.js.
+      // LWP3 §3.17 Port Input Format Setup Single. Delta 1 requests changes
+      // at the device's least significant reporting unit; delta 0 can request
+      // every available sample and create avoidable BLE traffic.
       await this._send([
         10,
         0,
         LWP3.PORT_INPUT_FORMAT_SETUP_SINGLE,
         portId,
         mode,
-        100,
+        LWP3.PORT_VALUE_DELTA,
         0,
         0,
         0,
@@ -8941,7 +9090,7 @@ continuous_sensor_loop()
       const mode = this._portModes[port];
       const now = Date.now();
       const previous = this._portValues[port] || {};
-      let next = { ...previous, connected: true, receivedAt: now };
+      let next = { ...previous, connected: true };
       if (device.type === "motor" && mode === 2 && message.length >= 8) {
         let position =
           message[4] |
@@ -8949,7 +9098,10 @@ continuous_sensor_loop()
           (message[6] << 16) |
           (message[7] << 24);
         if (position > 2147483647) position -= 4294967296;
-        const elapsed = now - (previous.receivedAt || now);
+        const elapsed =
+          typeof previous.receivedAt === "number"
+            ? now - previous.receivedAt
+            : 0;
         const speed =
           Number.isFinite(previous.relativePosition) && elapsed > 0
             ? Math.round(
@@ -8965,6 +9117,9 @@ continuous_sensor_loop()
           position: ((position % 360) + 360) % 360,
           degreesCounted: position,
           speed,
+          speedDerived: true,
+          speedUnit: "degrees-per-second",
+          speedSource: "delta-angle-over-received-time",
         };
       } else if (device.type === "color" && mode === 0) {
         const color = message[4] > 127 ? message[4] - 256 : message[4];
@@ -9003,8 +9158,15 @@ continuous_sensor_loop()
           type: "matrix3",
           pixels: Array.from(message.slice(4, 13)),
         };
+      } else {
+        // Do not advance the sample timestamp for malformed or unexpected
+        // values; attached-device metadata remains available independently.
+        return;
       }
-      this._portValues[port] = next;
+      this._portValues[port] = {
+        ...next,
+        receivedAt: now,
+      };
     }
 
     _recordColorEdge(port, previous, current) {
@@ -9276,18 +9438,16 @@ continuous_sensor_loop()
             return Promise.reject(this._unsupportedError(`command ${method}`));
         }
       } catch (error) {
-        this._recordCommunicationError(error);
+        this._recordOperationError(error);
         return Promise.reject(error);
       }
     }
 
     _requireMotor(port) {
-      if (
-        !this._devices[port] ||
-        this._devices[port].deviceType !== LWP3.DEVICE_SPIKE_SMALL_MOTOR
-      ) {
-        throw this._unsupportedError(`a motor on port ${port}`);
-      }
+      const device = this._devices[port];
+      if (!device) throw this._deviceNotConnectedError(port, "Motor");
+      if (lwp3DeviceType(device.deviceType)?.type !== "motor")
+        throw this._deviceUnsupportedError(port, device);
     }
 
     _pairSpeeds(leftSpeed, rightSpeed) {
@@ -9386,11 +9546,11 @@ continuous_sensor_loop()
 
     _matrixWrite(port, pixels) {
       port = this._requirePort(port);
-      if (this._devices[port]?.deviceType !== LWP3.DEVICE_SPIKE_3X3_MATRIX) {
-        throw this._unsupportedError(
-          `a SPIKE Essential 3x3 matrix on port ${port}`
-        );
-      }
+      const device = this._devices[port];
+      if (!device)
+        throw this._deviceNotConnectedError(port, "SPIKE Essential 3x3 matrix");
+      if (device.type !== "matrix3")
+        throw this._deviceUnsupportedError(port, device);
       if (!Array.isArray(pixels) || pixels.length !== 9) {
         throw this._unsupportedError(
           "a 3x3 matrix pattern containing exactly nine pixels"
@@ -9441,7 +9601,7 @@ continuous_sensor_loop()
       if (!this.isConnected()) return Promise.resolve();
       const ports = Object.entries(this._devices)
         .filter(
-          ([, device]) => device.deviceType === LWP3.DEVICE_SPIKE_SMALL_MOTOR
+          ([, device]) => lwp3DeviceType(device.deviceType)?.type === "motor"
         )
         .map(([port]) => port);
       return Promise.all(ports.map((port) => this._stopMotor(port, "brake")));
@@ -9454,6 +9614,8 @@ continuous_sensor_loop()
       this._portModes = {};
       this._portValues = {};
       this._sensorEdges.clear();
+      this._lastUnsupportedOperation = null;
+      this._lastDeviceError = null;
       this._systemType = null;
       this._detectedHubModel = null;
       this._firmware = null;
@@ -9621,7 +9783,21 @@ continuous_sensor_loop()
       this._selectedHubModel = ["auto", "prime", "essential"].includes(wanted)
         ? wanted
         : "auto";
+      this._emitModelChange("hub-model-selected");
       return this._selectedHubModel;
+    }
+
+    _emitModelChange(reason) {
+      if (!this._runtime || typeof this._runtime.emit !== "function") return;
+      const supportedBlockOpcodes =
+        this._controlCenterAPI?.getSupportedBlockOpcodes?.() || [];
+      this._runtime.emit(HubRouter.MODEL_CHANGE_EVENT, {
+        hubRouterId: this._instanceId,
+        reason,
+        effectiveHubModel: this.effectiveHubModel,
+        selectedHubModel: this._selectedHubModel,
+        supportedBlockOpcodes,
+      });
     }
 
     get detectedHubModel() {
@@ -9684,7 +9860,13 @@ continuous_sensor_loop()
     }
 
     get protocol() {
-      return this._activeProtocol;
+      // Essential is a distinct model with LWP3 hardware commands, but the
+      // extension's existing block wrappers use "spike3" to select native
+      // (non-REPL) command paths. Diagnostics retain the precise
+      // `lwp3-essential` identifier separately.
+      return this._activeProtocol === "essential"
+        ? "spike3"
+        : this._activeProtocol;
     }
 
     /**
@@ -9790,6 +9972,7 @@ continuous_sensor_loop()
     _startScan(mode) {
       this._resolvedMode = mode;
       this._activeProtocol = ModeProtocol[mode];
+      this._emitModelChange("connection-route-selected");
 
       switch (mode) {
         case HubMode.SCRATCH_LINK_BT:
@@ -9856,6 +10039,7 @@ continuous_sensor_loop()
         this._activeProtocol = "essential";
         this._essential.attach(link);
         const model = await this._essential._onConnect();
+        this._emitModelChange("hub-model-detected");
         if (model !== "essential") {
           const error = new Error(
             model === "prime"
@@ -9883,11 +10067,13 @@ continuous_sensor_loop()
       this._activeProtocol = "spike3";
       this._spike3.attach(link);
       await this._spike3._onConnect();
+      this._emitModelChange("hub-model-detected");
     }
 
     _handleWebBLEReset(link, context = {}) {
       if (link?.protocol === "lwp3") this._essential.reset(context);
       else this._spike3.reset(context);
+      this._emitModelChange("hub-disconnected");
     }
 
     _handleWebBLEError(link, error, context) {
@@ -9920,6 +10106,7 @@ continuous_sensor_loop()
       else if (this._activeProtocol === "spike3") this._spike3.disconnect();
       else this._repl.disconnect();
       this._resolvedMode = null;
+      this._emitModelChange("hub-disconnect-requested");
     }
 
     isConnected() {
@@ -10075,13 +10262,43 @@ continuous_sensor_loop()
      * worked on one firmware ask this rather than pretending to succeed.
      */
     supports(capability) {
+      const model = this.effectiveHubModel || this._selectedHubModel;
       const caps =
-        this._activeProtocol === "essential"
+        model === "essential"
           ? HubRouter.ESSENTIAL_CAPABILITIES
-          : this._activeProtocol === "spike3"
+          : model === "prime"
             ? HubRouter.SPIKE3_CAPABILITIES
-            : HubRouter.REPL_CAPABILITIES;
+            : this._activeProtocol === "spike3"
+              ? HubRouter.SPIKE3_CAPABILITIES
+              : this._activeProtocol === "essential"
+                ? HubRouter.ESSENTIAL_CAPABILITIES
+                : HubRouter.REPL_CAPABILITIES;
       return caps.indexOf(capability) !== -1;
+    }
+
+    getSupportedCapabilities() {
+      const all = new Set([
+        ...HubRouter.REPL_CAPABILITIES,
+        ...HubRouter.SPIKE3_CAPABILITIES,
+        ...HubRouter.ESSENTIAL_CAPABILITIES,
+      ]);
+      const model = this.effectiveHubModel || this._selectedHubModel;
+      const supported =
+        model === "essential"
+          ? HubRouter.ESSENTIAL_CAPABILITIES
+          : model === "prime"
+            ? HubRouter.SPIKE3_CAPABILITIES
+            : this._activeProtocol === "essential"
+              ? HubRouter.ESSENTIAL_CAPABILITIES
+              : this._activeProtocol === "spike3"
+                ? HubRouter.SPIKE3_CAPABILITIES
+                : HubRouter.REPL_CAPABILITIES;
+      return {
+        supported: [...supported],
+        unsupported: [...all].filter(
+          (capability) => !supported.includes(capability)
+        ),
+      };
     }
 
     getCommunicationDiagnostics() {
@@ -10146,6 +10363,61 @@ continuous_sensor_loop()
   // instead of returning a plausible zero — the palette does not reshuffle on
   // connect, because a block set that changes shape under a learner is worse
   // than one that explains itself.
+  HubRouter.MODEL_CHANGE_EVENT = "brickwrightSpikePrimeModelChange";
+
+  // Keep a registered opcode available in saved workspaces even if it is not
+  // offered for a connected model. The editor filters the palette from this
+  // allow-list; it never unregisters or rewrites a saved block.
+  HubRouter.ESSENTIAL_SUPPORTED_BLOCK_OPCODES = new Set([
+    "connectHub",
+    "disconnectHub",
+    "isConnected",
+    "getHubType",
+    "getFirmwareVersion",
+    "getConnectionMode",
+    "getCommunicationDiagnostics",
+    "getCommunicationDiagnosticsSummary",
+    "openCommunicationDiagnosticsLog",
+    "setConnectionMode",
+    "setMovementMotors",
+    "moveForward",
+    "steer",
+    "motorPairMove",
+    "startTank",
+    "setMovementSpeed",
+    "stopMovement",
+    "motorRunFor",
+    "motorRunToPosition",
+    "motorStart",
+    "motorStop",
+    "startMotor",
+    "stopMotor",
+    "motorSetSpeed",
+    "motorStartPower",
+    "motorSetStopAction",
+    "getPosition",
+    "getRelativePosition",
+    "getAbsolutePosition",
+    "getSpeed",
+    "resetMotorPosition",
+    "setMatrix3x3ColorGrid",
+    "setMatrix3x3Custom",
+    "setMatrix3x3SolidColor",
+    "clearMatrix3x3",
+    "setLightMatrixPixel",
+    "getBatteryLevel",
+    "getTimer",
+    "resetTimer",
+    "getDistance",
+    "getDistanceIn",
+    "getColor",
+    "getForce",
+    "isForceSensorPressed",
+    "whenColor",
+    "isColor",
+    "whenForceSensor",
+  ]);
+
   HubRouter.REPL_CAPABILITIES = [
     "motor",
     "display",
@@ -12301,6 +12573,7 @@ continuous_sensor_loop()
       // except for explicit user actions (connect, install, stop, offline run).
       this._controlCenterAPI = this._createControlCenterAPI();
       this._peripheral.registerControlCenterAPI(this._controlCenterAPI);
+      this._cachedBlockOpcodes = null;
       if (this.runtime) {
         // Preserve the earlier bridge for hosts that adopted it already, but
         // the router registered with Scratch VM is the authoritative owner.
@@ -12385,7 +12658,10 @@ continuous_sensor_loop()
         extensionId: "spikeprime",
         hubRouterId: this._peripheral.instanceId,
         sourceURL: SPIKE_EXTENSION_SOURCE_URL,
+        modelChangeEvent: HubRouter.MODEL_CHANGE_EVENT,
         getState: () => this.getControlCenterState(),
+        getSupportedBlockOpcodes: () => this.getSupportedBlockOpcodes(),
+        supports: (capability) => this._peripheral.supports(capability),
         connect: (mode) => this.connectHubFromControlCenter(mode),
         connectPeripheral: (peripheralId) =>
           this.connectPeripheralFromControlCenter(peripheralId),
@@ -12405,6 +12681,7 @@ continuous_sensor_loop()
     getControlCenterState() {
       const connected = this._peripheral.isConnected();
       const diagnostics = this._peripheral.getCommunicationDiagnostics();
+      const capabilities = this._peripheral.getSupportedCapabilities();
       const device = this._peripheral.active?._link?._device;
       return {
         available: true,
@@ -12431,6 +12708,9 @@ continuous_sensor_loop()
               : "confirmed"
             : "unidentified",
         availablePorts: diagnostics.availablePorts || [],
+        supportedCapabilities: capabilities.supported,
+        unsupportedCapabilities: capabilities.unsupported,
+        supportedBlockOpcodes: this.getSupportedBlockOpcodes(),
         standaloneCapable: diagnostics.standaloneCapable === true,
         connected,
         protocol: diagnostics.protocol,
@@ -12451,10 +12731,26 @@ continuous_sensor_loop()
         angles: diagnostics.angles || null,
         imuReceivedAt: diagnostics.lastImuReceivedAt || null,
         motorPorts: diagnostics.motorPorts || {},
+        portDevices: diagnostics.portDevices || {},
         portSensors: diagnostics.portSensors || {},
         lastCommunicationError: diagnostics.lastCommunicationError || null,
         diagnostics,
       };
+    }
+
+    getSupportedBlockOpcodes() {
+      if (!this._cachedBlockOpcodes) {
+        this._cachedBlockOpcodes = this.getInfo()
+          .blocks.map((block) => block && block.opcode)
+          .filter((opcode) => typeof opcode === "string");
+      }
+      const opcodes = this._cachedBlockOpcodes;
+      const model =
+        this._peripheral.effectiveHubModel || this._peripheral.selectedHubModel;
+      if (model !== "essential") return opcodes;
+      return opcodes.filter((opcode) =>
+        HubRouter.ESSENTIAL_SUPPORTED_BLOCK_OPCODES.has(opcode)
+      );
     }
 
     async connectHubFromControlCenter(mode = HubMode.WEB_BLE) {
@@ -15064,6 +15360,7 @@ continuous_sensor_loop()
       const altData = this._peripheral._sensors.motorPositions[port];
       const value = altData || this._peripheral.portValues[port];
       if (typeof value?.speed !== "number") return "";
+      if (value.speedDerived === true) return Math.round(value.speed);
       const maximum = SPIKE3_MOTOR_MAX_VELOCITY[value.motorType];
       if (!maximum) return "";
       return Math.round((value.speed * maximum) / 100);
