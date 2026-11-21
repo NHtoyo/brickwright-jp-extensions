@@ -577,6 +577,53 @@ async function acknowledgeEssentialMotorPositionMode(state, portId) {
   );
 }
 
+async function advertiseEssentialApos(
+  state,
+  portId = 0,
+  { combinable = false, dataType = 1, decimals = 0 } = {}
+) {
+  const { device } = state;
+  const capabilities = 0x01 | (combinable ? 0x04 : 0);
+  device.emitLWP3([
+    11,
+    0,
+    0x43,
+    portId,
+    0x01,
+    capabilities,
+    4,
+    0x0c,
+    0x00,
+    0x00,
+    0x00,
+  ]);
+  await tick();
+  if (combinable) {
+    device.emitLWP3([7, 0, 0x43, portId, 0x02, 0x0c, 0x00]);
+  }
+  device.emitLWP3([10, 0, 0x44, portId, 3, 0, 65, 80, 79, 83]);
+  device.emitLWP3([10, 0, 0x44, portId, 3, 0x80, 1, dataType, 3, decimals]);
+  const range = Buffer.alloc(8);
+  range.writeFloatLE(-180, 0);
+  range.writeFloatLE(179, 4);
+  device.emitLWP3([14, 0, 0x44, portId, 3, 3, ...range]);
+  device.emitLWP3([9, 0, 0x44, portId, 3, 4, 68, 69, 71]);
+  await tick();
+}
+
+async function acknowledgeEssentialApos(state, portId = 0) {
+  const { device } = state;
+  assert.deepEqual(
+    device.writes
+      .filter((message) => message[2] === 0x41 && message[3] === portId)
+      .at(-1),
+    [10, 0, 0x41, portId, 3, 1, 0, 0, 0, 1],
+    "APOS mode 3 uses a delta=1 notification setup"
+  );
+  device.emitLWP3([10, 0, 0x47, portId, 3, 1, 0, 0, 0, 1]);
+  await tick();
+}
+
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
 
@@ -1257,6 +1304,9 @@ test("motor position and 5x5 matrix records are parsed from one notification", a
   assert.equal(hub.portValues.A.degreesCounted, -123456);
   assert.equal(hub.portValues.A.power, -500);
   assert.equal(hub.portValues.A.speed, -12);
+  assert.equal(hub.portValues.A.speedDerived, false);
+  assert.equal(hub.portValues.A.speedUnit, "percent-of-max");
+  assert.equal(hub._sensors.motorPositions.A.speedDerived, false);
   assert.equal(state.ext.getPosition({ PORT: "A" }), 323);
   assert.equal(state.ext.getRelativePosition({ PORT: "A" }), -123456);
   assert.equal(state.ext.getAbsolutePosition({ PORT: "A" }), -37);
@@ -1265,6 +1315,18 @@ test("motor position and 5x5 matrix records are parsed from one notification", a
   assert.equal(diagnostics.motorNotificationCount, 1);
   assert.equal(diagnostics.matrix5x5NotificationCount, 1);
   assert.deepEqual(diagnostics.lastMatrix5x5, Array.from(pixels));
+});
+
+test("Prime getPosition uses signed APOS while speed remains a hub percentage", async () => {
+  const state = setup();
+  await connect(state);
+  state.device.tx.emit(packMessage(notification(motorRecord())));
+  const motor = state.ext._peripheral.portValues.A;
+  assert.equal(motor.absolutePosition, -37);
+  assert.equal(motor.relativePosition, -123456);
+  assert.equal(state.ext.getPosition({ PORT: "A" }), 323);
+  assert.equal(state.ext.getRelativePosition({ PORT: "A" }), -123456);
+  assert.equal(state.ext.getSpeed({ PORT: "A" }), -126);
 });
 
 test("truncated motor records are rejected without replacing the last angle", async () => {
@@ -4455,6 +4517,346 @@ test("Essential classifies the real Medium Angular Motor ID from AttachedIO", as
   assert.deepEqual(device.writes.at(-1), [8, 0, 0x81, 0, 0x11, 0x51, 0, 0]);
 });
 
+test("Essential uses signed APOS mode 3 for position and keeps cumulative POS separate", async () => {
+  const state = setup({ hubKind: "essential" });
+  await connectEssential(state);
+  const { device, ext } = state;
+  device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x30, 0x00]);
+  await tick();
+  await advertiseEssentialApos(state, 0);
+  assert.equal(
+    ext._peripheral.portValues.A.absolutePositionStatus,
+    "subscribing"
+  );
+  assert.equal(ext._peripheral.portValues.A.connected, true);
+  assert.equal(ext._peripheral.portValues.A.absolutePositionAvailable, false);
+  await acknowledgeEssentialApos(state, 0);
+  assert.deepEqual(device.writes.at(-1), [5, 0, 0x21, 0, 0]);
+
+  // LEGO's Medium Angular Motor mode 3 VALUE FORMAT is one signed int16.
+  device.emitLWP3([6, 0, 0x45, 0, 0x85, 0xff]); // -123 degrees
+  await tick();
+  const reading = ext._peripheral.portValues.A;
+  assert.equal(reading.absolutePositionRaw, -123);
+  assert.equal(reading.absolutePosition, -123);
+  assert.equal(reading.absolutePositionDecimals, 0);
+  assert.equal(reading.absolutePositionAvailable, true);
+  assert.equal(reading.position, 237);
+  assert.equal(ext.getPosition({ PORT: "A" }), 237);
+  assert.equal(ext.getAbsolutePosition({ PORT: "A" }), -123);
+  assert.equal(ext.getRelativePosition({ PORT: "A" }), "");
+  assert.equal(reading.relativePosition, null);
+  assert.equal(reading.speed, null, "APOS alone cannot provide motor speed");
+});
+
+test("Essential APOS does not wait for optional mode name, SI range or symbol replies", async () => {
+  const state = setup({ hubKind: "essential" });
+  await connectEssential(state);
+  const { device, ext } = state;
+  device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x30, 0]);
+  await tick();
+  device.emitLWP3([11, 0, 0x43, 0, 0x01, 0x01, 4, 0x0c, 0, 0, 0]);
+  device.emitLWP3([10, 0, 0x44, 0, 3, 0x80, 1, 1, 3, 0]);
+  await tick();
+  await acknowledgeEssentialApos(state, 0);
+  device.emitLWP3([6, 0, 0x45, 0, 0xf0, 0xff]); // -16 degrees
+  await tick();
+  assert.equal(ext._peripheral.portValues.A.absolutePosition, -16);
+  assert.equal(ext._peripheral.portValues.A.position, 344);
+  assert.equal(ext._peripheral.portValues.A.absolutePositionStatus, "ready");
+});
+
+test("Essential APOS honors float32 wire format and display decimals without rescaling", async () => {
+  const state = setup({ hubKind: "essential" });
+  await connectEssential(state);
+  const { device, ext } = state;
+  device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x30, 0]);
+  await tick();
+  await advertiseEssentialApos(state, 0, { dataType: 3, decimals: 2 });
+  assert.equal(
+    device.writes.some((message) => message[2] === 0x41 && message[4] === 3),
+    true,
+    "a declared float32 APOS format is subscribed"
+  );
+  await acknowledgeEssentialApos(state, 0);
+  const sample = Buffer.alloc(4);
+  sample.writeFloatLE(-12.5, 0);
+  device.emitLWP3([8, 0, 0x45, 0, ...sample]);
+  await tick();
+  assert.equal(ext._peripheral.portValues.A.absolutePosition, -12.5);
+  assert.equal(ext._peripheral.portValues.A.absolutePositionRaw, -12.5);
+  assert.equal(ext._peripheral.portValues.A.absolutePositionDecimals, 2);
+  assert.equal(ext.getPosition({ PORT: "A" }), 347.5);
+  const validTimestamp =
+    ext._peripheral.portValues.A.absolutePositionReceivedAt;
+  const nonFinite = Buffer.alloc(4);
+  nonFinite.writeFloatLE(Number.NaN, 0);
+  device.emitLWP3([8, 0, 0x45, 0, ...nonFinite]);
+  device.emitLWP3([6, 0, 0x45, 0, 0, 0]); // wrong width for float32
+  await tick();
+  assert.equal(ext._peripheral.portValues.A.absolutePosition, -12.5);
+  assert.equal(
+    ext._peripheral.portValues.A.absolutePositionReceivedAt,
+    validTimestamp,
+    "non-finite and wrong-width values cannot replace the last valid APOS"
+  );
+});
+
+test("later unsupported POS format does not erase a valid Essential APOS sample", async () => {
+  const state = setup({ hubKind: "essential" });
+  await connectEssential(state);
+  const { device, ext } = state;
+  device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x30, 0]);
+  await tick();
+  await advertiseEssentialApos(state, 0);
+  await acknowledgeEssentialApos(state, 0);
+  device.emitLWP3([6, 0, 0x45, 0, 0xf4, 0xff]); // APOS -12 degrees
+  await tick();
+  const aposReceivedAt =
+    ext._peripheral.portValues.A.absolutePositionReceivedAt;
+
+  device.emitLWP3([10, 0, 0x44, 0, 2, 0x80, 2, 2, 4, 0]);
+  await tick();
+  const reading = ext._peripheral.portValues.A;
+  assert.equal(reading.absolutePosition, -12);
+  assert.equal(reading.absolutePositionReceivedAt, aposReceivedAt);
+  assert.equal(reading.position, 348);
+  assert.equal(ext.getPosition({ PORT: "A" }), 348);
+  assert.equal(reading.relativePosition, null);
+});
+
+test("Essential communication diagnostics include bounded raw LWP3 TX and RX frames", async () => {
+  const state = setup({ hubKind: "essential" });
+  await connectEssential(state);
+  const { device, ext } = state;
+  device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x30, 0]);
+  await tick();
+  await advertiseEssentialApos(state, 0);
+  await acknowledgeEssentialApos(state, 0);
+  device.emitLWP3([6, 0, 0x45, 0, 0xef, 0xff]); // APOS -17 degrees
+  await tick();
+  const router = ext._peripheral._essential;
+  const positionState = router._motorPositionModes.A;
+  const failedSetup = {
+    locked: false,
+    ackWaiter: null,
+    singleModeWaiter: null,
+  };
+  positionState.combinedSetup = failedSetup;
+  const writesBeforeFallback = device.writes.length;
+  await router._failCombinedPositionMode(
+    "A",
+    positionState,
+    failedSetup,
+    new Error("simulated combined-format acknowledgement timeout")
+  );
+  assert.deepEqual(
+    device.writes.slice(writesBeforeFallback).at(-1),
+    [10, 0, 0x41, 0, 3, 1, 0, 0, 0, 1],
+    "fallback explicitly re-subscribes APOS even if the cached mode was 3"
+  );
+  const initialFrames = JSON.parse(
+    ext.getCommunicationDiagnostics()
+  ).recentProtocolFrames;
+  assert.ok(
+    initialFrames.some(
+      (frame) =>
+        frame.direction === "rx" &&
+        frame.messageType === 0x04 &&
+        frame.frameHex === "07000400013000" &&
+        frame.port === "A"
+    ),
+    "the real attached-IO packet is retained with raw bytes"
+  );
+  assert.ok(
+    initialFrames.some(
+      (frame) =>
+        frame.direction === "tx" &&
+        frame.messageType === 0x22 &&
+        frame.messageName === "PortModeInformationRequest" &&
+        frame.status === "write-completed"
+    ),
+    "mode setup requests and write result are visible"
+  );
+  device.rx.failNextWrite = true;
+  await assert.rejects(
+    router._send([5, 0, 0x21, 0, 0]),
+    /simulated fake-device write failure/
+  );
+  const failedFrame = JSON.parse(
+    ext.getCommunicationDiagnostics()
+  ).recentProtocolFrames.at(-1);
+  assert.equal(failedFrame.messageType, 0x21);
+  assert.equal(failedFrame.status, "write-failed");
+  assert.match(
+    failedFrame.error.message,
+    /simulated fake-device write failure/
+  );
+  for (let index = 0; index < 70; index++) {
+    router._recordProtocolFrame(
+      "rx",
+      [5, 0, 0x45, 0, index & 0xff],
+      "received"
+    );
+  }
+  const diagnostics = JSON.parse(ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.recentProtocolFrames.length, 64);
+  assert.equal(
+    diagnostics.motorPositionModes.A.modeMetadata["3"].format.dataType,
+    1,
+    "the 0x44 format stays inspectable after older raw frames rotate out"
+  );
+  assert.equal(
+    diagnostics.motorPositionModes.A.lastAposReceivedAt,
+    ext._peripheral.portValues.A.absolutePositionReceivedAt
+  );
+  assert.equal(
+    diagnostics.motorPositionModes.A.lastAposSource,
+    "port-value-mode-3"
+  );
+  assert.match(
+    diagnostics.motorPositionModes.A.combinedFailure,
+    /simulated combined-format acknowledgement timeout/
+  );
+  assert.equal(
+    diagnostics.recentProtocolFrames.every(
+      (frame) =>
+        typeof frame.timestamp === "number" &&
+        /^[0-9a-f]+$/.test(frame.frameHex)
+    ),
+    true
+  );
+  assert.equal(
+    Object.values(diagnostics.recentProtocolFrames).some((frame) =>
+      Object.values(frame).some((value) => value && typeof value === "object")
+    ),
+    false,
+    "diagnostics expose only serializable frame metadata"
+  );
+});
+
+test("Essential POS reset preserves the current APOS sample and does not misread it as reset confirmation", async () => {
+  const state = setup({ hubKind: "essential" });
+  await connectEssential(state);
+  const { device, ext } = state;
+  device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x30, 0]);
+  await tick();
+  await advertiseEssentialApos(state, 0);
+  await acknowledgeEssentialApos(state, 0);
+  device.emitLWP3([6, 0, 0x45, 0, 0xfa, 0xff]); // -6 degrees
+  await tick();
+  const before = device.writes.length;
+  await ext.resetMotorPosition({ PORT: "A", POSITION: 0 });
+  const reading = ext._peripheral.portValues.A;
+  assert.equal(reading.absolutePosition, -6);
+  assert.equal(reading.position, 354);
+  assert.equal(reading.relativePosition, null);
+  assert.equal(reading.positionResetPending, false);
+  assert.equal(reading.positionResetStatus, "pos-stream-unavailable");
+  assert.equal(
+    device.writes
+      .slice(before)
+      .some((message) => message[2] === 0x21 && message[4] === 0),
+    false
+  );
+});
+
+test("Essential negotiates APOS plus POS only when the hub advertises the exact combination", async () => {
+  const state = setup({ hubKind: "essential" });
+  await connectEssential(state);
+  const { device, ext } = state;
+  device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x30, 0]);
+  await tick();
+  device.emitLWP3([10, 0, 0x44, 0, 2, 0x80, 1, 2, 4, 0]);
+  await tick();
+  device.emitLWP3([10, 0, 0x47, 0, 2, 1, 0, 0, 0, 1]);
+  await tick();
+  await advertiseEssentialApos(state, 0, { combinable: true });
+
+  const originalWrite = device.rx.writeValueWithoutResponse.bind(device.rx);
+  let aposDuringCombinedSetup = null;
+  device.rx.writeValueWithoutResponse = async (packet) => {
+    await originalWrite(packet);
+    const message = device.writes.at(-1);
+    if (message[2] === 0x42 && message[4] === 0x02) {
+      device.emitLWP3([7, 0, 0x48, 0, 0, 0, 0]);
+    } else if (message[2] === 0x41) {
+      if (message[4] === 3) {
+        device.emitLWP3([6, 0, 0x45, message[3], 42, 0]);
+        aposDuringCombinedSetup = ext._peripheral.portValues.A.absolutePosition;
+      }
+      device.emitLWP3([10, 0, 0x47, message[3], message[4], 1, 0, 0, 0, 1]);
+    } else if (message[2] === 0x42 && message[4] === 0x04) {
+      device.emitLWP3([7, 0, 0x48, message[3], 0, 3, 0]);
+    } else if (message[2] === 0x21 && message[4] === 0) {
+      // Pointer bit 0 is APOS (int16); pointer bit 1 is POS (int32).
+      device.emitLWP3([
+        12,
+        0,
+        0x46,
+        message[3],
+        3,
+        0,
+        0x85,
+        0xff,
+        0x90,
+        0x01,
+        0,
+        0,
+      ]);
+    }
+  };
+
+  await acknowledgeEssentialApos(state, 0);
+  device.emitLWP3([6, 0, 0x45, 0, 0x85, 0xff]);
+  await tick();
+  await waitUntil(
+    () => ext._peripheral.portValues.A.combinedPositionStatus === "ready",
+    "advertised APOS+POS combined notifications should finish setup"
+  );
+  assert.equal(
+    aposDuringCombinedSetup,
+    -123,
+    "an untagged single-mode value during combined negotiation is ignored"
+  );
+  const writes = device.writes;
+  assert.ok(
+    writes.some((message) => message[2] === 0x42 && message[4] === 0x02),
+    "combined setup locks the motor"
+  );
+  assert.ok(
+    writes.some(
+      (message) =>
+        message[2] === 0x42 &&
+        message[4] === 0x01 &&
+        message[6] === 0x30 &&
+        message[7] === 0x20
+    ),
+    "APOS is ordered before POS in the combined subscription"
+  );
+  assert.ok(
+    writes.some((message) => message[2] === 0x42 && message[4] === 0x04),
+    "combined setup unlocks the motor"
+  );
+  const reading = ext._peripheral.portValues.A;
+  assert.equal(reading.absolutePosition, -123);
+  assert.equal(reading.position, 237);
+  assert.equal(reading.relativePosition, 400);
+  assert.equal(reading.speed, null);
+  const combinedAck = JSON.parse(ext.getCommunicationDiagnostics())
+    .motorPositionModes.A.combinedAck;
+  assert.equal(combinedAck.phase, "unlock");
+  assert.equal(combinedAck.pointer, 3);
+  assert.equal(combinedAck.index, 0);
+  assert.equal(combinedAck.multiUpdate, false);
+  assert.ok(combinedAck.receivedAt > 0);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  device.emitLWP3([10, 0, 0x46, 0, 2, 0, 0x91, 0x01, 0, 0]);
+  await tick();
+  assert.equal(ext._peripheral.portValues.A.relativePosition, 401);
+  assert.ok(typeof ext._peripheral.portValues.A.speed === "number");
+});
+
 test("Essential mode-2 POS uses signed cumulative degrees and reset waits for a real sample", async () => {
   const state = setup({ hubKind: "essential" });
   await connectEssential(state);
@@ -4492,18 +4894,23 @@ test("Essential mode-2 POS uses signed cumulative degrees and reset waits for a 
   device.emitLWP3([8, 0, 0x45, 0, 0x90, 0x01, 0, 0]); // +400 degrees
   await tick();
   assert.equal(router.portValues.A.relativePosition, 400);
-  assert.equal(router.portValues.A.position, 400);
+  assert.equal(
+    router.portValues.A.position,
+    null,
+    "POS is not an absolute angle"
+  );
   assert.equal(router.portValues.A.degreesCounted, 400);
-  assert.equal(router.portValues.A.absolutePosition, null);
+  assert.equal(router.portValues.A.absolutePosition ?? null, null);
   assert.equal(router.portValues.A.absolutePositionAvailable, false);
-  assert.equal(ext.getPosition({ PORT: "A" }), 400);
+  assert.equal(ext.getPosition({ PORT: "A" }), "");
+  assert.equal(ext.getRelativePosition({ PORT: "A" }), 400);
   assert.equal(ext.getAbsolutePosition({ PORT: "A" }), "");
 
   await new Promise((resolve) => setTimeout(resolve, 5));
   device.emitLWP3([8, 0, 0x45, 0, 0xe7, 0xff, 0xff, 0xff]); // -25 degrees
   await tick();
   assert.equal(router.portValues.A.relativePosition, -25);
-  assert.equal(router.portValues.A.position, -25);
+  assert.equal(router.portValues.A.position, null);
   assert.ok(router.portValues.A.speed < 0, "reverse delta is negative speed");
 
   await ext.resetMotorPosition({ PORT: "A", POSITION: 10 });
@@ -4522,14 +4929,15 @@ test("Essential mode-2 POS uses signed cumulative degrees and reset waits for a 
     "read the reset value once instead of synthesizing it or polling continuously"
   );
   assert.equal(router.portValues.A.positionResetPending, true);
-  assert.equal(router.portValues.A.receivedAt, null);
+  assert.equal(router.portValues.A.relativePositionReceivedAt, null);
   assert.equal(router.portValues.A.position, null);
   assert.equal(ext.getPosition({ PORT: "A" }), "");
 
   device.emitLWP3([8, 0, 0x45, 0, 10, 0, 0, 0]);
   await tick();
   assert.equal(router.portValues.A.positionResetPending, false);
-  assert.equal(router.portValues.A.position, 10);
+  assert.equal(router.portValues.A.relativePosition, 10);
+  assert.equal(router.portValues.A.position, null);
   assert.equal(typeof router.portValues.A.receivedAt, "number");
 });
 
@@ -4554,8 +4962,9 @@ test("Essential supports the Small and Large Angular Motor IDs through one table
     if (deviceType === 0x41) {
       device.emitLWP3([8, 0, 0x45, portId, 0xd0, 0x02, 0, 0]); // +720 degrees
       await tick();
-      assert.equal(router.portValues[port].position, 720);
-      assert.equal(router.portValues[port].absolutePosition, null);
+      assert.equal(router.portValues[port].relativePosition, 720);
+      assert.equal(router.portValues[port].position, null);
+      assert.equal(router.portValues[port].absolutePosition ?? null, null);
     }
     await router.sendCommand("scratch.motor_start", { port, speed: -10 });
     await router.sendCommand("scratch.motor_stop", {
@@ -4595,7 +5004,7 @@ test("Essential does not guess motor position width when 0x44 declares another f
   device.emitLWP3([6, 0, 0x45, 0, 0x2c, 0x01]);
   await tick();
   assert.equal(ext._peripheral.portValues.A.receivedAt, null);
-  assert.equal(ext._peripheral.portValues.A.position, null);
+  assert.equal(ext._peripheral.portValues.A.position ?? null, null);
 });
 
 test("Essential retains the known mode-2 POS stream when a mode-format reply is absent", async () => {
@@ -4614,7 +5023,8 @@ test("Essential retains the known mode-2 POS stream when a mode-format reply is 
   await tick();
   device.emitLWP3([8, 0, 0x45, 0, 0x90, 0x01, 0, 0]);
   await tick();
-  assert.equal(ext._peripheral.portValues.A.position, 400);
+  assert.equal(ext._peripheral.portValues.A.position, null);
+  assert.equal(ext.getRelativePosition({ PORT: "A" }), 400);
   assert.equal(
     ext._peripheral.portValues.A.modeValueFormatStatus,
     "known-device-format-fallback"
@@ -4654,7 +5064,8 @@ test("Essential motor reset preserves an early value sample while the write is p
 
   await ext.resetMotorPosition({ PORT: "A", POSITION: 0 });
   assert.equal(injected, true);
-  assert.equal(ext._peripheral.portValues.A.position, 85);
+  assert.equal(ext._peripheral.portValues.A.relativePosition, 85);
+  assert.equal(ext._peripheral.portValues.A.position, null);
   assert.equal(ext._peripheral.portValues.A.positionResetPending, false);
   assert.equal(typeof ext._peripheral.portValues.A.receivedAt, "number");
 });
@@ -4713,6 +5124,7 @@ test("Essential ignores duplicate and unsolicited mode-format replies and preser
     modeRequestsBeforeDuplicate
   );
 
+  const writesBeforeMismatchedAck = device.writes.length;
   device.emitLWP3([10, 0, 0x47, 0, 2, 2, 0, 0, 0, 0]);
   await tick();
   const port = ext._peripheral.portValues.A;
@@ -4725,7 +5137,9 @@ test("Essential ignores duplicate and unsolicited mode-format replies and preser
   assert.equal(port.inputFormatResponse.notificationEnabled, false);
   assert.equal(typeof port.inputFormatResponse.receivedAt, "number");
   assert.equal(
-    device.writes.some((message) => message[2] === 0x21),
+    device.writes
+      .slice(writesBeforeMismatchedAck)
+      .some((message) => message[2] === 0x21),
     false,
     "mismatched setup acknowledgement does not issue a value request"
   );

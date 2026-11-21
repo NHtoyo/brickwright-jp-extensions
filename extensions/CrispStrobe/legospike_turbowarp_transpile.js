@@ -1922,9 +1922,13 @@
     PORT_INFORMATION_REQUEST: 0x21,
     PORT_MODE_INFORMATION_REQUEST: 0x22,
     PORT_INPUT_FORMAT_SETUP_SINGLE: 0x41,
+    PORT_INPUT_FORMAT_SETUP_COMBINED: 0x42,
+    PORT_INFORMATION: 0x43,
     PORT_MODE_INFORMATION: 0x44,
     PORT_VALUE: 0x45,
+    PORT_VALUE_COMBINED: 0x46,
     PORT_INPUT_FORMAT: 0x47,
+    PORT_INPUT_FORMAT_COMBINED: 0x48,
     MODE_VALUE_FORMAT: 0x80,
     OUTPUT: 0x81,
     SYSTEM_TYPE_ID: 0x0b,
@@ -1946,6 +1950,22 @@
     // attach, read, and output paths.
     PORT_VALUE_DELTA: 1,
   };
+
+  const LWP3_DIAGNOSTIC_MESSAGE_NAMES = new Map([
+    [0x04, "HubAttachedIO"],
+    [0x21, "PortInformationRequest"],
+    [0x22, "PortModeInformationRequest"],
+    [0x41, "PortInputFormatSetupSingle"],
+    [0x42, "PortInputFormatSetupCombined"],
+    [0x43, "PortInformation"],
+    [0x44, "PortModeInformation"],
+    [0x45, "PortValue"],
+    [0x46, "PortValueCombined"],
+    [0x47, "PortInputFormat"],
+    [0x48, "PortInputFormatCombined"],
+    [0x81, "PortOutputCommand"],
+  ]);
+  const LWP3_DIAGNOSTIC_FRAME_LIMIT = 64;
 
   const LWP3_DEVICE_TYPES = Object.freeze({
     [LWP3.DEVICE_SPIKE_MEDIUM_MOTOR]: Object.freeze({
@@ -9481,6 +9501,9 @@ continuous_sensor_loop()
                 type: "motor",
                 motorType: data[offset + 2],
                 speed: speed,
+                speedDerived: false,
+                speedUnit: "percent-of-max",
+                speedSource: "hub-motor-notification",
                 degreesCounted: position,
                 position: normalizedPosition,
                 power: power,
@@ -9493,6 +9516,9 @@ continuous_sensor_loop()
                 relativePosition: position,
                 absolutePosition: absolutePosition,
                 speed: speed,
+                speedDerived: false,
+                speedUnit: "percent-of-max",
+                speedSource: "hub-motor-notification",
                 receivedAt: this._portValues[port].receivedAt,
               };
             }
@@ -9649,8 +9675,12 @@ continuous_sensor_loop()
       this._modeInfoRequests = {};
       this._modeValueFormats = {};
       this._inputFormats = {};
+      this._motorPositionModes = {};
+      this._portInfoRequests = {};
+      this._nextPortAttachmentId = 1;
       this._portValues = {};
       this._sensorEdges = new Set();
+      this._recentProtocolFrames = [];
       this._lastCommunicationError = null;
       this._lastUnsupportedOperation = null;
       this._lastDeviceError = null;
@@ -9789,6 +9819,44 @@ continuous_sensor_loop()
       return Boolean(this._link && this._link.isConnected());
     }
 
+    _recordProtocolFrame(direction, message, status, error = null) {
+      const bytes = Uint8Array.from(message || []);
+      const type = bytes[2];
+      const messageName = LWP3_DIAGNOSTIC_MESSAGE_NAMES.get(type);
+      if (!messageName) return null;
+      const portId = bytes.length > 3 ? bytes[3] : null;
+      const record = {
+        timestamp: Date.now(),
+        direction,
+        messageType: type,
+        messageName,
+        portId,
+        port:
+          Number.isInteger(portId) && portId >= 0 && portId <= 5
+            ? SpikePorts[portId]
+            : null,
+        length: bytes.length,
+        frameHex: Array.from(bytes, (byte) =>
+          byte.toString(16).padStart(2, "0")
+        ).join(""),
+        status,
+      };
+      if (error) {
+        record.error = {
+          name: String(error.name || "Error").slice(0, 80),
+          message: String(error.message || error).slice(0, 240),
+        };
+      }
+      this._recentProtocolFrames.push(record);
+      if (this._recentProtocolFrames.length > LWP3_DIAGNOSTIC_FRAME_LIMIT) {
+        this._recentProtocolFrames.splice(
+          0,
+          this._recentProtocolFrames.length - LWP3_DIAGNOSTIC_FRAME_LIMIT
+        );
+      }
+      return record;
+    }
+
     getDiagnostics(connectionMode = "") {
       return {
         protocol: "lwp3-essential",
@@ -9815,6 +9883,11 @@ continuous_sensor_loop()
             .filter(([, value]) => value.type === "motor")
             .map(([port, value]) => [port, { ...value }])
         ),
+        motorPositionModes: this._getMotorPositionModeDiagnostics(),
+        recentProtocolFrames: this._recentProtocolFrames.map((frame) => ({
+          ...frame,
+          error: frame.error ? { ...frame.error } : undefined,
+        })),
         lastUnsupportedOperation: this._lastUnsupportedOperation
           ? { ...this._lastUnsupportedOperation }
           : null,
@@ -9826,6 +9899,91 @@ continuous_sensor_loop()
         standaloneCapable: false,
         lastCommunicationError: this._lastCommunicationError,
       };
+    }
+
+    _getMotorPositionModeDiagnostics() {
+      return Object.fromEntries(
+        Object.entries(this._motorPositionModes)
+          .filter(
+            ([port, state]) =>
+              this._devices[port]?.attachmentId === state.attachmentId
+          )
+          .map(([port, state]) => {
+            const modeMetadata = Object.fromEntries(
+              Object.entries(state.modeMetadata).map(([mode, metadata]) => [
+                mode,
+                {
+                  name: metadata.name || null,
+                  symbol: metadata.symbol || null,
+                  siRange: metadata.siRange ? { ...metadata.siRange } : null,
+                  format: metadata.format ? { ...metadata.format } : null,
+                },
+              ])
+            );
+            const requests = this._modeInfoRequests[port] || {};
+            const inputFormat = this._inputFormats[port];
+            const portRequests = this._portInfoRequests[port] || {};
+            const value = this._portValues[port] || {};
+            return [
+              port,
+              {
+                aposStatus: state.aposStatus,
+                positionStreamMode: state.positionStreamMode,
+                combinedStatus: state.combinedStatus,
+                combinedFailure: state.combinedFailure || null,
+                modeInfo: state.modeInfo ? { ...state.modeInfo } : null,
+                modeMetadata,
+                modeInfoRequestStatuses: Object.fromEntries(
+                  Object.entries(requests).map(([key, request]) => [
+                    key,
+                    request.status,
+                  ])
+                ),
+                portInfoRequestStatuses: Object.fromEntries(
+                  Object.entries(portRequests).map(([key, request]) => [
+                    key,
+                    request.status,
+                  ])
+                ),
+                possibleModeCombinations: Array.isArray(
+                  state.possibleModeCombinations
+                )
+                  ? [...state.possibleModeCombinations]
+                  : null,
+                inputFormat: inputFormat
+                  ? {
+                      mode: inputFormat.mode,
+                      delta: inputFormat.delta,
+                      notificationEnabled: inputFormat.notificationEnabled,
+                      status: inputFormat.status,
+                      requestedAt: inputFormat.requestedAt,
+                      acknowledgedAt: inputFormat.acknowledgedAt || null,
+                      response: inputFormat.response
+                        ? { ...inputFormat.response }
+                        : null,
+                    }
+                  : null,
+                combinedAck: state.lastCombinedAck
+                  ? { ...state.lastCombinedAck }
+                  : null,
+                sample: {
+                  receivedAt: value.receivedAt ?? null,
+                  source:
+                    state.lastAposSource ||
+                    (state.positionStreamMode === "apos-pos-combined"
+                      ? "port-value-combined"
+                      : "port-value"),
+                  absolutePositionReceivedAt:
+                    value.absolutePositionReceivedAt ?? null,
+                  relativePositionReceivedAt:
+                    value.relativePositionReceivedAt ?? null,
+                },
+                lastAposReceivedAt: state.lastAposReceivedAt || null,
+                lastAposSource: state.lastAposSource || null,
+              },
+            ];
+          })
+      );
     }
 
     _recordCommunicationError(error) {
@@ -9931,6 +10089,8 @@ continuous_sensor_loop()
       this._portModes = {};
       this._modeInfoRequests = {};
       this._modeValueFormats = {};
+      this._motorPositionModes = {};
+      this._portInfoRequests = {};
       this._inputFormats = {};
       this._portValues = {};
       this._sensorEdges.clear();
@@ -9980,6 +10140,11 @@ continuous_sensor_loop()
     async _send(message) {
       if (!this.isConnected()) throw new Error("LWP3 hub is not connected");
       const bytes = Uint8Array.from(message);
+      const frameRecord = this._recordProtocolFrame(
+        "tx",
+        bytes,
+        "write-attempted"
+      );
       try {
         let write;
         if (this._link instanceof BLELink) {
@@ -9993,7 +10158,19 @@ continuous_sensor_loop()
           write = this._link.write(LWP3.SERVICE, LWP3.CHARACTERISTIC, bytes);
         }
         await write;
+        if (frameRecord) {
+          frameRecord.status = "write-completed";
+          frameRecord.completedAt = Date.now();
+        }
       } catch (error) {
+        if (frameRecord) {
+          frameRecord.status = "write-failed";
+          frameRecord.completedAt = Date.now();
+          frameRecord.error = {
+            name: String(error.name || "Error").slice(0, 80),
+            message: String(error.message || error).slice(0, 240),
+          };
+        }
         this._recordCommunicationError(error);
         throw error;
       }
@@ -10033,16 +10210,23 @@ continuous_sensor_loop()
         return;
       }
       const type = message[2];
+      this._recordProtocolFrame("rx", message, "received");
       if (type === LWP3.HUB_PROPERTIES) {
         this._handleHubProperty(message);
       } else if (type === LWP3.HUB_ATTACHED_IO) {
         this._handleAttachedIO(message);
       } else if (type === LWP3.PORT_MODE_INFORMATION) {
         this._handlePortModeInformation(message);
+      } else if (type === LWP3.PORT_INFORMATION) {
+        this._handlePortInformation(message);
       } else if (type === LWP3.PORT_VALUE) {
         this._handlePortValue(message);
       } else if (type === LWP3.PORT_INPUT_FORMAT) {
         this._handlePortInputFormat(message);
+      } else if (type === LWP3.PORT_VALUE_COMBINED) {
+        this._handlePortValueCombined(message);
+      } else if (type === LWP3.PORT_INPUT_FORMAT_COMBINED) {
+        this._handlePortInputFormatCombined(message);
       }
     }
 
@@ -10076,11 +10260,14 @@ continuous_sensor_loop()
       if (!port) return;
       const event = message[4];
       if (event === LWP3.DETACHED) {
+        this._clearPortAttachmentTimers(port);
         delete this._devices[port];
         delete this._portModes[port];
         delete this._modeInfoRequests[port];
         delete this._modeValueFormats[port];
         delete this._inputFormats[port];
+        delete this._motorPositionModes[port];
+        delete this._portInfoRequests[port];
         this._portValues[port] = {
           port,
           connected: false,
@@ -10095,6 +10282,7 @@ continuous_sensor_loop()
         return;
       }
       if (event !== LWP3.ATTACHED) return;
+      this._clearPortAttachmentTimers(port);
       if (message.length < 7) {
         this._recordCommunicationError(
           "truncated LWP3 attached-device message"
@@ -10105,8 +10293,10 @@ continuous_sensor_loop()
       const definition = lwp3DeviceType(deviceType);
       const type = definition?.type || "unknown";
       const now = Date.now();
+      const attachmentId = this._nextPortAttachmentId++;
       this._devices[port] = {
         port,
+        attachmentId,
         deviceId: deviceType,
         deviceType,
         type,
@@ -10127,6 +10317,7 @@ continuous_sensor_loop()
       };
       this._portValues[port] = {
         port,
+        attachmentId,
         deviceId: deviceType,
         deviceType,
         type,
@@ -10155,10 +10346,23 @@ continuous_sensor_loop()
             : this._setInputMode(port, definition.inputMode);
         setupInputMode.catch((error) => this._recordCommunicationError(error));
       }
+      if (definition?.type === "motor") {
+        this._discoverMotorPositionModes(port, this._devices[port]);
+      }
+    }
+
+    _clearPortAttachmentTimers(port) {
+      const state = this._motorPositionModes[port];
+      if (state?.timeout) clearTimeout(state.timeout);
+      if (state?.comboTimeout) clearTimeout(state.comboTimeout);
+      for (const request of Object.values(this._modeInfoRequests[port] || {})) {
+        if (request?.timeout) clearTimeout(request.timeout);
+      }
     }
 
     async _prepareMotorPositionMode(port, mode) {
       const attachedDevice = this._devices[port];
+      const attachmentId = attachedDevice?.attachmentId;
       try {
         await this._requestModeValueFormat(port, mode);
       } catch (error) {
@@ -10166,7 +10370,7 @@ continuous_sensor_loop()
         // a prerequisite for the existing mode-2 POS notification path.
         this._recordCommunicationError(error);
       }
-      if (this._devices[port] !== attachedDevice) return;
+      if (this._devices[port]?.attachmentId !== attachmentId) return;
       await this._setInputMode(port, mode);
     }
 
@@ -10176,10 +10380,13 @@ continuous_sensor_loop()
       const request = {
         mode,
         informationType: LWP3.MODE_VALUE_FORMAT,
+        attachmentId: this._devices[port].attachmentId,
         requestedAt: Date.now(),
         status: "pending",
       };
-      this._modeInfoRequests[port] = request;
+      if (!this._modeInfoRequests[port]) this._modeInfoRequests[port] = {};
+      this._modeInfoRequests[port][`${mode}:${LWP3.MODE_VALUE_FORMAT}`] =
+        request;
       try {
         await this._send([
           6,
@@ -10190,21 +10397,241 @@ continuous_sensor_loop()
           LWP3.MODE_VALUE_FORMAT,
         ]);
       } catch (error) {
-        if (this._modeInfoRequests[port] === request) {
+        if (
+          this._modeInfoRequests[port][`${mode}:${LWP3.MODE_VALUE_FORMAT}`] ===
+          request
+        ) {
           request.status = "write-failed";
-          this._portValues[port] = {
-            ...this._portValues[port],
-            modeValueFormatStatus: request.status,
-            inputFormatStatus: request.status,
-          };
+          if (mode === 2) {
+            this._portValues[port] = {
+              ...this._portValues[port],
+              modeValueFormatStatus: request.status,
+              inputFormatStatus: request.status,
+            };
+          }
         }
         throw error;
       }
     }
 
+    _discoverMotorPositionModes(port, attachedDevice) {
+      const previous = this._motorPositionModes[port];
+      if (previous && previous.timeout) clearTimeout(previous.timeout);
+      const state = {
+        attachmentId: attachedDevice.attachmentId,
+        modeInfo: null,
+        inputModes: 0,
+        capabilities: 0,
+        posSingleAcknowledged: false,
+        modeMetadata: {},
+        possibleModeCombinations: null,
+        positionStreamMode: "pos-single",
+        aposStatus: "checking-modes",
+        combinedStatus: "not-checked",
+        timeout: null,
+      };
+      this._motorPositionModes[port] = state;
+      this._portInfoRequests[port] = {
+        1: { status: "pending", attachmentId: attachedDevice.attachmentId },
+      };
+      state.timeout = setTimeout(() => {
+        if (
+          this._devices[port]?.attachmentId !== state.attachmentId ||
+          this._motorPositionModes[port] !== state
+        )
+          return;
+        const request = this._portInfoRequests[port]?.[1];
+        if (request && request.status === "pending") {
+          request.status = "timeout";
+          state.aposStatus = "mode-info-timeout";
+          this._updateMotorPositionDiagnostics(port, state);
+        }
+      }, 900);
+      const portId = port === "A" ? 0 : 1;
+      this._send([5, 0, LWP3.PORT_INFORMATION_REQUEST, portId, 0x01]).catch(
+        (error) => {
+          const request = this._portInfoRequests[port]?.[1];
+          if (request && request.attachmentId === state.attachmentId) {
+            request.status = "write-failed";
+            state.aposStatus = "mode-info-write-failed";
+            this._updateMotorPositionDiagnostics(port, state);
+          }
+          this._recordCommunicationError(error);
+        }
+      );
+      this._updateMotorPositionDiagnostics(port, state);
+    }
+
+    _updateMotorPositionDiagnostics(port, state) {
+      if (
+        !this._portValues[port] ||
+        this._devices[port]?.attachmentId !== state.attachmentId
+      )
+        return;
+      const update = {
+        motorModeInfoStatus: state.modeInfo ? "received" : "pending",
+        supportedInputModes: state.modeInfo ? state.inputModes : null,
+        inputCapabilities: state.modeInfo ? state.capabilities : null,
+        positionStreamMode: state.positionStreamMode,
+        absolutePositionStatus: state.aposStatus,
+        combinedPositionStatus: state.combinedStatus,
+        absolutePositionAvailable: Boolean(
+          typeof this._portValues[port].absolutePosition === "number"
+        ),
+      };
+      this._portValues[port] = { ...this._portValues[port], ...update };
+      this._devices[port] = { ...this._devices[port], ...update };
+    }
+
+    _requestMotorModeMetadata(port, mode, informationType, state) {
+      const attachmentId = state.attachmentId;
+      const key = `${mode}:${informationType}`;
+      if (!this._modeInfoRequests[port]) this._modeInfoRequests[port] = {};
+      const request = {
+        mode,
+        informationType,
+        status: "pending",
+        attachmentId,
+      };
+      this._modeInfoRequests[port][key] = request;
+      request.timeout = setTimeout(() => {
+        if (
+          this._devices[port]?.attachmentId !== attachmentId ||
+          this._motorPositionModes[port] !== state
+        )
+          return;
+        if (request.status === "pending") {
+          request.status = "timeout";
+          if (mode === 3 && state.aposStatus === "reading-mode-3-metadata") {
+            state.aposStatus = `mode-${mode}-info-timeout`;
+            this._updateMotorPositionDiagnostics(port, state);
+          }
+        }
+      }, 900);
+      const portId = port === "A" ? 0 : 1;
+      // The protocol defines variable-length mode names. Do not require their
+      // padded maximum; only the format, SI range, and unit have fixed lengths.
+      this._send([
+        6,
+        0,
+        LWP3.PORT_MODE_INFORMATION_REQUEST,
+        portId,
+        mode,
+        informationType,
+      ]).catch((error) => {
+        if (this._modeInfoRequests[port]?.[key] === request) {
+          request.status = "write-failed";
+          state.aposStatus = `mode-${mode}-info-write-failed`;
+          this._updateMotorPositionDiagnostics(port, state);
+        }
+        this._recordCommunicationError(error);
+      });
+    }
+
+    _handlePortInformation(message) {
+      if (message.length < 5) return;
+      const port = message[3] === 0 ? "A" : message[3] === 1 ? "B" : null;
+      if (!port || !this._devices[port]) return;
+      const informationType = message[4];
+      const request = this._portInfoRequests[port]?.[informationType];
+      if (
+        !request ||
+        request.status !== "pending" ||
+        request.attachmentId !== this._devices[port].attachmentId
+      )
+        return;
+      if (informationType === 1) {
+        if (message.length !== 11) {
+          request.status = "malformed-response";
+          this._recordCommunicationError(
+            `LWP3 mode info response length ${message.length} on port ${port}`
+          );
+          return;
+        }
+        const state = this._motorPositionModes[port];
+        if (!state || state.attachmentId !== this._devices[port].attachmentId)
+          return;
+        clearTimeout(state.timeout);
+        state.timeout = null;
+        request.status = "received";
+        state.capabilities = message[5];
+        state.modeCount = message[6];
+        state.inputModes = message[7] | (message[8] << 8);
+        state.outputModes = message[9] | (message[10] << 8);
+        state.modeInfo = {
+          capabilities: state.capabilities,
+          modeCount: state.modeCount,
+          inputModes: state.inputModes,
+          outputModes: state.outputModes,
+          receivedAt: Date.now(),
+        };
+        this._updateMotorPositionDiagnostics(port, state);
+        if ((state.inputModes & (1 << 3)) === 0) {
+          state.aposStatus = "mode-3-unavailable";
+          this._updateMotorPositionDiagnostics(port, state);
+          return;
+        }
+        state.aposStatus = "reading-mode-3-metadata";
+        for (const informationType of [0, LWP3.MODE_VALUE_FORMAT, 3, 4]) {
+          this._requestMotorModeMetadata(port, 3, informationType, state);
+        }
+        if ((state.capabilities & 0x04) !== 0) {
+          this._portInfoRequests[port][2] = {
+            status: "pending",
+            attachmentId: state.attachmentId,
+          };
+          state.comboTimeout = setTimeout(() => {
+            if (
+              this._devices[port]?.attachmentId === state.attachmentId &&
+              this._motorPositionModes[port] === state &&
+              this._portInfoRequests[port]?.[2]?.status === "pending"
+            ) {
+              this._portInfoRequests[port][2].status = "timeout";
+              state.combinedStatus = "combination-query-timeout";
+              this._updateMotorPositionDiagnostics(port, state);
+            }
+          }, 900);
+          const portId = port === "A" ? 0 : 1;
+          this._send([5, 0, LWP3.PORT_INFORMATION_REQUEST, portId, 0x02]).catch(
+            (error) => this._recordCommunicationError(error)
+          );
+        } else {
+          state.combinedStatus = "not-combinable";
+        }
+        return;
+      }
+      if (informationType === 2) {
+        if (
+          message.length < 7 ||
+          message.length > 21 ||
+          (message.length - 5) % 2 !== 0
+        ) {
+          request.status = "malformed-response";
+          this._recordCommunicationError(
+            `LWP3 mode-combination response length ${message.length} on port ${port}`
+          );
+          return;
+        }
+        const state = this._motorPositionModes[port];
+        if (!state || state.attachmentId !== this._devices[port].attachmentId)
+          return;
+        request.status = "received";
+        if (state.comboTimeout) clearTimeout(state.comboTimeout);
+        state.comboTimeout = null;
+        const combinations = [];
+        for (let offset = 5; offset + 1 < message.length; offset += 2) {
+          const mask = message[offset] | (message[offset + 1] << 8);
+          if (mask === 0) break;
+          combinations.push(mask);
+        }
+        state.possibleModeCombinations = combinations;
+        state.combinedStatus = "combinations-received";
+        this._updateMotorPositionDiagnostics(port, state);
+        this._maybeConfigureCombinedPositionMode(port, state);
+      }
+    }
+
     _handlePortModeInformation(message) {
-      // LWP3 §3.20 specifies a 10-byte 0x44 response for VALUE FORMAT 0x80:
-      // dataset count, data type, significant figures, and decimal places.
       if (message.length < 6) {
         this._recordCommunicationError(
           "truncated LWP3 Port Mode Information response"
@@ -10213,28 +10640,71 @@ continuous_sensor_loop()
       }
       const port = message[3] === 0 ? "A" : message[3] === 1 ? "B" : null;
       if (!port || !this._devices[port]) return;
-      const request = this._modeInfoRequests[port];
       const mode = message[4];
       const informationType = message[5];
+      const request =
+        this._modeInfoRequests[port]?.[`${mode}:${informationType}`];
       if (
-        informationType !== LWP3.MODE_VALUE_FORMAT ||
         !request ||
         request.status !== "pending" ||
-        request.mode !== mode ||
-        request.informationType !== informationType
-      ) {
+        request.attachmentId !== this._devices[port].attachmentId
+      )
+        return;
+      if (request.timeout) clearTimeout(request.timeout);
+      const state = this._motorPositionModes[port];
+      const metadata =
+        state && state.attachmentId === this._devices[port].attachmentId
+          ? state.modeMetadata[mode] || (state.modeMetadata[mode] = {})
+          : null;
+      if (informationType === 0) {
+        request.status = "received";
+        const name = String.fromCharCode(...message.slice(6)).replace(
+          /\0+$/,
+          ""
+        );
+        if (metadata) metadata.name = name;
+        if (state && mode === 3 && name !== "APOS") {
+          state.aposStatus = "mode-3-not-apos";
+          this._updateMotorPositionDiagnostics(port, state);
+          return;
+        }
+        this._maybeStartAposMode(port, state);
         return;
       }
-      if (message.length !== 10) {
-        request.status = "malformed-response";
-        this._portValues[port] = {
-          ...this._portValues[port],
-          modeValueFormatStatus: request.status,
-          inputFormatStatus: request.status,
+      if (informationType === 3) {
+        if (message.length !== 14) {
+          request.status = "malformed-response";
+          return;
+        }
+        const view = new DataView(message.buffer, message.byteOffset + 6, 8);
+        const range = {
+          min: view.getFloat32(0, true),
+          max: view.getFloat32(4, true),
         };
-        this._recordCommunicationError(
-          `LWP3 mode value format response length ${message.length} on port ${port}`
-        );
+        request.status =
+          Number.isFinite(range.min) && Number.isFinite(range.max)
+            ? "received"
+            : "malformed-response";
+        if (metadata && request.status === "received") metadata.siRange = range;
+        this._maybeStartAposMode(port, state);
+        return;
+      }
+      if (informationType === 4) {
+        if (message.length < 7 || message.length > 11) {
+          request.status = "malformed-response";
+          return;
+        }
+        request.status = "received";
+        if (metadata)
+          metadata.symbol = String.fromCharCode(...message.slice(6)).replace(
+            /\0+$/,
+            ""
+          );
+        this._maybeStartAposMode(port, state);
+        return;
+      }
+      if (informationType !== LWP3.MODE_VALUE_FORMAT || message.length !== 10) {
+        request.status = "malformed-response";
         return;
       }
       const format = {
@@ -10245,37 +10715,119 @@ continuous_sensor_loop()
         decimals: message[9],
         receivedAt: Date.now(),
       };
-      const isSignedInt32Position =
-        format.dataSets === 1 && format.dataType === 2;
-      format.status = isSignedInt32Position ? "verified" : "unsupported-format";
-      this._modeValueFormats[port] = format;
+      const isSingleNumericFormat =
+        format.dataSets === 1 && format.dataType >= 0 && format.dataType <= 3;
+      const isSupportedFormat =
+        isSingleNumericFormat &&
+        (mode !== 2 || (format.dataSets === 1 && format.dataType === 2));
+      format.status = isSupportedFormat ? "verified" : "unsupported-format";
+      if (metadata) metadata.format = format;
+      if (mode === 2) this._modeValueFormats[port] = format;
       request.status = format.status;
-      this._portValues[port] = {
-        ...this._portValues[port],
-        modeValueFormat: { ...format },
-        modeValueFormatStatus: format.status,
-        inputFormatStatus: isSignedInt32Position
-          ? "pending"
-          : "unsupported-value-format",
-      };
-      this._devices[port] = {
-        ...this._devices[port],
-        modeValueFormat: { ...format },
-        modeValueFormatStatus: format.status,
-        inputFormatStatus: this._portValues[port].inputFormatStatus,
-      };
-      if (!isSignedInt32Position) {
+      if (mode === 2) {
+        this._portValues[port] = {
+          ...this._portValues[port],
+          modeValueFormat: { ...format },
+          modeValueFormatStatus: format.status,
+          inputFormatStatus: isSingleNumericFormat
+            ? "pending"
+            : "unsupported-value-format",
+        };
+        this._devices[port] = {
+          ...this._devices[port],
+          modeValueFormat: { ...format },
+          modeValueFormatStatus: format.status,
+          inputFormatStatus: this._portValues[port].inputFormatStatus,
+        };
+      }
+      if (mode === 2 && !isSingleNumericFormat) {
         const current = this._portValues[port];
         this._portValues[port] = {
           ...current,
           relativePosition: null,
-          absolutePosition: null,
-          position: null,
+          relativePositionReceivedAt: null,
           degreesCounted: null,
           speed: null,
-          receivedAt: null,
+          speedDerived: true,
+          speedUnit: "degrees-per-second",
+          speedSource: "delta-angle-over-received-time",
         };
       }
+      if (state && mode === 3 && !isSingleNumericFormat) {
+        state.aposStatus = "unsupported-mode-3-format";
+        this._updateMotorPositionDiagnostics(port, state);
+      }
+      this._maybeStartAposMode(port, state);
+    }
+
+    _maybeStartAposMode(port, state) {
+      if (
+        !state ||
+        state.attachmentId !== this._devices[port].attachmentId ||
+        state.aposStatus === "subscribing" ||
+        state.aposStatus === "awaiting-sample" ||
+        state.aposStatus === "ready"
+      )
+        return;
+      const metadata = state.modeMetadata[3] || {};
+      const format = metadata.format;
+      const mode3Advertised = (state.inputModes & (1 << 3)) !== 0;
+      const knownAngularMotor = [
+        LWP3.DEVICE_SPIKE_MEDIUM_MOTOR,
+        LWP3.DEVICE_SPIKE_LARGE_MOTOR,
+        LWP3.DEVICE_SPIKE_SMALL_MOTOR,
+      ].includes(this._devices[port]?.deviceType);
+      const verified =
+        knownAngularMotor &&
+        mode3Advertised &&
+        (!metadata.name || metadata.name === "APOS") &&
+        (!metadata.symbol || metadata.symbol === "DEG") &&
+        (!metadata.siRange ||
+          (metadata.siRange.min < 0 && metadata.siRange.max > 0)) &&
+        format &&
+        format.status === "verified" &&
+        format.dataSets === 1 &&
+        format.dataType >= 0 &&
+        format.dataType <= 3;
+      if (!verified) {
+        if (mode3Advertised && metadata.name && metadata.name !== "APOS")
+          state.aposStatus = "mode-3-not-apos";
+        else if (
+          mode3Advertised &&
+          metadata.symbol &&
+          metadata.symbol !== "DEG"
+        )
+          state.aposStatus = "mode-3-unit-mismatch";
+        else if (
+          mode3Advertised &&
+          metadata.siRange &&
+          (metadata.siRange.min >= 0 || metadata.siRange.max <= 0)
+        )
+          state.aposStatus = "mode-3-range-mismatch";
+        else if (mode3Advertised && format && format.status !== "verified") {
+          state.aposStatus = "unsupported-mode-3-format";
+        }
+        this._updateMotorPositionDiagnostics(port, state);
+        return;
+      }
+      state.aposStatus = "subscribing";
+      state.positionStreamMode = "apos-single";
+      this._portValues[port] = {
+        ...this._portValues[port],
+        position: null,
+        relativePosition: null,
+        relativePositionReceivedAt: null,
+        degreesCounted: null,
+        speed: null,
+        speedDerived: true,
+        positionMode: "APOS",
+      };
+      this._updateMotorPositionDiagnostics(port, state);
+      this._setInputMode(port, 3).catch((error) => {
+        state.aposStatus = "subscription-write-failed";
+        this._updateMotorPositionDiagnostics(port, state);
+        this._recordCommunicationError(error);
+      });
     }
 
     async _setInputMode(port, mode) {
@@ -10360,7 +10912,11 @@ continuous_sensor_loop()
       const requestInitialValue = Boolean(
         matchesRequest &&
           this._devices[port].type === "motor" &&
-          this._modeValueFormats[port]?.status !== "unsupported-format"
+          ((mode === 2 &&
+            this._modeValueFormats[port]?.status !== "unsupported-format") ||
+            (mode === 3 &&
+              this._motorPositionModes[port]?.aposStatus === "subscribing" &&
+              !this._motorPositionModes[port]?.combinedSetup))
       );
       const status = matchesRequest ? "acknowledged" : "rejected-or-mismatched";
       if (!matchesRequest) {
@@ -10401,6 +10957,17 @@ continuous_sensor_loop()
         };
       }
       if (requestInitialValue) {
+        if (mode === 3) {
+          const state = this._motorPositionModes[port];
+          if (
+            state &&
+            state.attachmentId === this._devices[port].attachmentId
+          ) {
+            state.aposStatus = "awaiting-sample";
+            state.positionStreamMode = "apos-single";
+            this._updateMotorPositionDiagnostics(port, state);
+          }
+        }
         const initialRead = this._send([
           5,
           0,
@@ -10410,6 +10977,403 @@ continuous_sensor_loop()
         ]);
         initialRead.catch((error) => this._recordCommunicationError(error));
       }
+      const state = this._motorPositionModes[port];
+      if (
+        matchesRequest &&
+        state &&
+        state.attachmentId === this._devices[port].attachmentId
+      ) {
+        if (mode === 2 && !state.combinedSetup)
+          state.posSingleAcknowledged = true;
+        if (state.combinedSetup?.awaitingMode === mode) {
+          const waiter = state.combinedSetup.singleModeWaiter;
+          state.combinedSetup.singleModeWaiter = null;
+          state.combinedSetup.awaitingMode = null;
+          if (waiter) waiter.resolve(response);
+        }
+        if (mode === 2 && !state.combinedSetup)
+          this._maybeConfigureCombinedPositionMode(port, state);
+        if (mode === 3 && requestInitialValue && !state.combinedSetup) {
+          this._maybeConfigureCombinedPositionMode(port, state);
+        }
+      }
+    }
+
+    _maybeConfigureCombinedPositionMode(port, state) {
+      if (
+        !state ||
+        state.combinedSetup ||
+        state.attachmentId !== this._devices[port]?.attachmentId ||
+        !state.posSingleAcknowledged ||
+        state.aposStatus !== "ready"
+      )
+        return;
+      const comboIndex = Array.isArray(state.possibleModeCombinations)
+        ? state.possibleModeCombinations.findIndex(
+            (mask) => (mask & 0x0c) === 0x0c
+          )
+        : -1;
+      const posFormat = state.modeMetadata[2]?.format;
+      if (
+        comboIndex < 0 ||
+        !posFormat ||
+        posFormat.status !== "verified" ||
+        posFormat.dataSets !== 1 ||
+        posFormat.dataType !== 2 ||
+        posFormat.decimals !== 0
+      ) {
+        state.combinedStatus =
+          comboIndex < 0
+            ? Array.isArray(state.possibleModeCombinations)
+              ? "apos-pos-not-combinable"
+              : state.combinedStatus
+            : "pos-format-unverified";
+        this._updateMotorPositionDiagnostics(port, state);
+        return;
+      }
+      const setup = {
+        stage: "locking",
+        comboIndex,
+        locked: false,
+        ackWaiter: null,
+        awaitingMode: null,
+        singleModeWaiter: null,
+      };
+      state.combinedSetup = setup;
+      state.combinedStatus = "locking-device";
+      this._updateMotorPositionDiagnostics(port, state);
+      this._configureCombinedPositionMode(port, state, setup).catch((error) => {
+        this._failCombinedPositionMode(port, state, setup, error);
+      });
+    }
+
+    _waitForCombinedFormatAck(port, state, setup, phase, predicate) {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          if (state.combinedSetup !== setup || setup.ackWaiter?.phase !== phase)
+            return;
+          setup.ackWaiter = null;
+          reject(new Error(`LWP3 combined ${phase} acknowledgement timed out`));
+        }, 1200);
+        setup.ackWaiter = {
+          phase,
+          predicate,
+          timer,
+          resolve: (value) => {
+            clearTimeout(timer);
+            setup.ackWaiter = null;
+            resolve(value);
+          },
+        };
+      });
+    }
+
+    _waitForCombinedSingleModeAck(state, setup, mode) {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          if (state.combinedSetup !== setup || setup.awaitingMode !== mode)
+            return;
+          setup.singleModeWaiter = null;
+          setup.awaitingMode = null;
+          reject(new Error(`LWP3 mode ${mode} acknowledgement timed out`));
+        }, 1200);
+        setup.awaitingMode = mode;
+        setup.singleModeWaiter = {
+          timer,
+          resolve: (value) => {
+            clearTimeout(timer);
+            setup.singleModeWaiter = null;
+            setup.awaitingMode = null;
+            resolve(value);
+          },
+        };
+      });
+    }
+
+    async _sendCombinedSingleMode(port, mode, state, setup) {
+      if (
+        this._devices[port]?.attachmentId !== state.attachmentId ||
+        state.combinedSetup !== setup
+      ) {
+        throw new Error("motor attachment changed during combined setup");
+      }
+      const portId = port === "A" ? 0 : 1;
+      const request = {
+        mode,
+        delta: LWP3.PORT_VALUE_DELTA,
+        notificationEnabled: true,
+        requestedAt: Date.now(),
+        status: "pending",
+        combinedSetup: true,
+      };
+      this._portModes[port] = mode;
+      this._inputFormats[port] = request;
+      const ack = this._waitForCombinedSingleModeAck(state, setup, mode);
+      await this._send([
+        10,
+        0,
+        LWP3.PORT_INPUT_FORMAT_SETUP_SINGLE,
+        portId,
+        mode,
+        LWP3.PORT_VALUE_DELTA,
+        0,
+        0,
+        0,
+        1,
+      ]);
+      if (
+        this._devices[port]?.attachmentId !== state.attachmentId ||
+        state.combinedSetup !== setup
+      ) {
+        throw new Error("motor attachment changed during combined setup");
+      }
+      await ack;
+    }
+
+    async _configureCombinedPositionMode(port, state, setup) {
+      const portId = port === "A" ? 0 : 1;
+      const lockAck = this._waitForCombinedFormatAck(
+        port,
+        state,
+        setup,
+        "lock",
+        (pointer) => pointer === 0
+      );
+      setup.locked = true;
+      await this._send([
+        5,
+        0,
+        LWP3.PORT_INPUT_FORMAT_SETUP_COMBINED,
+        portId,
+        0x02,
+      ]);
+      await lockAck;
+      if (this._devices[port]?.attachmentId !== state.attachmentId)
+        throw new Error("motor detached during combined setup");
+      setup.locked = true;
+
+      await this._sendCombinedSingleMode(port, 3, state, setup);
+      if (this._devices[port]?.attachmentId !== state.attachmentId)
+        throw new Error("motor detached during combined setup");
+      await this._sendCombinedSingleMode(port, 2, state, setup);
+      if (this._devices[port]?.attachmentId !== state.attachmentId)
+        throw new Error("motor detached during combined setup");
+
+      setup.stage = "setting";
+      state.combinedStatus = "setting-apos-pos-combination";
+      this._updateMotorPositionDiagnostics(port, state);
+      if (this._devices[port]?.attachmentId !== state.attachmentId)
+        throw new Error("motor detached during combined setup");
+      await this._send([
+        8,
+        0,
+        LWP3.PORT_INPUT_FORMAT_SETUP_COMBINED,
+        portId,
+        0x01,
+        setup.comboIndex,
+        0x30,
+        0x20,
+      ]);
+      if (this._devices[port]?.attachmentId !== state.attachmentId)
+        throw new Error("motor detached during combined setup");
+
+      setup.stage = "unlocking";
+      state.combinedStatus = "starting-apos-pos-notifications";
+      this._updateMotorPositionDiagnostics(port, state);
+      const unlockAck = this._waitForCombinedFormatAck(
+        port,
+        state,
+        setup,
+        "unlock",
+        (pointer, index, multiUpdate) =>
+          pointer === 0x0003 && index === setup.comboIndex && !multiUpdate
+      );
+      if (this._devices[port]?.attachmentId !== state.attachmentId)
+        throw new Error("motor detached during combined setup");
+      await this._send([
+        5,
+        0,
+        LWP3.PORT_INPUT_FORMAT_SETUP_COMBINED,
+        portId,
+        0x04,
+      ]);
+      setup.locked = false;
+      await unlockAck;
+      if (this._devices[port]?.attachmentId !== state.attachmentId)
+        throw new Error("motor detached during combined setup");
+
+      setup.stage = "ready";
+      state.positionStreamMode = "apos-pos-combined";
+      state.aposStatus = "awaiting-sample";
+      state.combinedStatus = "ready";
+      this._portModes[port] = null;
+      this._updateMotorPositionDiagnostics(port, state);
+      await this._send([5, 0, LWP3.PORT_INFORMATION_REQUEST, portId, 0]);
+    }
+
+    async _failCombinedPositionMode(port, state, setup, error) {
+      if (setup.ackWaiter?.timer) clearTimeout(setup.ackWaiter.timer);
+      if (setup.singleModeWaiter?.timer)
+        clearTimeout(setup.singleModeWaiter.timer);
+      setup.ackWaiter = null;
+      setup.singleModeWaiter = null;
+      if (
+        setup.locked &&
+        this._devices[port]?.attachmentId === state.attachmentId
+      ) {
+        await this._send([
+          5,
+          0,
+          LWP3.PORT_INPUT_FORMAT_SETUP_COMBINED,
+          port === "A" ? 0 : 1,
+          0x04,
+        ]).catch(() => {});
+        setup.locked = false;
+      }
+      if (this._motorPositionModes[port] !== state) return;
+      setup.stage = "failed";
+      state.combinedStatus = "combined-setup-failed";
+      state.combinedFailure = error?.message || String(error);
+      state.combinedSetup = null;
+      if (this._devices[port]?.attachmentId === state.attachmentId) {
+        // Combined mode setup can change the device's active stream while the
+        // cached single-mode value still says 3. Force a fresh APOS request
+        // after a failed negotiation instead of trusting that stale cache.
+        this._portModes[port] = null;
+        await this._setInputMode(port, 3).catch((restoreError) => {
+          state.aposStatus = "subscription-write-failed";
+          this._recordCommunicationError(restoreError);
+        });
+      }
+      this._updateMotorPositionDiagnostics(port, state);
+    }
+
+    _handlePortInputFormatCombined(message) {
+      if (message.length !== 7) return;
+      const port = message[3] === 0 ? "A" : message[3] === 1 ? "B" : null;
+      const state = port && this._motorPositionModes[port];
+      if (!state || state.attachmentId !== this._devices[port]?.attachmentId)
+        return;
+      const control = message[4];
+      const index = control & 0x0f;
+      const multiUpdate = Boolean(control & 0x80);
+      const pointer = message[5] | (message[6] << 8);
+      const waiter = state.combinedSetup?.ackWaiter;
+      if (!waiter || !waiter.predicate(pointer, index, multiUpdate)) return;
+      const receivedAt = Date.now();
+      state.lastCombinedAck = {
+        phase: waiter.phase,
+        pointer,
+        index,
+        multiUpdate,
+        receivedAt,
+      };
+      waiter.resolve({ pointer, index, multiUpdate, receivedAt });
+    }
+
+    _handlePortValueCombined(message) {
+      if (message.length < 7) return;
+      const port = message[3] === 0 ? "A" : message[3] === 1 ? "B" : null;
+      const state = port && this._motorPositionModes[port];
+      const device = port && this._devices[port];
+      if (
+        !state ||
+        !device ||
+        state.attachmentId !== device.attachmentId ||
+        state.positionStreamMode !== "apos-pos-combined" ||
+        state.combinedStatus !== "ready"
+      )
+        return;
+      const pointer = message[4] | (message[5] << 8);
+      if (!pointer || (pointer & ~0x0003) !== 0) return;
+      const formatByPointer = [
+        state.modeMetadata[3]?.format,
+        state.modeMetadata[2]?.format,
+      ];
+      const modeByPointer = [3, 2];
+      const view = new DataView(
+        message.buffer,
+        message.byteOffset,
+        message.byteLength
+      );
+      let offset = 6;
+      const now = Date.now();
+      const previous = this._portValues[port] || {};
+      const next = {
+        ...previous,
+        connected: true,
+        type: "motor",
+        motorType: device.deviceType,
+      };
+      let changed = false;
+      for (let bit = 0; bit < 2; bit++) {
+        if ((pointer & (1 << bit)) === 0) continue;
+        const format = formatByPointer[bit];
+        const mode = modeByPointer[bit];
+        if (
+          !format ||
+          format.status !== "verified" ||
+          format.dataSets !== 1 ||
+          format.dataType < 0 ||
+          format.dataType > 3
+        )
+          return;
+        const size = format.dataType === 0 ? 1 : format.dataType === 1 ? 2 : 4;
+        if (offset + size > message.length) return;
+        let value;
+        if (format.dataType === 0) value = view.getInt8(offset);
+        else if (format.dataType === 1) value = view.getInt16(offset, true);
+        else if (format.dataType === 2) value = view.getInt32(offset, true);
+        else value = view.getFloat32(offset, true);
+        offset += size;
+        if (!Number.isFinite(value)) return;
+        if (mode === 3) {
+          const metadata = state.modeMetadata[3];
+          if (
+            (metadata?.symbol && metadata.symbol !== "DEG") ||
+            (metadata?.siRange &&
+              (value < metadata.siRange.min || value > metadata.siRange.max))
+          )
+            return;
+          next.absolutePosition = value;
+          next.absolutePositionRaw = value;
+          next.absolutePositionDecimals = format.decimals;
+          next.absolutePositionReceivedAt = now;
+          next.absolutePositionAvailable = true;
+          next.position = ((value % 360) + 360) % 360;
+          next.positionMode = "APOS+POS";
+          next.positionSemantics = "absolute-angle-degrees";
+          state.aposStatus = "ready";
+          state.lastAposReceivedAt = now;
+          state.lastAposSource = "port-value-combined-mode-3";
+        } else {
+          const elapsed = Number.isFinite(previous.relativePositionReceivedAt)
+            ? now - previous.relativePositionReceivedAt
+            : 0;
+          next.relativePosition = value;
+          next.relativePositionReceivedAt = now;
+          next.degreesCounted = value;
+          next.speed =
+            Number.isFinite(previous.relativePosition) && elapsed > 0
+              ? Math.round(
+                  ((value - previous.relativePosition) * 1000) / elapsed
+                )
+              : null;
+          next.speedDerived = true;
+          next.speedUnit = "degrees-per-second";
+          next.speedSource = "delta-angle-over-received-time";
+          next.positionResetPending = false;
+          next.positionResetStatus = previous.positionResetPending
+            ? "confirmed-by-pos-sample"
+            : previous.positionResetStatus;
+          next.positionResetReadRequestedAt = null;
+        }
+        changed = true;
+      }
+      if (!changed || offset !== message.length) return;
+      next.receivedAt = now;
+      this._portValues[port] = next;
+      this._updateMotorPositionDiagnostics(port, state);
     }
 
     _handlePortValue(message) {
@@ -10418,6 +11382,11 @@ continuous_sensor_loop()
       if (!port || !this._devices[port]) return;
       const device = this._devices[port];
       const mode = this._portModes[port];
+      if (
+        device.type === "motor" &&
+        this._motorPositionModes[port]?.combinedSetup
+      )
+        return;
       const now = Date.now();
       const previous = this._portValues[port] || {};
       let next = { ...previous, connected: true };
@@ -10459,14 +11428,13 @@ continuous_sensor_loop()
           ...next,
           type: "motor",
           motorType: device.deviceType,
-          // Mode 2 is signed cumulative POS. Mode 3 APOS is not requested, so
-          // its physical absolute-angle value stays explicitly unavailable.
           positionMode: "POS",
           positionSemantics: "relative-cumulative-degrees",
           relativePosition: position,
-          absolutePosition: null,
-          absolutePositionAvailable: false,
-          position,
+          relativePositionReceivedAt: now,
+          position: Number.isFinite(previous.position)
+            ? previous.position
+            : null,
           degreesCounted: position,
           speed,
           speedDerived: true,
@@ -10476,7 +11444,74 @@ continuous_sensor_loop()
             ? "verified"
             : "known-device-format-fallback",
           positionResetPending: false,
+          positionResetStatus: previous.positionResetPending
+            ? "confirmed-by-pos-sample"
+            : previous.positionResetStatus,
         };
+      } else if (device.type === "motor" && mode === 3 && message.length >= 5) {
+        const state = this._motorPositionModes[port];
+        const metadata = state && state.modeMetadata[3];
+        const format = metadata && metadata.format;
+        if (
+          !state ||
+          state.attachmentId !== device.attachmentId ||
+          !["awaiting-sample", "ready"].includes(state.aposStatus) ||
+          !format ||
+          format.status !== "verified" ||
+          format.dataSets !== 1 ||
+          (metadata.symbol && metadata.symbol !== "DEG") ||
+          (metadata.siRange &&
+            (metadata.siRange.min >= 0 || metadata.siRange.max <= 0))
+        )
+          return;
+        const size =
+          format.dataType === 0
+            ? 1
+            : format.dataType === 1
+              ? 2
+              : format.dataType >= 2 && format.dataType <= 3
+                ? 4
+                : 0;
+        if (!size || message.length !== 4 + size) return;
+        const view = new DataView(message.buffer, message.byteOffset + 4, size);
+        const raw =
+          format.dataType === 0
+            ? view.getInt8(0)
+            : format.dataType === 1
+              ? view.getInt16(0, true)
+              : format.dataType === 2
+                ? view.getInt32(0, true)
+                : view.getFloat32(0, true);
+        if (
+          !Number.isFinite(raw) ||
+          (metadata.siRange &&
+            (raw < metadata.siRange.min || raw > metadata.siRange.max))
+        )
+          return;
+        const normalizedPosition = ((raw % 360) + 360) % 360;
+        next = {
+          ...next,
+          type: "motor",
+          motorType: device.deviceType,
+          positionMode: "APOS",
+          positionSemantics: "absolute-angle-degrees",
+          absolutePosition: raw,
+          absolutePositionRaw: raw,
+          absolutePositionDecimals: format.decimals,
+          absolutePositionReceivedAt: now,
+          absolutePositionAvailable: true,
+          position: normalizedPosition,
+          relativePosition: Number.isFinite(previous.relativePosition)
+            ? previous.relativePosition
+            : null,
+          relativePositionReceivedAt: Number.isFinite(previous.relativePosition)
+            ? previous.relativePositionReceivedAt
+            : null,
+          speed: Number.isFinite(previous.speed) ? previous.speed : null,
+        };
+        state.aposStatus = "ready";
+        state.lastAposReceivedAt = now;
+        state.lastAposSource = "port-value-mode-3";
       } else if (device.type === "color" && mode === 0) {
         const color = message[4] > 127 ? message[4] - 256 : message[4];
         next = { ...next, type: "color", color };
@@ -10523,6 +11558,15 @@ continuous_sensor_loop()
         ...next,
         receivedAt: now,
       };
+      if (device.type === "motor" && mode === 3) {
+        const state = this._motorPositionModes[port];
+        if (state) {
+          this._updateMotorPositionDiagnostics(port, state);
+          if (state.positionStreamMode === "apos-single") {
+            this._maybeConfigureCombinedPositionMode(port, state);
+          }
+        }
+      }
     }
 
     _recordColorEdge(port, previous, current) {
@@ -10695,24 +11739,32 @@ continuous_sensor_loop()
             this._requireMotor(port);
             {
               const attachedDevice = this._devices[port];
+              const attachmentId = attachedDevice?.attachmentId;
               const previous = this._portValues[port] || {};
+              const positionState = this._motorPositionModes[port];
+              const streamMode = positionState?.positionStreamMode;
+              const hasPosStream =
+                streamMode === "pos-single" ||
+                streamMode === "apos-pos-combined";
               const resetState = {
                 ...previous,
                 connected: true,
-                positionMode: "POS",
-                positionSemantics: "relative-cumulative-degrees",
+                positionMode:
+                  streamMode === "apos-pos-combined"
+                    ? "APOS+POS"
+                    : previous.positionMode,
                 relativePosition: null,
-                absolutePosition: null,
-                absolutePositionAvailable: false,
-                position: null,
+                relativePositionReceivedAt: null,
                 degreesCounted: null,
                 speed: null,
                 speedDerived: true,
                 speedUnit: "degrees-per-second",
                 speedSource: "delta-angle-over-received-time",
-                positionResetPending: true,
+                positionResetPending: hasPosStream,
+                positionResetStatus: hasPosStream
+                  ? "pending"
+                  : "pos-stream-unavailable",
                 positionResetReadRequestedAt: null,
-                receivedAt: null,
               };
               // Invalidate before the write. A notification may arrive before
               // the write Promise resolves; it must replace this placeholder
@@ -10724,9 +11776,15 @@ continuous_sensor_loop()
               ])
                 .then(async () => {
                   if (
-                    this._devices[port] !== attachedDevice ||
+                    this._devices[port]?.attachmentId !== attachmentId ||
                     this._portValues[port] !== resetState ||
-                    this._inputFormats[port]?.status !== "acknowledged"
+                    !hasPosStream ||
+                    !(
+                      this._inputFormats[port]?.status === "acknowledged" ||
+                      (this._inputFormats[port]?.mode === 2 &&
+                        this._motorPositionModes[port]?.positionStreamMode ===
+                          "apos-pos-combined")
+                    )
                   ) {
                     return;
                   }
@@ -10736,7 +11794,7 @@ continuous_sensor_loop()
                   };
                   this._portValues[port] = readState;
                   // A single documented Port Value read handles unchanged POS
-                  // values; subsequent updates use the normal delta=1 stream.
+                  // values. APOS-only mode is not evidence that POS reset.
                   await this._send([
                     5,
                     0,
@@ -10747,7 +11805,7 @@ continuous_sensor_loop()
                 })
                 .catch((error) => {
                   if (
-                    this._devices[port] === attachedDevice &&
+                    this._devices[port]?.attachmentId === attachmentId &&
                     this._portValues[port] === resetState
                   ) {
                     this._portValues[port] = previous;
@@ -16923,6 +17981,26 @@ continuous_sensor_loop()
 
     getPosition(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
+      const peripheral = this._peripheral;
+      if (
+        peripheral._activeProtocol === "spike3" ||
+        peripheral._activeProtocol === "essential"
+      ) {
+        const position =
+          peripheral._sensors?.motorPositions?.[port] ||
+          peripheral.portValues?.[port];
+        const absolutePosition =
+          typeof position?.absolutePosition === "number"
+            ? position.absolutePosition
+            : peripheral.portValues?.[port]?.absolutePosition;
+        if (
+          typeof absolutePosition !== "number" ||
+          !Number.isFinite(absolutePosition) ||
+          position?.absolutePositionAvailable === false
+        )
+          return "";
+        return ((absolutePosition % 360) + 360) % 360;
+      }
       return this._peripheral.portValues[port]?.position ?? "";
     }
 
