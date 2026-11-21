@@ -424,10 +424,9 @@
       console.log("🔌 [SPIKE Prime] Connect requested");
 
       if (!navigator.bluetooth) {
-        alert(
-          "Web Bluetooth not supported!\n\nMake sure you are:\n- Using TurboWarp Desktop\n- Running with --disable-sandbox flag"
+        throw new Error(
+          "Web Bluetooth is unavailable. Use a supported browser or TurboWarp Desktop."
         );
-        return;
       }
 
       try {
@@ -478,15 +477,13 @@
         await this._initializeHub();
 
         console.log("🎉 [SPIKE Prime] Fully connected!");
-        alert("✅ Connected to SPIKE Prime!");
       } catch (error) {
         console.error("❌ [SPIKE Prime] Connection error:", error);
         if (error.name === "NotFoundError") {
           console.log("ℹ️  User cancelled");
-        } else {
-          alert("Connection failed: " + error.message);
         }
         this.reset();
+        throw error;
       }
     }
 

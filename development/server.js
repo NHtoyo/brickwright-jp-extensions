@@ -1,4 +1,5 @@
 import express from "express";
+import { execFileSync } from "node:child_process";
 import Builder from "./builder.js";
 
 let mostRecentBuild = null;
@@ -45,6 +46,32 @@ app.use((req, res, next) => {
 app.use("/", async (req, res, next) => {
   if (req.method !== "GET") {
     return next();
+  }
+
+  if (req.path === "/__brickwright/build-info.json") {
+    let commit = null;
+    let branch = null;
+    try {
+      commit = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+      branch = execFileSync("git", ["branch", "--show-current"], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+    } catch (error) {
+      // The source URL remains useful if this dev server is running from a
+      // source archive without Git metadata.
+    }
+    res.json({
+      repository: "NHtoyo/brickwright-jp-extensions",
+      branch,
+      commit,
+    });
+    return;
   }
 
   if (!mostRecentBuild) {

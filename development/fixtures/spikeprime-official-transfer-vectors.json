@@ -1,0 +1,44 @@
+{
+  "source": "LEGO/spike-prime-docs examples/python/messages.py and examples/python/crc.py",
+  "source_commit": "446549146df626f5d7f332b0ea3cd0205ce23711",
+  "generated_by": "The upstream LEGO serializer and CRC helper were executed to produce these byte vectors; tests compare the production serializer to these fixed outputs.",
+  "messages": {
+    "clear_slot_19": {
+      "slot": 19,
+      "hex": "4613"
+    },
+    "start_file_upload_brickwright_py": {
+      "filename": "brickwright.py",
+      "slot": 19,
+      "crc32": 305419896,
+      "hex": "0c627269636b7772696768742e7079001378563412"
+    },
+    "transfer_chunk": {
+      "running_crc32": 2309737967,
+      "chunk": [0, 1, 2, 255],
+      "hex": "10efcdab890400000102ff"
+    },
+    "program_flow_start_slot_19": {
+      "stop": false,
+      "slot": 19,
+      "hex": "1e0013"
+    }
+  },
+  "crc32": {
+    "aligned_abc": {
+      "data": [97, 98, 99],
+      "seed": 0,
+      "hex": "a75d6850"
+    },
+    "chunk_1": {
+      "data": [0, 1, 2],
+      "seed": 0,
+      "hex": "12b0d7a9"
+    },
+    "chunk_2": {
+      "data": [255, 4, 5, 6, 7],
+      "seed_hex": "12b0d7a9",
+      "hex": "2ef0b7cd"
+    }
+  }
+}

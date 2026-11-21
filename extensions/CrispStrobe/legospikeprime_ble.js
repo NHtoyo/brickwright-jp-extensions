@@ -2675,14 +2675,13 @@
         log.info("Project transpiled successfully");
       } catch (error) {
         log.error("Transpilation failed:", error);
-        alert(`Transpilation failed: ${error.message}`);
+        throw error;
       }
     }
 
     showCode() {
       if (!this._generatedCode) {
-        alert(t("noCodeGenerated"));
-        return;
+        throw new Error(t("noCodeGenerated"));
       }
 
       const modal = document.createElement("div");
@@ -2747,8 +2746,7 @@
 
     downloadCode() {
       if (!this._generatedCode) {
-        alert(t("generateFirst"));
-        return;
+        throw new Error(t("generateFirst"));
       }
 
       const blob = new Blob([this._generatedCode], { type: "text/plain" });
@@ -2760,8 +2758,6 @@
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-
-      alert(t("downloaded") + " spike_program.py");
     }
 
     // ========================================================================
