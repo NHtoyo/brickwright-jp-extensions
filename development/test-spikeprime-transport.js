@@ -873,9 +873,8 @@ function attachFakeControllerHub(
         const upload = controller.currentUpload;
         if (
           message.length !== 3 ||
-          !upload ||
           ![0, 1].includes(message[1]) ||
-          message[2] !== upload.slot
+          message[2] > 19
         ) {
           status(0x1f, false);
           break;
@@ -912,20 +911,32 @@ function attachFakeControllerHub(
           status(0x1f, false);
           break;
         }
-        const program = Buffer.concat(upload.chunks);
-        if (crc32Aligned(program) !== upload.expectedCrc) {
+        const isCurrentUpload = upload && upload.slot === message[2];
+        const program = isCurrentUpload
+          ? Buffer.concat(upload.chunks)
+          : slots.get(message[2]);
+        if (
+          !program ||
+          (isCurrentUpload && crc32Aligned(program) !== upload.expectedCrc)
+        ) {
           status(0x1f, false);
           break;
         }
         const sourceText = program.toString("utf8");
-        assert.match(sourceText, /hub\.config\["module_tunnel"\]/);
-        assert.match(sourceText, /def _receive\(data\)/);
-        assert.match(sourceText, /motor\.run_for_degrees/);
-        assert.match(sourceText, /light_matrix\.set_pixel/);
-        assert.match(sourceText, /sound\.beep/);
-        assert.doesNotMatch(sourceText, /\b(?:eval|exec)\s*\(/);
-        slots.set(upload.slot, program);
+        const isControllerProgram = sourceText.includes(
+          "BWCTRL:boot:tunnel-callback-registered"
+        );
+        if (isCurrentUpload) {
+          assert.match(sourceText, /hub\.config\["module_tunnel"\]/);
+          assert.match(sourceText, /def _receive\(data\)/);
+          assert.match(sourceText, /motor\.run_for_degrees/);
+          assert.match(sourceText, /light_matrix\.set_pixel/);
+          assert.match(sourceText, /sound\.beep/);
+          assert.doesNotMatch(sourceText, /\b(?:eval|exec)\s*\(/);
+          slots.set(upload.slot, program);
+        }
         controller.running = true;
+        controller.programSource = sourceText;
         controller.startCount++;
         status(0x1f, true);
         if (disconnectAfterProgramFlowResponse) {
@@ -942,7 +953,7 @@ function attachFakeControllerHub(
         if (!suppressStartNotification) {
           const notifyStarted = () => {
             emit(Uint8Array.from([0x20, 0]));
-            if (!suppressReadyMarker) {
+            if (!suppressReadyMarker && isControllerProgram) {
               emit(
                 Uint8Array.from([
                   0x21,
@@ -1637,7 +1648,7 @@ test("sensor-only Prime sessions never tunnel hello or stop commands", async () 
 
   await assert.rejects(
     state.ext.motorStart({ PORT: "A", DIRECTION: 1 }),
-    /hub remains connected|ハブの接続は維持されています/i
+    (error) => error.code === "ERR_CONTROLLER_SLOT_NOT_REGISTERED"
   );
   const stopResult = await state.ext._peripheral.stopAll();
   assert.equal(stopResult.stopped, false);
@@ -1740,7 +1751,7 @@ test("SPIKE 3.x verifies before output and never auto-starts an unknown controll
   const writesBefore = state.device.writes.length;
   await assert.rejects(
     state.ext.motorStart({ PORT: "A", DIRECTION: 1 }),
-    /hub remains connected|ハブの接続は維持されています/i
+    (error) => error.code === "ERR_CONTROLLER_SLOT_NOT_REGISTERED"
   );
   const commandMessages = unpackWrittenMessages(
     state.device.writes.slice(writesBefore)
@@ -2145,7 +2156,7 @@ test("first intentional controller command verifies an already-running controlle
 });
 
 test("a command without a registered controller slot does not start any slot", async () => {
-  const state = setup();
+  const state = setup({ locale: "ja" });
   await connect(state);
   const fakeHub = attachFakeControllerHub(state);
   fakeHub.running = false;
@@ -2160,11 +2171,11 @@ test("a command without a registered controller slot does not start any slot", a
     });
   await assert.rejects(
     runFor(),
-    /controller has not been verified|制御プログラム/i
+    (error) => error.code === "ERR_CONTROLLER_SLOT_NOT_REGISTERED"
   );
   await assert.rejects(
     runFor(),
-    /controller has not been verified|制御プログラム/i
+    (error) => error.code === "ERR_CONTROLLER_SLOT_NOT_REGISTERED"
   );
 
   assert.equal(fakeHub.helloCount, 0);
@@ -2196,10 +2207,16 @@ test("a command without a registered controller slot does not start any slot", a
   );
   assert.equal(
     diagnostics.recentEvents.filter(
-      (event) => event.type === "controller-hello-not-sent"
+      (event) =>
+        event.type === "controller-start-skipped" &&
+        event.reason === "no-controller-slot-registered-for-this-hub"
     ).length,
     1,
-    "repeated Scratch loop commands do not flood the same no-evidence diagnostic"
+    "repeated Scratch commands do not flood the no-slot diagnostic"
+  );
+  assert.equal(
+    diagnostics.lastCommunicationError,
+    "このハブにはBrickwright制御プログラムの保存先が登録されていません。ハブの詳細でBrickwrightが入っているスロットを選び、「制御スロットを登録」を実行してください。"
   );
 });
 
@@ -2683,6 +2700,153 @@ test("saved-controller start rejects missing or mismatched slots without writing
   assert.equal(hub._controllerReady, false);
 });
 
+test("explicit controller-slot recovery registers only after a fresh start and hello", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  const api = state.runtime.brickwrightSpikePrimeControl;
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  await api.installController(6);
+  const installedBytes = Buffer.from(fakeHub.slots.get(6));
+  const deviceId = state.ext._controllerDeviceId();
+  assert.equal(state.ext._removeControllerSlotForDevice(deviceId), true);
+
+  state.ext.disconnectHub();
+  fakeHub.running = false;
+  state.device.autoInfoResponse = true;
+  assert.equal((await api.connect()).controllerSlot, null);
+  const writesBeforeRecovery = state.device.writes.length;
+  const startsBeforeRecovery = fakeHub.startCount;
+
+  const result = await api.recoverControllerSlot(6);
+
+  assert.equal(result.version, 1);
+  assert.equal(result.registeredSlot, 6);
+  assert.equal(fakeHub.startCount, startsBeforeRecovery + 1);
+  assert.equal(api.getState().controllerSlot, 6);
+  assert.equal(api.getState().controllerReady, true);
+  assert.deepEqual(fakeHub.slots.get(6), installedBytes);
+  const messages = unpackWrittenMessages(
+    state.device.writes.slice(writesBeforeRecovery)
+  );
+  const startIndex = messages.findIndex(
+    ([type, action]) => type === 0x1e && action === 0
+  );
+  const helloIndex = messages.findIndex(([type]) => type === 0x32);
+  assert.ok(startIndex >= 0);
+  assert.ok(helloIndex > startIndex);
+  assert.equal(
+    messages.some(([type]) => [0x0c, 0x10, 0x46].includes(type)),
+    false,
+    "recovery never uploads or clears the selected slot"
+  );
+});
+
+test("controller-slot recovery does not register unrelated program contents or failed hello", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  const api = state.runtime.brickwrightSpikePrimeControl;
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  fakeHub.slots.set(8, Buffer.from("unrelated user program"));
+  const writesBefore = state.device.writes.length;
+
+  const recovery = api.recoverControllerSlot(8);
+  await waitUntil(
+    () =>
+      unpackWrittenMessages(state.device.writes.slice(writesBefore)).some(
+        ([type, action, slot]) => type === 0x1e && action === 0 && slot === 8
+      ),
+    "recovery should start only the explicitly selected slot"
+  );
+  state.clock.advance(5000);
+  await assert.rejects(
+    recovery,
+    (error) => error.code === "ERR_CONTROLLER_BOOT_EVIDENCE_TIMEOUT"
+  );
+  assert.equal(api.getState().controllerSlot, null);
+  assert.equal(fakeHub.helloCount, 0);
+  assert.equal(
+    unpackWrittenMessages(state.device.writes.slice(writesBefore)).some(
+      ([type]) => [0x0c, 0x10, 0x46].includes(type)
+    ),
+    false
+  );
+
+  const installState = setup();
+  await connect(installState);
+  const controller = attachFakeControllerHub(installState);
+  const installApi = installState.runtime.brickwrightSpikePrimeControl;
+  installState.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+  await installApi.installController(5);
+  const controllerDeviceId = installState.ext._controllerDeviceId();
+  installState.ext._removeControllerSlotForDevice(controllerDeviceId);
+  installState.ext.disconnectHub();
+  controller.running = false;
+  installState.device.autoInfoResponse = true;
+  await installApi.connect();
+  controller.failHello = true;
+  const recoveryWritesBefore = installState.device.writes.length;
+  await assert.rejects(
+    installApi.recoverControllerSlot(5),
+    /simulated hello failure/
+  );
+  assert.equal(installApi.getState().controllerSlot, null);
+  assert.equal(controller.running, true);
+  assert.equal(
+    unpackWrittenMessages(
+      installState.device.writes.slice(recoveryWritesBefore)
+    ).some(([type]) => [0x0c, 0x10, 0x46].includes(type)),
+    false,
+    "a failed hello does not clear or retransmit the selected program"
+  );
+});
+
+test("controller-slot recovery rejects invalid identity and a known different running slot", async () => {
+  const state = setup();
+  await connect(state);
+  attachFakeControllerHub(state);
+  const api = state.runtime.brickwrightSpikePrimeControl;
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  const writesBefore = state.device.writes.length;
+
+  await assert.rejects(
+    api.recoverControllerSlot(20),
+    /Controller slot must be from 0 to 19/
+  );
+  const deviceId = state.ext._controllerDeviceId();
+  hub._runningControllerSlot = 4;
+  hub._runningControllerSession = hub._connectionSession;
+  await assert.rejects(
+    api.recoverControllerSlot(5),
+    (error) => error.code === "ERR_CONTROLLER_DIFFERENT_PROGRAM_RUNNING"
+  );
+  assert.equal(state.device.writes.length, writesBefore);
+  assert.equal(state.ext._readControllerSlotForDevice(deviceId), null);
+
+  state.ext._writeControllerSlot(4, deviceId);
+  hub._link._device.id = "different-hub-identity";
+  await assert.rejects(
+    api.startSavedController(4),
+    /No Brickwright controller slot/
+  );
+  assert.equal(state.device.writes.length, writesBefore);
+
+  hub._link._device.id = deviceId;
+  state.ext._removeControllerSlotForDevice(deviceId);
+  hub._runningControllerSlot = null;
+  hub._runningControllerSession = null;
+  hub._link._device.id = null;
+  await assert.rejects(
+    api.recoverControllerSlot(5),
+    (error) => error.code === "ERR_CONTROLLER_HUB_IDENTITY_REQUIRED"
+  );
+  assert.equal(state.device.writes.length, writesBefore);
+});
+
 test("control center installs to slot 0 by default without a migration", async () => {
   const state = setup();
   await connect(state);
@@ -3098,6 +3262,26 @@ test("transpilation errors reject instead of being swallowed after console loggi
     /simulated transpilation failure/
   );
   assert.deepEqual(state.alertCalls, []);
+});
+
+test("standalone value conversion reports the unsupported opcode structurally", () => {
+  const state = setup();
+  assert.throws(
+    () =>
+      state.ext._transpiler.evaluateBlock(
+        { opcode: "extension_unknown_value", fields: {}, inputs: {} },
+        { _blocks: {} }
+      ),
+    (error) => {
+      assert.match(
+        error.message,
+        /Unsupported value block in SPIKE Python conversion: extension_unknown_value/
+      );
+      assert.equal(error.code, "ERR_SPIKE_STANDALONE_UNSUPPORTED_VALUE");
+      assert.equal(error.opcode, "extension_unknown_value");
+      return true;
+    }
+  );
 });
 
 test("startup probe block and menu are hidden unless developer mode is opted in", () => {

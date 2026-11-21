@@ -160,6 +160,8 @@
       operationFailed: "SPIKE operation failed: {0}",
       controllerNotReady:
         "Install and start the Brickwright SPIKE controller first.",
+      controllerSlotNotRegistered:
+        "No Brickwright controller slot is registered for this hub. In Hub details, select the slot containing Brickwright and choose Register controller slot.",
       controllerBootEvidenceRequired:
         "The hub remains connected, but the controller has not been verified in this connection. In Hub details, choose Start saved controller; use Install only for first setup.",
       controllerBootEvidenceTimeout:
@@ -553,6 +555,8 @@
       operationFailed: "SPIKEの操作に失敗しました: {0}",
       controllerNotReady:
         "先にBrickwright SPIKE制御プログラムを転送して起動してください。",
+      controllerSlotNotRegistered:
+        "このハブにはBrickwright制御プログラムの保存先が登録されていません。ハブの詳細でBrickwrightが入っているスロットを選び、「制御スロットを登録」を実行してください。",
       controllerBootEvidenceRequired:
         "ハブの接続は維持されていますが、この接続中に制御プログラムの起動を確認できていません。ハブの詳細から「保存済み制御プログラムを起動」を選んでください。初回のみ「インストール」を使います。",
       controllerBootEvidenceTimeout:
@@ -5861,6 +5865,16 @@ continuous_sensor_loop()
           "no-controller-slot-registered-for-this-hub",
           null
         );
+        if (!this._getCurrentControllerBootEvidence()) {
+          const error = Object.assign(
+            new Error(t("controllerSlotNotRegistered")),
+            { code: "ERR_CONTROLLER_SLOT_NOT_REGISTERED" }
+          );
+          this._diagnostics.controllerCommandPreparation.outcome = "rejected";
+          this._diagnostics.controllerCommandPreparation.errorCode = error.code;
+          this._diagnostics.lastCommunicationError = error.message;
+          return Promise.reject(error);
+        }
         return null;
       }
       const currentSessionProgramSlot =
@@ -15075,8 +15089,14 @@ continuous_sensor_loop()
         return mathOps[operator] || `${num}`;
       }
 
-      throw new Error(
-        `Unsupported value block in SPIKE Python conversion: ${block.opcode}`
+      throw Object.assign(
+        new Error(
+          `Unsupported value block in SPIKE Python conversion: ${block.opcode}`
+        ),
+        {
+          code: "ERR_SPIKE_STANDALONE_UNSUPPORTED_VALUE",
+          opcode: block.opcode,
+        }
       );
     }
 
@@ -15235,6 +15255,8 @@ continuous_sensor_loop()
         verifyController: () => this.verifyControllerFromControlCenter(),
         startSavedController: (slot) =>
           this.startSavedControllerFromControlCenter(slot),
+        recoverControllerSlot: (slot) =>
+          this.recoverControllerSlotFromControlCenter(slot),
         setMode: (mode) => this._peripheral.setMode(mode),
         setHubModel: (model) => this._peripheral.setHubModel(model),
         installController: (slot, options) =>
@@ -15371,6 +15393,21 @@ continuous_sensor_loop()
     }
 
     startSavedControllerFromControlCenter(slot) {
+      return this._startControllerFromControlCenter(slot, {
+        recoverUnregisteredSlot: false,
+      });
+    }
+
+    recoverControllerSlotFromControlCenter(slot) {
+      return this._startControllerFromControlCenter(slot, {
+        recoverUnregisteredSlot: true,
+      });
+    }
+
+    _startControllerFromControlCenter(
+      slot,
+      { recoverUnregisteredSlot = false } = {}
+    ) {
       if (!Number.isInteger(slot) || slot < 0 || slot > 19) {
         return Promise.reject(
           new Error("Controller slot must be from 0 to 19")
@@ -15386,13 +15423,22 @@ continuous_sensor_loop()
 
       const link = hub._link;
       const deviceId = this._controllerDeviceId(link);
+      if (!deviceId) {
+        return Promise.reject(
+          Object.assign(
+            new Error("Cannot verify a controller slot without hub identity"),
+            { code: "ERR_CONTROLLER_HUB_IDENTITY_REQUIRED" }
+          )
+        );
+      }
       const savedSlot = this._readControllerSlotForDevice(deviceId);
-      if (savedSlot === null) {
+      const recoveryPending = recoverUnregisteredSlot && savedSlot === null;
+      if (savedSlot === null && !recoverUnregisteredSlot) {
         return Promise.reject(
           new Error("No Brickwright controller slot is saved for this hub")
         );
       }
-      if (slot !== savedSlot) {
+      if (savedSlot !== null && slot !== savedSlot) {
         return Promise.reject(
           new Error(
             `Slot ${slot} is not the saved Brickwright controller slot for this hub`
@@ -15409,7 +15455,8 @@ continuous_sensor_loop()
           existing.hub === hub &&
           existing.link === link &&
           existing.sessionId === sessionId &&
-          existing.slot === slot
+          existing.slot === slot &&
+          existing.recoverUnregisteredSlot === recoveryPending
         ) {
           return existing.promise;
         }
@@ -15421,7 +15468,14 @@ continuous_sensor_loop()
         );
       }
 
-      const operation = { hub, link, sessionId, slot, promise: null };
+      const operation = {
+        hub,
+        link,
+        sessionId,
+        slot,
+        recoverUnregisteredSlot: recoveryPending,
+        promise: null,
+      };
       const assertSession = () => {
         if (
           this._peripheral.active !== hub ||
@@ -15440,9 +15494,12 @@ continuous_sensor_loop()
         ) {
           throw hub._controllerCommandCancelledError();
         }
-        if (this._readControllerSlotForDevice(deviceId) !== slot) {
+        if (
+          this._readControllerSlotForDevice(deviceId) !== savedSlot ||
+          (savedSlot === null && !recoveryPending)
+        ) {
           throw Object.assign(
-            new Error("The saved Brickwright controller slot changed"),
+            new Error("The Brickwright controller slot registration changed"),
             { code: "ERR_CONTROLLER_SAVED_SLOT_CHANGED" }
           );
         }
@@ -15481,29 +15538,108 @@ continuous_sensor_loop()
         }
         assertCurrent();
 
+        const sessionProgramSlot =
+          hub._runningControllerSession === sessionId
+            ? hub._runningControllerSlot
+            : null;
+        const pendingProgramSlot =
+          hub._pendingProgramFlowStart?.sessionId === sessionId
+            ? hub._pendingProgramFlowStart.slot
+            : null;
+        const knownProgramSlot = sessionProgramSlot ?? pendingProgramSlot;
+        if (Number.isInteger(knownProgramSlot) && knownProgramSlot !== slot) {
+          throw Object.assign(
+            new Error(
+              `A different program is already running in slot ${knownProgramSlot}`
+            ),
+            { code: "ERR_CONTROLLER_DIFFERENT_PROGRAM_RUNNING" }
+          );
+        }
+        if (pendingProgramSlot !== null) {
+          throw Object.assign(
+            new Error("A SPIKE program start is already in progress"),
+            { code: "ERR_CONTROLLER_START_ALREADY_IN_PROGRESS" }
+          );
+        }
+
         if (hub._controllerReady) {
-          return {
+          if (
+            recoveryPending &&
+            (hub._runningControllerSession !== sessionId ||
+              hub._runningControllerSlot !== slot)
+          ) {
+            throw Object.assign(
+              new Error(
+                "The ready controller cannot be attributed to the selected slot in this connection"
+              ),
+              { code: "ERR_CONTROLLER_SLOT_ATTRIBUTION_REQUIRED" }
+            );
+          }
+          const result = {
             slot,
             alreadyRunning: true,
             protocol: "brickwright-spike-controller",
             version: 1,
           };
+          return this._completeControllerSlotRecovery({
+            result,
+            hub,
+            slot,
+            deviceId,
+            sessionId,
+            link,
+            recoverUnregisteredSlot: recoveryPending,
+            assertCurrent,
+          });
         }
 
         const bootEvidence = hub._getCurrentControllerBootEvidence();
         if (bootEvidence) {
+          if (
+            recoveryPending &&
+            (hub._runningControllerSession !== sessionId ||
+              hub._runningControllerSlot !== slot)
+          ) {
+            throw Object.assign(
+              new Error(
+                "Current controller boot evidence is not attributed to the selected slot"
+              ),
+              { code: "ERR_CONTROLLER_SLOT_ATTRIBUTION_REQUIRED" }
+            );
+          }
           const verified = await hub.probeController(bootEvidence);
           assertCurrent();
           hub._recordDiagnosticEvent("saved-controller-already-running", {
             slot,
             verificationAt: Date.now(),
           });
-          return { slot, alreadyRunning: true, ...verified };
+          const result = { slot, alreadyRunning: true, ...verified };
+          return this._completeControllerSlotRecovery({
+            result,
+            hub,
+            slot,
+            deviceId,
+            sessionId,
+            link,
+            recoverUnregisteredSlot: recoveryPending,
+            assertCurrent,
+          });
         }
 
         const startedAt = Date.now();
         const startResult = await hub.startProgramInSlot(slot);
         assertCurrent();
+        if (
+          hub._runningControllerSession !== sessionId ||
+          hub._runningControllerSlot !== slot
+        ) {
+          throw Object.assign(
+            new Error(
+              "The start notification could not be attributed to the selected controller slot"
+            ),
+            { code: "ERR_CONTROLLER_SLOT_ATTRIBUTION_REQUIRED" }
+          );
+        }
         const attempt = {
           slot,
           startedAt,
@@ -15516,7 +15652,29 @@ continuous_sensor_loop()
           attempt,
           assertCurrent
         );
-        return { ...startResult, ...handshake, slot };
+        assertCurrent();
+        if (
+          hub._runningControllerSession !== sessionId ||
+          hub._runningControllerSlot !== slot ||
+          !hub._controllerReady
+        ) {
+          throw Object.assign(
+            new Error(
+              "The selected slot did not remain the verified Brickwright controller"
+            ),
+            { code: "ERR_CONTROLLER_SLOT_ATTRIBUTION_REQUIRED" }
+          );
+        }
+        return this._completeControllerSlotRecovery({
+          result: { ...startResult, ...handshake, slot },
+          hub,
+          slot,
+          deviceId,
+          sessionId,
+          link,
+          recoverUnregisteredSlot: recoveryPending,
+          assertCurrent,
+        });
       };
 
       operation.promise = Promise.resolve().then(run);
@@ -15529,6 +15687,60 @@ continuous_sensor_loop()
         })
         .catch(() => {});
       return operation.promise;
+    }
+
+    _completeControllerSlotRecovery({
+      result,
+      hub,
+      slot,
+      deviceId,
+      sessionId,
+      link,
+      recoverUnregisteredSlot,
+      assertCurrent,
+    }) {
+      if (!recoverUnregisteredSlot) return result;
+      assertCurrent();
+      if (
+        this._peripheral.active !== hub ||
+        hub._link !== link ||
+        hub._connectionSession !== sessionId ||
+        hub._runningControllerSession !== sessionId ||
+        hub._runningControllerSlot !== slot ||
+        !hub._controllerReady
+      ) {
+        throw Object.assign(
+          new Error("The controller session changed before slot registration"),
+          { code: "ERR_CONTROLLER_SLOT_ATTRIBUTION_REQUIRED" }
+        );
+      }
+      if (this._readControllerSlotForDevice(deviceId) !== null) {
+        throw Object.assign(
+          new Error(
+            "A controller slot was registered while recovery was running"
+          ),
+          { code: "ERR_CONTROLLER_SAVED_SLOT_CHANGED" }
+        );
+      }
+      if (!this._writeControllerSlot(slot, deviceId)) {
+        throw Object.assign(
+          new Error(
+            "The verified controller slot could not be saved for this hub"
+          ),
+          { code: "ERR_CONTROLLER_SLOT_REGISTRATION_FAILED" }
+        );
+      }
+      if (this._readControllerSlotForDevice(deviceId) !== slot) {
+        throw Object.assign(
+          new Error("The verified controller slot could not be read back"),
+          { code: "ERR_CONTROLLER_SLOT_REGISTRATION_FAILED" }
+        );
+      }
+      hub._recordDiagnosticEvent("controller-slot-recovered", {
+        slot,
+        verifiedAt: Date.now(),
+      });
+      return { ...result, registeredSlot: slot };
     }
 
     async connectPeripheralFromControlCenter(peripheralId) {
