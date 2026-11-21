@@ -5809,7 +5809,7 @@ continuous_sensor_loop()
       }
     }
 
-    _startRegisteredControllerForScratchCommand(method) {
+    _prepareControllerForScratchCommand(method) {
       if (!SPIKE3_CONTROLLER_STARTABLE_COMMANDS.has(method)) return null;
       const runtime = this._runtime;
       const router = runtime?.peripheralExtensions?.spikeprime;
@@ -5819,19 +5819,31 @@ continuous_sensor_loop()
           method,
           "scratch-router-does-not-own-active-hub"
         );
-        return null;
+        return Promise.reject(
+          Object.assign(
+            new Error("The active Scratch SPIKE router does not own this hub"),
+            { code: "ERR_CONTROLLER_AUTO_PREPARATION_UNAVAILABLE" }
+          )
+        );
       }
       if (
         api?.extensionId !== "spikeprime" ||
         api?.hubRouterId !== router.instanceId ||
-        typeof api.startSavedController !== "function" ||
+        typeof api.prepareInternalController !== "function" ||
         typeof api.getState !== "function"
       ) {
         this._recordControllerStartSkipped(
           method,
-          "registered-control-api-unavailable-or-mismatched"
+          "registered-controller-preparation-api-unavailable-or-mismatched"
         );
-        return null;
+        return Promise.reject(
+          Object.assign(
+            new Error(
+              "Automatic Brickwright controller preparation is unavailable"
+            ),
+            { code: "ERR_CONTROLLER_AUTO_PREPARATION_UNAVAILABLE" }
+          )
+        );
       }
       let state;
       try {
@@ -5841,7 +5853,7 @@ continuous_sensor_loop()
           method,
           "registered-control-state-unavailable"
         );
-        return null;
+        return Promise.reject(error);
       }
       if (
         state.connected !== true ||
@@ -5853,63 +5865,25 @@ continuous_sensor_loop()
           method,
           "active-hub-is-not-connected-prime-standalone"
         );
-        return null;
-      }
-      if (
-        !Number.isInteger(state.controllerSlot) ||
-        state.controllerSlot < 0 ||
-        state.controllerSlot > 19
-      ) {
-        this._recordControllerStartSkipped(
-          method,
-          "no-controller-slot-registered-for-this-hub",
-          null
+        return Promise.reject(
+          Object.assign(
+            new Error(
+              "Automatic Brickwright controller preparation requires a connected SPIKE Prime hub"
+            ),
+            { code: "ERR_CONTROLLER_AUTO_PREPARATION_UNAVAILABLE" }
+          )
         );
-        if (!this._getCurrentControllerBootEvidence()) {
-          const error = Object.assign(
-            new Error(t("controllerSlotNotRegistered")),
-            { code: "ERR_CONTROLLER_SLOT_NOT_REGISTERED" }
-          );
-          this._diagnostics.controllerCommandPreparation.outcome = "rejected";
-          this._diagnostics.controllerCommandPreparation.errorCode = error.code;
-          this._diagnostics.lastCommunicationError = error.message;
-          return Promise.reject(error);
-        }
-        return null;
       }
-      const currentSessionProgramSlot =
-        this._runningControllerSession === this._connectionSession
-          ? this._runningControllerSlot
-          : this._pendingProgramFlowStart?.sessionId === this._connectionSession
-            ? this._pendingProgramFlowStart.slot
-            : null;
-      if (
-        Number.isInteger(currentSessionProgramSlot) &&
-        currentSessionProgramSlot !== state.controllerSlot
-      ) {
-        // Do not interrupt a known standalone program to make room for the
-        // Brickwright controller. The normal readiness check below will
-        // explain why this Scratch command cannot use the controller.
-        this._recordControllerStartSkipped(
-          method,
-          "different-program-already-running",
-          state.controllerSlot
-        );
-        return null;
-      }
-      // startSavedController revalidates the slot against this physical hub's
-      // identity and performs only ProgramFlow start + marker + hello. It does
-      // not clear or upload a slot.
       this._diagnostics.controllerCommandPreparation = {
         timestamp: Date.now(),
         sessionId: this._connectionSession,
         commandName: method,
-        outcome: "starting-saved-controller",
-        reason: "registered-controller-slot",
-        controllerSlot: state.controllerSlot,
+        outcome: "preparing-internal-controller",
+        reason: "fixed-internal-slot",
+        controllerSlot: 0,
         hubIdentityAvailable: Boolean(this._link?._device?.id),
       };
-      return api.startSavedController(state.controllerSlot);
+      return api.prepareInternalController("scratch-command");
     }
 
     _sendCommand(method, params) {
@@ -5925,7 +5899,14 @@ continuous_sensor_loop()
       ) {
         return Promise.reject(this._controllerCommandCancelledError());
       }
-      if (!this._controllerReady) {
+      const runningInInternalSlot =
+        this._runningControllerSession === this._connectionSession &&
+        this._runningControllerSlot === 0;
+      if (
+        !this._controllerReady ||
+        (SPIKE3_CONTROLLER_STARTABLE_COMMANDS.has(method) &&
+          !runningInInternalSlot)
+      ) {
         const link = this._link;
         const sessionId = this._connectionSession;
         const installGeneration = this._controllerInstallGeneration;
@@ -5949,8 +5930,7 @@ continuous_sensor_loop()
           if (this._controllerStopping && this._controllerStopPromise) {
             throw this._controllerCommandCancelledError();
           }
-          const savedStart =
-            this._startRegisteredControllerForScratchCommand(method);
+          const savedStart = this._prepareControllerForScratchCommand(method);
           if (savedStart) return savedStart;
           return this.ensureControllerReady();
         };
@@ -15153,6 +15133,7 @@ continuous_sensor_loop()
       this._transpiler = new SpikeTranspiler();
       this._sessionProgramSlots = new Map();
       this._savedControllerStartOperation = null;
+      this._internalControllerPreparation = null;
       // The editor's SPIKE control center reads this narrow API instead of
       // reaching into the peripheral transport. It is intentionally read-only
       // except for explicit user actions (connect, install, stop, offline run).
@@ -15247,6 +15228,8 @@ continuous_sensor_loop()
         getState: () => this.getControlCenterState(),
         getSupportedBlockOpcodes: (model) =>
           this.getSupportedBlockOpcodes(model),
+        prepareInternalController: (source) =>
+          this.prepareInternalControllerForScratch(source),
         supports: (capability) => this._peripheral.supports(capability),
         connect: (mode) => this.connectHubFromControlCenter(mode),
         connectPeripheral: (peripheralId) =>
@@ -15377,6 +15360,9 @@ continuous_sensor_loop()
         if (this._peripheral.active !== hub || !hub.isConnected()) {
           throw hub._notConnectedError();
         }
+        if (this._peripheral.effectiveHubModel === "prime") {
+          await this.prepareInternalControllerForScratch("connection");
+        }
       }
       return this.getControlCenterState();
     }
@@ -15390,6 +15376,226 @@ continuous_sensor_loop()
         throw new Error(t("controllerUnsupported"));
       }
       return hub.ensureControllerReady(true);
+    }
+
+    prepareInternalControllerForScratch(source = "scratch-command") {
+      const hub = this._peripheral.active;
+      if (!hub || !this._peripheral.isConnected()) {
+        return Promise.reject(new Error(t("notConnected")));
+      }
+      if (
+        this._peripheral._activeProtocol !== "spike3" ||
+        this._peripheral.effectiveHubModel !== "prime" ||
+        hub.standaloneCapable !== true
+      ) {
+        return Promise.reject(new Error(t("controllerUnsupported")));
+      }
+
+      const link = hub._link;
+      const sessionId = hub._connectionSession;
+      const existing = this._internalControllerPreparation;
+      if (existing) {
+        if (
+          existing.hub === hub &&
+          existing.link === link &&
+          existing.sessionId === sessionId &&
+          !hub._controllerStopping
+        ) {
+          return existing.promise;
+        }
+        // A disconnected/replaced link cannot own the new session's work.
+        // Detach its promise; its captured link/session checks will prevent
+        // it from writing to this hub.
+        this._internalControllerPreparation = null;
+      }
+
+      const deviceId = this._controllerDeviceId(link);
+      const savedSlot = deviceId
+        ? this._readControllerSlotForDevice(deviceId)
+        : this._readControllerSlot();
+      const operation = { hub, link, sessionId, promise: null };
+      const assertCurrent = () => {
+        if (
+          this._peripheral.active !== hub ||
+          hub._link !== link ||
+          !hub.isConnected() ||
+          hub._connectionSession !== sessionId
+        ) {
+          throw Object.assign(
+            new Error("SPIKE hub changed during controller preparation"),
+            { code: "ERR_CONTROLLER_PREPARATION_CONNECTION_CHANGED" }
+          );
+        }
+      };
+      const run = async () => {
+        if (this._peripheral.active !== hub || !hub.isConnected()) {
+          throw hub._notConnectedError();
+        }
+        if (hub._pendingProjectStop && hub._projectStopPromise) {
+          await hub._projectStopPromise;
+        }
+        assertCurrent();
+        if (hub._controllerStopPromise) await hub._controllerStopPromise;
+        assertCurrent();
+
+        const runningSlot =
+          hub._runningControllerSession === sessionId
+            ? hub._runningControllerSlot
+            : null;
+        if (hub._controllerReady && runningSlot === 0) {
+          this._writeControllerSlot(0, deviceId || undefined);
+          hub._recordDiagnosticEvent("internal-controller-reused", {
+            slot: 0,
+            source,
+            version: hub._controllerVersion,
+          });
+          return {
+            slot: 0,
+            alreadyRunning: true,
+            protocol: "brickwright-spike-controller",
+            version: 1,
+          };
+        }
+
+        // A confirmed red stop leaves the controller state in `stopped` and
+        // the generation gate closed. Reopen it only after the stop was
+        // confirmed; a partial/unknown stop must never be treated as ready.
+        if (hub._controllerStopping) {
+          if (
+            hub._diagnostics.controllerStatus !== "stopped" ||
+            hub._diagnostics.lastStopAttempt?.outcome !== "success"
+          ) {
+            throw Object.assign(
+              new Error("The previous SPIKE stop was not confirmed"),
+              { code: "ERR_CONTROLLER_PREVIOUS_STOP_UNCONFIRMED" }
+            );
+          }
+          hub._controllerCommandGeneration++;
+          hub._controllerCommandQueue = Promise.resolve();
+          hub._controllerStopping = false;
+        }
+
+        if (savedSlot === 0 && runningSlot !== null && runningSlot !== 0) {
+          hub._recordDiagnosticEvent("internal-controller-slot-corrected", {
+            previousSlot: runningSlot,
+            slot: 0,
+            source,
+          });
+        }
+        if (savedSlot === 0 && (runningSlot === null || runningSlot === 0)) {
+          try {
+            const result = await this.startSavedControllerFromControlCenter(0);
+            assertCurrent();
+            if (!hub._controllerReady) {
+              throw Object.assign(new Error(t("controllerNotReady")), {
+                code: "ERR_CONTROLLER_NOT_READY",
+              });
+            }
+            if (
+              hub._runningControllerSession !== sessionId ||
+              !Number.isInteger(hub._runningControllerSlot)
+            ) {
+              // The saved slot identity and a successful controller hello
+              // identify this as the internal program even if it was already
+              // running before this BLE session observed its start event.
+              hub._runningControllerSession = sessionId;
+              hub._runningControllerSlot = 0;
+            }
+            return result;
+          } catch (error) {
+            assertCurrent();
+            if (
+              hub._controllerStopping ||
+              error?.code === "ERR_CONTROLLER_COMMAND_CANCELLED_BY_STOP" ||
+              error?.code === "ERR_CONTROLLER_INSTALL_CANCELLED_BY_STOP" ||
+              error?.code === "ERR_CONTROLLER_PREVIOUS_STOP_UNCONFIRMED" ||
+              error?.code === "ERR_SPIKE_STOP_NOT_CONFIRMED"
+            ) {
+              throw error;
+            }
+            hub._recordDiagnosticEvent("internal-controller-reinstall-needed", {
+              slot: 0,
+              source,
+              reason: error?.code || error?.message || String(error),
+            });
+          }
+        }
+
+        assertCurrent();
+        // Slot zero is Brickwright's fixed internal slot. Its replacement is
+        // user-authorized. The installer stops an identified running program
+        // first, clears only slot zero, then requires start notification and
+        // hello before this promise resolves. Other slots are never cleared.
+        const result = await this.installControllerFromControlCenter(0);
+        assertCurrent();
+        if (!hub._controllerReady || hub._runningControllerSlot !== 0) {
+          throw Object.assign(new Error(t("controllerNotReady")), {
+            code: "ERR_CONTROLLER_NOT_READY",
+          });
+        }
+        return result;
+      };
+
+      operation.promise = Promise.resolve()
+        .then(() => {
+          hub._diagnostics.controllerCommandPreparation = {
+            timestamp: Date.now(),
+            sessionId,
+            commandName: source,
+            outcome: "preparing",
+            reason: "fixed-internal-slot",
+            controllerSlot: 0,
+            hubIdentityAvailable: Boolean(deviceId),
+          };
+          return run();
+        })
+        .then((result) => {
+          if (
+            hub._diagnostics.controllerCommandPreparation?.sessionId ===
+            sessionId
+          ) {
+            hub._diagnostics.controllerCommandPreparation.outcome = "ready";
+            hub._diagnostics.controllerCommandPreparation.finishedAt =
+              Date.now();
+          }
+          return result;
+        })
+        .catch((error) => {
+          if (this._peripheral.active === hub) {
+            if (
+              hub._diagnostics.controllerCommandPreparation?.sessionId ===
+              sessionId
+            ) {
+              hub._diagnostics.controllerCommandPreparation.outcome =
+                "rejected";
+              hub._diagnostics.controllerCommandPreparation.errorCode =
+                error?.code || null;
+            }
+            hub._diagnostics.controllerStatus = hub.isConnected()
+              ? error?.code === "ERR_CONTROLLER_PREVIOUS_STOP_UNCONFIRMED"
+                ? "stop-unconfirmed"
+                : "error"
+              : "disconnected";
+            hub._recordDiagnosticEvent(
+              "internal-controller-preparation-failed",
+              {
+                slot: 0,
+                source,
+                code: error?.code || null,
+                message: error?.message || String(error),
+              }
+            );
+            hub._recordCommunicationError(error);
+          }
+          throw error;
+        })
+        .finally(() => {
+          if (this._internalControllerPreparation === operation) {
+            this._internalControllerPreparation = null;
+          }
+        });
+      this._internalControllerPreparation = operation;
+      return operation.promise;
     }
 
     startSavedControllerFromControlCenter(slot) {
@@ -15763,6 +15969,9 @@ continuous_sensor_loop()
         await hub._waitForInfoResponse();
         if (this._peripheral.active !== hub || !hub.isConnected()) {
           throw hub._notConnectedError();
+        }
+        if (this._peripheral.effectiveHubModel === "prime") {
+          await this.prepareInternalControllerForScratch("connection");
         }
       }
       // Keep this parameter read so that accidental use of a different VM
@@ -16171,6 +16380,7 @@ continuous_sensor_loop()
             opcode: "installHubController",
             blockType: BlockType.COMMAND,
             text: t("installHubController"),
+            hideFromPalette: true,
             arguments: {
               SLOT: {
                 type: ArgumentType.NUMBER,
@@ -16182,6 +16392,7 @@ continuous_sensor_loop()
             opcode: "checkHubController",
             blockType: BlockType.COMMAND,
             text: t("checkHubController"),
+            hideFromPalette: true,
           },
           {
             opcode: "setConnectionMode",
@@ -19268,14 +19479,42 @@ continuous_sensor_loop()
         });
     }
 
+    async _prepareControllerAfterScratchConnection(result) {
+      const hub = this._peripheral.active;
+      if (
+        hub &&
+        this._peripheral.isConnected() &&
+        this._peripheral._activeProtocol === "spike3"
+      ) {
+        await hub._waitForInfoResponse();
+        if (
+          this._peripheral.active === hub &&
+          this._peripheral.effectiveHubModel === "prime"
+        ) {
+          await this.prepareInternalControllerForScratch(
+            "scratch-connect-block"
+          );
+        }
+      }
+      return result;
+    }
+
     connectHub() {
-      return this._peripheral.scan();
+      return this._peripheral
+        .scan()
+        .then((result) =>
+          this._prepareControllerAfterScratchConnection(result)
+        );
     }
 
     connectHubAt(args) {
       this._peripheral.setBridgeURL(Cast.toString(args.URL));
       this._peripheral.setMode("bridge");
-      return this._peripheral.scan();
+      return this._peripheral
+        .scan()
+        .then((result) =>
+          this._prepareControllerAfterScratchConnection(result)
+        );
     }
 
     disconnectHub() {

@@ -1631,43 +1631,53 @@ test("connection monitoring sends no tunnel or program-flow commands", async () 
   assert.equal(diagnostics.notificationTelemetry.validNotificationCount, 1);
 });
 
-test("sensor-only Prime sessions never tunnel hello or stop commands", async () => {
+test("control-center connection auto-prepares slot 0 before output and preserves telemetry", async () => {
   const state = setup();
   await connect(state);
   const fakeHub = attachFakeControllerHub(state);
-  fakeHub.running = true;
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  state.ext.disconnectHub();
+  state.device.autoInfoResponse = true;
+  const beforeConnect = state.device.writes.length;
+  const connectedState =
+    await state.runtime.brickwrightSpikePrimeControl.connect();
+  assert.equal(connectedState.controllerReady, true);
+  assert.equal(connectedState.controllerSlot, 0);
+  assert.equal(fakeHub.startCount, 1);
+  assert.equal(fakeHub.helloCount, 1);
+  assert.equal(fakeHub.running, true);
+  const connectionMessages = unpackWrittenMessages(
+    state.device.writes.slice(beforeConnect)
+  );
+  assert.ok(
+    connectionMessages.some(([type, slot]) => type === 0x46 && slot === 0)
+  );
+  assert.ok(connectionMessages.some(([type]) => type === 0x1e));
+  assert.ok(connectionMessages.some(([type]) => type === 0x32));
+
   state.device.tx.emit(packMessage(notification(imuRecord({ pitch: 800 }))));
-
-  const writesBeforeVerify = state.device.writes.length;
-  await assert.rejects(
-    state.runtime.brickwrightSpikePrimeControl.verifyController(),
-    /hub remains connected|ハブの接続は維持されています/i
+  assert.equal(hub.angle.pitch, 80);
+  state.device.tx.emit(packMessage(notification(motorRecord({ port: 0 }))));
+  const startsBeforeOutput = fakeHub.startCount;
+  const writesBeforeOutput = state.device.writes.length;
+  await state.ext.motorStart({ PORT: "A", DIRECTION: 1 });
+  assert.equal(fakeHub.startCount, startsBeforeOutput);
+  assert.equal(fakeHub.helloCount, 1);
+  assert.ok(fakeHub.actions.some((action) => action.cmd === "motor.run"));
+  assert.equal(
+    state.runtime.brickwrightSpikePrimeControl.getState().controllerSlot,
+    0
   );
-  assert.equal(state.device.writes.length, writesBeforeVerify);
-  assert.equal(fakeHub.helloCount, 0);
-
-  await assert.rejects(
-    state.ext.motorStart({ PORT: "A", DIRECTION: 1 }),
-    (error) => error.code === "ERR_CONTROLLER_SLOT_NOT_REGISTERED"
-  );
-  const stopResult = await state.ext._peripheral.stopAll();
-  assert.equal(stopResult.stopped, false);
-  assert.equal(stopResult.outcome, "not-verified");
   assert.equal(state.ext.isConnected(), true);
 
-  const messages = unpackWrittenMessages(state.device.writes);
-  assert.equal(
-    messages.some(([type]) => type === 0x32),
-    false
+  const outputMessages = unpackWrittenMessages(
+    state.device.writes.slice(writesBeforeOutput)
   );
+  assert.ok(outputMessages.some(([type]) => type === 0x32));
   assert.equal(
-    messages.some(([type]) => type === 0x1e),
+    outputMessages.some(([type]) => type === 0x1e),
     false
-  );
-  assert.equal(
-    JSON.parse(state.ext.getCommunicationDiagnostics()).lastWrite
-      .controllerCommand,
-    undefined
   );
 });
 
@@ -1743,35 +1753,33 @@ test("a delayed hello response is discarded when ProgramFlow invalidates its boo
   assert.equal(fakeHub.helloCount, 1);
 });
 
-test("SPIKE 3.x verifies before output and never auto-starts an unknown controller slot", async () => {
+test("SPIKE 3.x auto-installs its fixed controller slot before output", async () => {
   const state = setup();
   await connect(state);
   const fakeHub = attachFakeControllerHub(state);
   state.device.tx.emit(packMessage([0x29, 0x00]));
+  state.device.tx.emit(packMessage(notification(motorRecord({ port: 0 }))));
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
   const writesBefore = state.device.writes.length;
-  await assert.rejects(
-    state.ext.motorStart({ PORT: "A", DIRECTION: 1 }),
-    (error) => error.code === "ERR_CONTROLLER_SLOT_NOT_REGISTERED"
-  );
+  await state.ext.motorStart({ PORT: "A", DIRECTION: 1 });
   const commandMessages = unpackWrittenMessages(
     state.device.writes.slice(writesBefore)
   );
-  assert.equal(
-    commandMessages.some(([type]) => type === 0x32),
-    false
+  assert.ok(
+    commandMessages.some(([type, slot]) => type === 0x46 && slot === 0)
   );
-  assert.equal(fakeHub.helloCount, 0, "stopped fake ignores hello execution");
-  assert.equal(fakeHub.receivedCommands.includes("controller.hello"), false);
-  assert.equal(fakeHub.startCount, 0);
+  assert.equal(fakeHub.helloCount, 1);
+  assert.equal(fakeHub.startCount, 1);
+  assert.equal(fakeHub.receivedCommands.includes("controller.hello"), true);
   assert.equal(
-    commandMessages.some(([type]) => [0x0c, 0x10, 0x1e, 0x46].includes(type)),
+    commandMessages.some(([type, slot]) => type === 0x46 && slot !== 0),
     false,
-    "an unverified controller slot is never started or changed"
+    "the command only replaces the fixed internal slot"
   );
   assert.equal(
     fakeHub.actions.some((action) => action.cmd === "motor.run"),
-    false,
-    "output waits for a successful hello"
+    true,
+    "motor output follows a verified hello"
   );
 });
 
@@ -1917,7 +1925,7 @@ test("SPIKE 3.x transport write errors propagate without starting Python fallbac
   await connect(state);
   const controller = attachFakeControllerHub(state);
   state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
-  await state.ext.installHubController({ SLOT: 19 });
+  await state.ext.installHubController({ SLOT: 0 });
   assert.equal(controller.running, true);
   state.device.tx.emit(packMessage([0x29, 0x00]));
   await tick();
@@ -2052,7 +2060,7 @@ test("controller installation is non-modal, CRC-checked, transferred, started, a
   );
 });
 
-test("control center reconnect does not probe or start a remembered controller slot", async () => {
+test("control center reconnect prepares fixed slot 0 and leaves the prior slot intact", async () => {
   const state = setup();
   await connect(state);
   const fakeHub = attachFakeControllerHub(state);
@@ -2073,24 +2081,17 @@ test("control center reconnect does not probe or start a remembered controller s
   await tick();
 
   assert.equal(connectedState.connected, true);
-  assert.equal(connectedState.controllerSlot, 19);
-  assert.equal(connectedState.controllerReady, false);
-  assert.equal(connectedState.controllerStatus, "not-verified");
-  assert.equal(
-    state.runtime.brickwrightSpikePrimeControl.getState().diagnostics
-      .controllerBootEvidence.status,
-    "not-observed",
-    "boot evidence from the previous connection is cleared"
-  );
+  assert.equal(connectedState.controllerSlot, 0);
+  assert.equal(connectedState.controllerReady, true);
   assert.equal(
     fakeHub.startCount,
-    1,
-    "a stored slot is not started during connection"
+    2,
+    "the fixed internal controller starts during the completed connection flow"
   );
   assert.equal(
     fakeHub.helloCount,
-    helloCountBeforeReconnect,
-    "connection does not probe the tunnel"
+    helloCountBeforeReconnect + 1,
+    "connection resolves only after a fresh hello response"
   );
 
   const reconnectMessages = unpackWrittenMessages(
@@ -2099,33 +2100,41 @@ test("control center reconnect does not probe or start a remembered controller s
   assert.ok(reconnectMessages.some(([type]) => type === 0x00));
   assert.ok(reconnectMessages.some(([type]) => type === 0x28));
   assert.equal(
-    reconnectMessages.some(([type]) =>
-      [0x0c, 0x10, 0x1e, 0x32, 0x46].includes(type)
-    ),
+    reconnectMessages.some(([type, slot]) => type === 0x46 && slot === 19),
     false,
-    "connection only requests device information and telemetry"
+    "automatic preparation never clears the prior slot"
   );
+  assert.ok(
+    reconnectMessages.some(([type, slot]) => type === 0x46 && slot === 0)
+  );
+  assert.equal(fakeHub.slots.has(19), true, "slot 19 program remains intact");
 });
 
-test("control center connects without controller or remembered slot side effects", async () => {
+test("control center connection automatically installs and verifies slot 0", async () => {
   const state = setup();
   state.device.autoInfoResponse = true;
+  const fakeHub = attachFakeControllerHub(state);
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
 
   const connectedState =
     await state.runtime.brickwrightSpikePrimeControl.connect();
   await tick();
 
   assert.equal(connectedState.connected, true);
-  assert.equal(connectedState.controllerSlot, null);
-  assert.equal(connectedState.controllerReady, false);
+  assert.equal(connectedState.controllerSlot, 0);
+  assert.equal(connectedState.controllerReady, true);
+  assert.equal(fakeHub.startCount, 1);
+  assert.equal(fakeHub.helloCount, 1);
   const messages = unpackWrittenMessages(state.device.writes);
   assert.ok(messages.some(([type]) => type === 0x00));
   assert.ok(messages.some(([type]) => type === 0x28));
   assert.equal(
-    messages.some(([type]) => [0x0c, 0x10, 0x1e, 0x32, 0x46].includes(type)),
-    false,
-    "a new hub connection does not upload, start, or message a controller"
+    messages.some(([type, slot]) => type === 0x46 && slot === 0),
+    true,
+    "first connection installs the fixed controller in slot 0"
   );
+  assert.ok(messages.some(([type]) => type === 0x1e));
+  assert.ok(messages.some(([type]) => type === 0x32));
 });
 
 test("first intentional controller command verifies an already-running controller", async () => {
@@ -2133,6 +2142,7 @@ test("first intentional controller command verifies an already-running controlle
   await connect(state);
   const fakeHub = attachFakeControllerHub(state);
   fakeHub.running = true;
+  state.ext._writeControllerSlot(0);
   emitControllerBootMarker(state);
   state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
 
@@ -2155,72 +2165,39 @@ test("first intentional controller command verifies an already-running controlle
   );
 });
 
-test("a command without a registered controller slot does not start any slot", async () => {
+test("a Prime motor command works without any slot registration by preparing slot 0", async () => {
   const state = setup({ locale: "ja" });
   await connect(state);
   const fakeHub = attachFakeControllerHub(state);
-  fakeHub.running = false;
   state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+  state.device.tx.emit(packMessage(notification(motorRecord({ port: 0 }))));
 
-  const runFor = () =>
-    state.ext.motorRunFor({
-      PORT: "A",
-      DIRECTION: 1,
-      VALUE: 1,
-      UNIT: "rotations",
-    });
-  await assert.rejects(
-    runFor(),
-    (error) => error.code === "ERR_CONTROLLER_SLOT_NOT_REGISTERED"
-  );
-  await assert.rejects(
-    runFor(),
-    (error) => error.code === "ERR_CONTROLLER_SLOT_NOT_REGISTERED"
-  );
+  await state.ext.motorRunFor({
+    PORT: "A",
+    DIRECTION: 1,
+    VALUE: 1,
+    UNIT: "rotations",
+  });
 
-  assert.equal(fakeHub.helloCount, 0);
-  assert.equal(fakeHub.receivedCommands.includes("controller.hello"), false);
-  assert.equal(fakeHub.startCount, 0);
+  assert.equal(fakeHub.startCount, 1);
+  assert.equal(fakeHub.helloCount, 1);
+  assert.equal(
+    fakeHub.actions.find((action) => action.cmd === "motor.run_degrees")
+      .degrees,
+    360
+  );
   assert.equal(
     state.runtime.brickwrightSpikePrimeControl.getState().controllerSlot,
-    null
-  );
-  const messages = unpackWrittenMessages(state.device.writes);
-  assert.equal(
-    messages.some(([type]) => type === 0x32),
-    false,
-    "an intentional controller command never sends hello without boot evidence"
-  );
-  assert.equal(
-    messages.some(([type]) => [0x0c, 0x10, 0x1e, 0x46].includes(type)),
-    false,
-    "without this hub's registered controller slot, no program is started or altered"
+    0
   );
   const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
-  assert.equal(
-    diagnostics.controllerCommandPreparation.reason,
-    "no-controller-slot-registered-for-this-hub"
-  );
-  assert.equal(
-    diagnostics.controllerCommandPreparation.commandName,
-    "scratch.motor_run_for_degrees"
-  );
-  assert.equal(
-    diagnostics.recentEvents.filter(
-      (event) =>
-        event.type === "controller-start-skipped" &&
-        event.reason === "no-controller-slot-registered-for-this-hub"
-    ).length,
-    1,
-    "repeated Scratch commands do not flood the no-slot diagnostic"
-  );
-  assert.equal(
-    diagnostics.lastCommunicationError,
-    "このハブにはBrickwright制御プログラムの保存先が登録されていません。ハブの詳細でBrickwrightが入っているスロットを選び、「制御スロットを登録」を実行してください。"
+  assert.equal(diagnostics.controllerCommandPreparation.outcome, "ready");
+  assert.notEqual(
+    diagnostics.lastCommunicationError?.code,
+    "ERR_CONTROLLER_SLOT_NOT_REGISTERED"
   );
 });
-
-test("a registered controller is not started over a known different active slot", async () => {
+test("automatic slot 0 preparation stops an identified active slot without clearing it", async () => {
   const state = setup();
   await connect(state);
   const fakeHub = attachFakeControllerHub(state);
@@ -2238,24 +2215,39 @@ test("a registered controller is not started over a known different active slot"
   hub._runningControllerSession = hub._connectionSession;
   const startsBeforeCommand = fakeHub.startCount;
   const writesBeforeCommand = state.device.writes.length;
+  state.device.tx.emit(packMessage(notification(motorRecord({ port: 0 }))));
 
-  await assert.rejects(
-    state.ext.motorStart({ PORT: "A", DIRECTION: 1 }),
-    /controller has not been verified|制御プログラム/i
+  await state.ext.motorStart({ PORT: "A", DIRECTION: 1 });
+
+  assert.equal(fakeHub.startCount, startsBeforeCommand + 1);
+  assert.equal(fakeHub.running, true);
+  assert.equal(
+    state.runtime.brickwrightSpikePrimeControl.getState().controllerSlot,
+    0
   );
-
-  assert.equal(fakeHub.startCount, startsBeforeCommand);
+  assert.equal(fakeHub.slots.has(19), true);
   const messages = unpackWrittenMessages(
     state.device.writes.slice(writesBeforeCommand)
   );
   assert.equal(
-    messages.some(([type, action]) => type === 0x1e && action === 0),
+    messages.some(
+      ([type, action, slot]) => type === 0x1e && action === 1 && slot === 7
+    ),
+    true,
+    "the currently running standalone program is stopped before internal setup"
+  );
+  assert.equal(
+    messages.some(([type, slot]) => type === 0x46 && slot === 0),
+    true
+  );
+  assert.equal(
+    messages.some(([type, slot]) => type === 0x46 && slot !== 0),
     false,
-    "the running standalone slot is not interrupted by controller recovery"
+    "automatic preparation never clears the other active or saved slot"
   );
 });
 
-test("the first standalone Scratch motorRunFor starts only this hub's registered controller", async () => {
+test("reconnecting automatically starts the saved internal slot before Scratch commands", async () => {
   const state = setup();
   await connect(state);
   const fakeHub = attachFakeControllerHub(state);
@@ -2267,22 +2259,29 @@ test("the first standalone Scratch motorRunFor starts only this hub's registered
   state.ext.disconnectHub();
   fakeHub.running = false;
   state.device.autoInfoResponse = true;
+  const writesBeforeReconnect = state.device.writes.length;
   const reconnected = await api.connect();
   assert.equal(reconnected.connected, true);
   assert.equal(reconnected.controllerSlot, 0);
-  assert.equal(reconnected.controllerReady, false);
+  assert.equal(reconnected.controllerReady, true);
   assert.equal(
     fakeHub.startCount,
-    startCountBeforeReconnect,
-    "connecting remains passive"
+    startCountBeforeReconnect + 1,
+    "connection completes only after the internal controller starts"
   );
+  const reconnectMessages = unpackWrittenMessages(
+    state.device.writes.slice(writesBeforeReconnect)
+  );
+  assert.ok(
+    reconnectMessages.some(([type, action]) => type === 0x1e && action === 0)
+  );
+  assert.ok(reconnectMessages.some(([type]) => type === 0x32));
 
   // HubRouter's registered API is authoritative. The older direct runtime
   // mirror can be stale after editor reconfiguration.
   state.runtime.brickwrightSpikePrimeControl = { ...api };
 
   state.device.tx.emit(packMessage(notification(motorRecord({ port: 1 }))));
-  fakeHub.startNotificationDelayMs = 100;
   const writesBeforeCommand = state.device.writes.length;
   const command = state.ext.motorRunFor({
     PORT: "B",
@@ -2293,16 +2292,14 @@ test("the first standalone Scratch motorRunFor starts only this hub's registered
   const parallelCommand = state.ext.displayClear();
 
   await waitUntil(
-    () => fakeHub.startCount === startCountBeforeReconnect + 1,
-    "the first Scratch command starts the saved controller"
+    () => fakeHub.actions.some((action) => action.cmd === "motor.run_degrees"),
+    "Scratch command follows the automatically prepared controller"
   );
-  assert.equal(fakeHub.helloCount, 1, "hello waits for the fresh boot marker");
-  state.clock.advance(100);
   await Promise.all([command, parallelCommand]);
 
   assert.equal(fakeHub.startCount, startCountBeforeReconnect + 1);
   assert.equal(fakeHub.running, true);
-  assert.equal(fakeHub.helloCount, 2);
+  assert.equal(fakeHub.helloCount, 2, "connection startup verifies with hello");
   assert.equal(
     fakeHub.actions
       .filter((action) => action.cmd === "motor.run_degrees")
@@ -2315,14 +2312,6 @@ test("the first standalone Scratch motorRunFor starts only this hub's registered
   const messages = unpackWrittenMessages(
     state.device.writes.slice(writesBeforeCommand)
   );
-  const startIndex = messages.findIndex(
-    ([type, action]) => type === 0x1e && action === 0
-  );
-  const helloIndex = messages.findIndex(
-    ([type, _lengthLow, _lengthHigh, ...payload]) =>
-      type === 0x32 &&
-      JSON.parse(Buffer.from(payload).toString("utf8")).c === "h"
-  );
   const motorIndexes = messages
     .map((message, index) => ({ message, index }))
     .filter(
@@ -2331,14 +2320,11 @@ test("the first standalone Scratch motorRunFor starts only this hub's registered
         JSON.parse(Buffer.from(message.slice(3)).toString("utf8")).c !== "h"
     )
     .map(({ index }) => index);
-  assert.ok(startIndex >= 0);
-  assert.ok(helloIndex > startIndex);
-  assert.ok(motorIndexes.length >= 2);
-  assert.ok(motorIndexes.every((index) => index > helloIndex));
+  assert.equal(motorIndexes.length, 2);
   assert.equal(
     messages.some(([type]) => [0x0c, 0x10, 0x46].includes(type)),
     false,
-    "automatic reuse starts the saved slot without clearing or uploading"
+    "automatic reuse does not restart, clear, or upload after connection readiness"
   );
 });
 
@@ -2347,7 +2333,7 @@ test("Prime motorRunFor rejects a force sensor port and runs the reported motor 
   await connect(state);
   const fakeHub = attachFakeControllerHub(state, { motorPorts: [] });
   state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
-  await state.ext.installHubController({ SLOT: 19 });
+  await state.ext.installHubController({ SLOT: 0 });
 
   // Current-session SPIKE 3 notification records from the user's report:
   // B is a force sensor, while D reports DeviceMotor type 0x41 (small motor).
@@ -2408,13 +2394,13 @@ test("Prime motorRunFor rejects a force sensor port and runs the reported motor 
   assert.equal(motorAction.velocity, 495);
 });
 
-test("a Scratch hardware command after a confirmed red stop restarts the saved controller", async () => {
+test("a Scratch hardware command after a confirmed red stop restarts the internal slot automatically", async () => {
   const state = setup();
   await connect(state);
   const fakeHub = attachFakeControllerHub(state);
   const api = state.runtime.brickwrightSpikePrimeControl;
   state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
-  await state.ext.installHubController({ SLOT: 19 });
+  await api.prepareInternalController("connection");
   const stopped = await api.stop();
   assert.equal(stopped.stopped, true);
   assert.equal(fakeHub.running, false);
@@ -2443,7 +2429,7 @@ test("a Scratch hardware command after a confirmed red stop restarts the saved c
   assert.equal(
     messages.some(([type]) => [0x0c, 0x10, 0x46].includes(type)),
     false,
-    "restart reuses the installed controller file"
+    "restart reuses the installed slot 0 controller file"
   );
 });
 
@@ -2454,7 +2440,7 @@ test("red stop cancels a Scratch command waiting for its automatically started c
   const api = state.runtime.brickwrightSpikePrimeControl;
   const hub = state.ext._peripheral._spike3;
   hub._rateLimiter.reserve = () => 0;
-  await state.ext.installHubController({ SLOT: 19 });
+  await api.prepareInternalController("connection");
   await api.stop();
   state.device.tx.emit(packMessage(notification(motorRecord({ port: 0 }))));
   fakeHub.startNotificationDelayMs = 500;
@@ -2486,25 +2472,21 @@ test("red stop cancels a Scratch command waiting for its automatically started c
   const messages = unpackWrittenMessages(state.device.writes);
   assert.ok(
     messages.some(
-      ([type, action, slot]) => type === 0x1e && action === 1 && slot === 19
+      ([type, action, slot]) => type === 0x1e && action === 1 && slot === 0
     ),
     "red stop sends ProgramFlow stop to the exact pending saved slot"
   );
 });
 
-test("disconnect cancels the first Scratch command while its saved controller is starting", async () => {
+test("disconnect cancels the first Scratch command while slot 0 is restarting", async () => {
   const state = setup();
   await connect(state);
   const fakeHub = attachFakeControllerHub(state);
   const api = state.runtime.brickwrightSpikePrimeControl;
   const hub = state.ext._peripheral._spike3;
   hub._rateLimiter.reserve = () => 0;
-  await state.ext.installHubController({ SLOT: 19 });
-
-  state.ext.disconnectHub();
-  fakeHub.running = false;
-  state.device.autoInfoResponse = true;
-  await api.connect();
+  await api.prepareInternalController("connection");
+  await api.stop();
   state.device.tx.emit(packMessage(notification(motorRecord({ port: 0 }))));
   fakeHub.startNotificationDelayMs = 500;
   const writesBeforeCommand = state.device.writes.length;
@@ -2642,27 +2624,24 @@ test("control center explicitly restarts only the current hub's saved controller
   assert.equal(state.device.writes.length, writesBeforeReadyStart);
 });
 
-test("saved-controller start sends ProgramFlow before hello after reconnect", async () => {
+test("control-center reconnect starts fixed slot 0 before hello", async () => {
   const state = setup();
   await connect(state);
   const fakeHub = attachFakeControllerHub(state);
   state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
-  await state.ext.installHubController({ SLOT: 19 });
+  await state.ext.installHubController({ SLOT: 0 });
   const startCountBeforeReconnect = fakeHub.startCount;
 
   state.ext.disconnectHub();
   state.device.autoInfoResponse = true;
+  const writesBeforeReconnect = state.device.writes.length;
   const connectedState =
     await state.runtime.brickwrightSpikePrimeControl.connect();
-  assert.equal(connectedState.controllerReady, false);
-
-  const writesBeforeStart = state.device.writes.length;
-  const result =
-    await state.runtime.brickwrightSpikePrimeControl.startSavedController(19);
-  assert.equal(result.version, 1);
+  assert.equal(connectedState.controllerReady, true);
+  assert.equal(connectedState.controllerSlot, 0);
   assert.equal(fakeHub.startCount, startCountBeforeReconnect + 1);
   const messages = unpackWrittenMessages(
-    state.device.writes.slice(writesBeforeStart)
+    state.device.writes.slice(writesBeforeReconnect)
   );
   const startIndex = messages.findIndex(
     ([type, action]) => type === 0x1e && action === 0
@@ -2700,7 +2679,7 @@ test("saved-controller start rejects missing or mismatched slots without writing
   assert.equal(hub._controllerReady, false);
 });
 
-test("explicit controller-slot recovery registers only after a fresh start and hello", async () => {
+test("legacy explicit slot recovery registers only after a fresh start and hello", async () => {
   const state = setup();
   await connect(state);
   const fakeHub = attachFakeControllerHub(state);
@@ -2711,11 +2690,8 @@ test("explicit controller-slot recovery registers only after a fresh start and h
   const installedBytes = Buffer.from(fakeHub.slots.get(6));
   const deviceId = state.ext._controllerDeviceId();
   assert.equal(state.ext._removeControllerSlotForDevice(deviceId), true);
+  await api.stop();
 
-  state.ext.disconnectHub();
-  fakeHub.running = false;
-  state.device.autoInfoResponse = true;
-  assert.equal((await api.connect()).controllerSlot, null);
   const writesBeforeRecovery = state.device.writes.length;
   const startsBeforeRecovery = fakeHub.startCount;
 
@@ -2743,7 +2719,7 @@ test("explicit controller-slot recovery registers only after a fresh start and h
   );
 });
 
-test("controller-slot recovery does not register unrelated program contents or failed hello", async () => {
+test("legacy slot recovery does not register unrelated contents or failed hello", async () => {
   const state = setup();
   await connect(state);
   const fakeHub = attachFakeControllerHub(state);
@@ -2783,10 +2759,7 @@ test("controller-slot recovery does not register unrelated program contents or f
   await installApi.installController(5);
   const controllerDeviceId = installState.ext._controllerDeviceId();
   installState.ext._removeControllerSlotForDevice(controllerDeviceId);
-  installState.ext.disconnectHub();
-  controller.running = false;
-  installState.device.autoInfoResponse = true;
-  await installApi.connect();
+  await installApi.stop();
   controller.failHello = true;
   const recoveryWritesBefore = installState.device.writes.length;
   await assert.rejects(
@@ -3778,7 +3751,7 @@ test("a failed ProgramFlow BLE write records its exception and is not labeled a 
   );
 });
 
-test("chained blocks wait for hello readiness and continue immediately without popups", async () => {
+test("Scratch hardware command waits for hello readiness and then runs without popups", async () => {
   const state = setup();
   await connect(state);
   const fakeHub = attachFakeControllerHub(state, {
@@ -3788,13 +3761,7 @@ test("chained blocks wait for hello readiness and continue immediately without p
   state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
 
   let nextBlockStarted = false;
-  let installResult;
-  const install = state.ext.installHubController({ SLOT: 10 });
-  const chained = install.then((result) => {
-    installResult = result;
-    nextBlockStarted = true;
-    return state.ext.motorStart({ PORT: "A", DIRECTION: 1 });
-  });
+  const command = state.ext.motorStart({ PORT: "A", DIRECTION: 1 });
   await waitUntil(
     () =>
       JSON.parse(state.ext.getCommunicationDiagnostics())
@@ -3802,8 +3769,15 @@ test("chained blocks wait for hello readiness and continue immediately without p
       "program-flow-response-accepted",
     "ProgramFlowResponse should be acknowledged before waiting for start"
   );
+  let commandFinished = false;
+  const observedCommand = command.then((result) => {
+    commandFinished = true;
+    nextBlockStarted = true;
+    return result;
+  });
   assert.equal(fakeHub.helloCount, 0);
   assert.equal(nextBlockStarted, false);
+  assert.equal(commandFinished, false);
   assert.equal(
     fakeHub.actions.some((action) => action.cmd === "motor.run"),
     false
@@ -3812,6 +3786,7 @@ test("chained blocks wait for hello readiness and continue immediately without p
   await tick();
   assert.equal(fakeHub.helloCount, 0);
   assert.equal(nextBlockStarted, false);
+  assert.equal(commandFinished, false);
 
   state.clock.advance(1);
   await waitUntil(
@@ -3823,6 +3798,7 @@ test("chained blocks wait for hello readiness and continue immediately without p
     "checking"
   );
   assert.equal(nextBlockStarted, false);
+  assert.equal(commandFinished, false);
   state.clock.advance(499);
   await tick();
   assert.equal(
@@ -3830,10 +3806,15 @@ test("chained blocks wait for hello readiness and continue immediately without p
     "checking"
   );
   assert.equal(nextBlockStarted, false);
+  assert.equal(commandFinished, false);
   state.clock.advance(1);
-  await chained;
-  assert.equal(installResult.version, 1);
+  await observedCommand;
   assert.equal(nextBlockStarted, true);
+  assert.equal(commandFinished, true);
+  assert.equal(
+    state.runtime.brickwrightSpikePrimeControl.getState().controllerSlot,
+    0
+  );
   assert.equal(
     JSON.parse(state.ext.getCommunicationDiagnostics()).controllerStatus,
     "ready"
@@ -3849,7 +3830,9 @@ test("Scratch greenFlag's synchronous stop/start pair does not stop the SPIKE co
   const fakeHub = attachFakeControllerHub(state);
   const hub = state.ext._peripheral._spike3;
   hub._rateLimiter.reserve = () => 0;
-  await state.ext.installHubController({ SLOT: 5 });
+  await state.runtime.brickwrightSpikePrimeControl.prepareInternalController(
+    "connection"
+  );
   const writesBeforeRun = state.device.writes.length;
 
   // scratch-vm Runtime.greenFlag() calls stopAll() and then emits
@@ -3889,7 +3872,9 @@ test("a deferred stop and queued command never target a replacement hub", async 
   const fakeHub = attachFakeControllerHub(state);
   const hub = state.ext._peripheral._spike3;
   hub._rateLimiter.reserve = () => 0;
-  await state.ext.installHubController({ SLOT: 5 });
+  await state.runtime.brickwrightSpikePrimeControl.prepareInternalController(
+    "connection"
+  );
 
   const queuedMotor = state.ext.motorStart({ PORT: "A", DIRECTION: 1 });
   state.runtime.emit("PROJECT_STOP_ALL");
@@ -3908,7 +3893,7 @@ test("a deferred stop and queued command never target a replacement hub", async 
   await deferredStop;
   await assert.rejects(
     queuedMotor,
-    /stopped the pending SPIKE controller command/i
+    /stopped the pending SPIKE controller command|SPIKE hub changed during controller preparation/i
   );
   assert.equal(fakeHub.running, true);
   assert.deepEqual(replacementWrites, []);
@@ -3920,7 +3905,9 @@ test("a rate-limited command cannot leak after a standalone emergency stop", asy
   const fakeHub = attachFakeControllerHub(state);
   const hub = state.ext._peripheral._spike3;
   hub._rateLimiter.reserve = () => 0;
-  await state.ext.installHubController({ SLOT: 5 });
+  await state.runtime.brickwrightSpikePrimeControl.prepareInternalController(
+    "connection"
+  );
   hub._rateLimiter.reserve = () => 100;
   const writesBeforeCommand = state.device.writes.length;
 
@@ -3965,7 +3952,7 @@ test("PROJECT_STOP_ALL preempts queued commands, stops hardware and Python, then
   );
   const fakeHub = attachFakeControllerHub(state);
   state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
-  await state.ext.installHubController({ SLOT: 6 });
+  await state.ext.installHubController({ SLOT: 0 });
   assert.equal(
     JSON.parse(state.ext.getCommunicationDiagnostics()).controllerStatus,
     "ready"
@@ -3994,7 +3981,7 @@ test("PROJECT_STOP_ALL preempts queued commands, stops hardware and Python, then
   const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
   assert.equal(diagnostics.controllerStatus, "stopped");
   assert.equal(diagnostics.lastStopAttempt.outcome, "success");
-  assert.equal(diagnostics.lastStopAttempt.slot, 6);
+  assert.equal(diagnostics.lastStopAttempt.slot, 0);
   assert.equal(
     diagnostics.lastStopAttempt.controllerStop.status,
     "acknowledged"
@@ -4063,7 +4050,7 @@ test("PROJECT_STOP_ALL preempts queued commands, stops hardware and Python, then
     )
   );
 
-  await state.ext.installHubController({ SLOT: 6 });
+  await state.ext.installHubController({ SLOT: 0 });
   await state.ext.motorStart({ PORT: "A", DIRECTION: 1 });
   await state.ext.setPixel({ X: 2, Y: 2, BRIGHTNESS: 100 });
   assert.equal(fakeHub.running, true, "a new install starts after the stop");
@@ -4077,7 +4064,7 @@ test("a timed out controller motor stop still sends ProgramFlow stop and reports
   await connect(state);
   const fakeHub = attachFakeControllerHub(state);
   state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
-  await state.ext.installHubController({ SLOT: 7 });
+  await state.ext.installHubController({ SLOT: 0 });
   fakeHub.ignoreCommands.add("controller.stop_all");
 
   state.runtime.emit("PROJECT_STOP_ALL");
@@ -4121,7 +4108,7 @@ test("a failed ProgramFlow stop is not reported as success", async () => {
     suppressStopNotification: true,
   });
   state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
-  await state.ext.installHubController({ SLOT: 8 });
+  await state.ext.installHubController({ SLOT: 0 });
 
   state.runtime.emit("PROJECT_STOP_ALL");
   const stopPromise = state.ext._peripheral._spike3._projectStopPromise;
@@ -4147,7 +4134,7 @@ test("a disconnected hub is recorded as an unconfirmed stop, never as success", 
   await connect(state);
   attachFakeControllerHub(state);
   state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
-  await state.ext.installHubController({ SLOT: 9 });
+  await state.ext.installHubController({ SLOT: 0 });
   state.device.gatt.disconnect();
 
   state.runtime.emit("PROJECT_STOP_ALL");
@@ -4167,7 +4154,7 @@ test("an emergency stop never targets a replacement hub after reconnect", async 
   const fakeHub = attachFakeControllerHub(state);
   const hub = state.ext._peripheral._spike3;
   hub._rateLimiter.reserve = () => 0;
-  await state.ext.installHubController({ SLOT: 10 });
+  await state.ext.installHubController({ SLOT: 0 });
   fakeHub.ignoreCommands.add("controller.stop_all");
 
   state.runtime.emit("PROJECT_STOP_ALL");
@@ -4331,7 +4318,7 @@ test("host output blocks are interpreted by the fake controller and return execu
   await connect(state);
   const fakeHub = attachFakeControllerHub(state);
   state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
-  await state.ext.installHubController({ SLOT: 19 });
+  await state.ext.installHubController({ SLOT: 0 });
 
   await state.ext.motorStart({ PORT: "A", DIRECTION: 1 });
   await state.ext.motorStartPower({ PORT: "A", POWER: 1 });
@@ -4387,7 +4374,7 @@ test("controller serializes simultaneous commands and preserves their order", as
   await connect(state);
   const fakeHub = attachFakeControllerHub(state);
   state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
-  await state.ext.installHubController({ SLOT: 19 });
+  await state.ext.installHubController({ SLOT: 0 });
 
   const first = state.ext._peripheral.active.sendCommand(
     "scratch.motor_start",
@@ -4415,7 +4402,7 @@ test("controller execution failures reach the caller with technical detail", asy
   await connect(state);
   const fakeHub = attachFakeControllerHub(state);
   state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
-  await state.ext.installHubController({ SLOT: 19 });
+  await state.ext.installHubController({ SLOT: 0 });
   fakeHub.rejectCommands.add("motor.run");
   await assert.rejects(
     state.ext.motorStart({ PORT: "A", DIRECTION: 1 }),
@@ -4433,7 +4420,7 @@ test("a controller command timeout fails visibly and is never retried", async ()
   await connect(state);
   const fakeHub = attachFakeControllerHub(state);
   state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
-  await state.ext.installHubController({ SLOT: 19 });
+  await state.ext.installHubController({ SLOT: 0 });
   fakeHub.ignoreCommands.add("motor.run");
 
   const writesBefore = state.device.writes.length;
@@ -5594,6 +5581,53 @@ test("REPL display text falls back after native rejection and escapes Python str
     calls[0],
     "import hub; hub.display.show(" + JSON.stringify(pythonText) + ")"
   );
+});
+
+test("an unregistered Prime auto-installs slot 0 once and queues Scratch blocks until hello", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  hub._rateLimiter.reserve = () => 0;
+  fakeHub.slots.set(19, Buffer.from("user program remains untouched"));
+  state.device.tx.emit(packMessage(notification(motorRecord({ port: 0 }))));
+
+  const firstPreparation =
+    state.ext._controlCenterAPI.prepareInternalController("connection");
+  const duplicatePreparation =
+    state.ext._controlCenterAPI.prepareInternalController("scratch-command");
+  assert.strictEqual(firstPreparation, duplicatePreparation);
+  let laterBlockStarted = false;
+  const motor = firstPreparation.then(() => {
+    laterBlockStarted = true;
+    return state.ext.motorStart({ PORT: "A", DIRECTION: 1 });
+  });
+  const parallelBlock = state.ext.displayClear();
+
+  await Promise.all([motor, parallelBlock]);
+
+  assert.equal(laterBlockStarted, true);
+  assert.equal(fakeHub.startCount, 1);
+  assert.equal(fakeHub.helloCount, 1);
+  assert.equal(fakeHub.running, true);
+  assert.equal(state.ext._controlCenterAPI.getState().controllerSlot, 0);
+  assert.equal(state.ext._controlCenterAPI.getState().controllerReady, true);
+  assert.ok(fakeHub.actions.some((action) => action.cmd === "motor.run"));
+  assert.ok(fakeHub.actions.some((action) => action.cmd === "matrix.clear"));
+  assert.equal(
+    fakeHub.slots.get(19).toString(),
+    "user program remains untouched"
+  );
+  const messages = unpackWrittenMessages(state.device.writes);
+  assert.ok(messages.some(([type, slot]) => type === 0x46 && slot === 0));
+  assert.equal(
+    messages.some(([type, slot]) => type === 0x46 && slot !== 0),
+    false,
+    "only the authorized fixed internal slot is cleared"
+  );
+  const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.controllerCommandPreparation.outcome, "ready");
 });
 
 test("the communication diagnostics block is localized for Japanese", () => {
