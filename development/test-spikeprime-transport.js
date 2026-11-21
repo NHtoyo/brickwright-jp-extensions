@@ -2151,8 +2151,19 @@ test("a command without a registered controller slot does not start any slot", a
   fakeHub.running = false;
   state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
 
+  const runFor = () =>
+    state.ext.motorRunFor({
+      PORT: "A",
+      DIRECTION: 1,
+      VALUE: 1,
+      UNIT: "rotations",
+    });
   await assert.rejects(
-    state.ext.motorStart({ PORT: "A", DIRECTION: 1 }),
+    runFor(),
+    /controller has not been verified|制御プログラム/i
+  );
+  await assert.rejects(
+    runFor(),
     /controller has not been verified|制御プログラム/i
   );
 
@@ -2173,6 +2184,22 @@ test("a command without a registered controller slot does not start any slot", a
     messages.some(([type]) => [0x0c, 0x10, 0x1e, 0x46].includes(type)),
     false,
     "without this hub's registered controller slot, no program is started or altered"
+  );
+  const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(
+    diagnostics.controllerCommandPreparation.reason,
+    "no-controller-slot-registered-for-this-hub"
+  );
+  assert.equal(
+    diagnostics.controllerCommandPreparation.commandName,
+    "scratch.motor_run_for_degrees"
+  );
+  assert.equal(
+    diagnostics.recentEvents.filter(
+      (event) => event.type === "controller-hello-not-sent"
+    ).length,
+    1,
+    "repeated Scratch loop commands do not flood the same no-evidence diagnostic"
   );
 });
 
@@ -2217,7 +2244,7 @@ test("the first standalone Scratch motorRunFor starts only this hub's registered
   const fakeHub = attachFakeControllerHub(state);
   const api = state.runtime.brickwrightSpikePrimeControl;
   state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
-  await state.ext.installHubController({ SLOT: 19 });
+  await state.ext.installHubController({ SLOT: 0 });
   const startCountBeforeReconnect = fakeHub.startCount;
 
   state.ext.disconnectHub();
@@ -2225,13 +2252,17 @@ test("the first standalone Scratch motorRunFor starts only this hub's registered
   state.device.autoInfoResponse = true;
   const reconnected = await api.connect();
   assert.equal(reconnected.connected, true);
-  assert.equal(reconnected.controllerSlot, 19);
+  assert.equal(reconnected.controllerSlot, 0);
   assert.equal(reconnected.controllerReady, false);
   assert.equal(
     fakeHub.startCount,
     startCountBeforeReconnect,
     "connecting remains passive"
   );
+
+  // HubRouter's registered API is authoritative. The older direct runtime
+  // mirror can be stale after editor reconfiguration.
+  state.runtime.brickwrightSpikePrimeControl = { ...api };
 
   state.device.tx.emit(packMessage(notification(motorRecord({ port: 1 }))));
   fakeHub.startNotificationDelayMs = 100;

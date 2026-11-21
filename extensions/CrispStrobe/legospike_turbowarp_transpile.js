@@ -4351,6 +4351,8 @@ continuous_sensor_loop()
       this._controllerVersion = null;
       this._controllerHeartbeatTimer = null;
       this._pendingProjectStop = null;
+      this._lastControllerStartSkipKey = null;
+      this._controllerBootEvidenceWarningSession = null;
 
       this._rateLimiter = new RateLimiter(BTSendRateMax);
       this._portValues = {};
@@ -4533,6 +4535,8 @@ continuous_sensor_loop()
         lastKnownControllerVersion,
         lastControllerResponseAt: null,
         controllerInstallAttempt: previous?.controllerInstallAttempt || null,
+        controllerCommandPreparation:
+          previous?.controllerCommandPreparation || null,
         controllerSlotMigration: previous?.controllerSlotMigration || null,
         startupProbeRuns: previous?.startupProbeRuns
           ? JSON.parse(JSON.stringify(previous.startupProbeRuns))
@@ -4589,6 +4593,25 @@ continuous_sensor_loop()
       const events = this._diagnostics.recentEvents;
       events.push({ timestamp: Date.now(), type, ...details });
       if (events.length > 50) events.splice(0, events.length - 50);
+    }
+
+    _recordControllerStartSkipped(commandName, reason, controllerSlot = null) {
+      const sessionId = this._connectionSession;
+      const key = `${sessionId}:${commandName}:${reason}:${controllerSlot}`;
+      const decision = {
+        timestamp: Date.now(),
+        sessionId,
+        commandName,
+        outcome: "skipped",
+        reason,
+        controllerSlot,
+        hubIdentityAvailable: Boolean(this._link?._device?.id),
+      };
+      this._diagnostics.controllerCommandPreparation = decision;
+      if (this._lastControllerStartSkipKey !== key) {
+        this._recordDiagnosticEvent("controller-start-skipped", decision);
+        this._lastControllerStartSkipKey = key;
+      }
     }
 
     _recordControllerSlotMigration(details) {
@@ -4853,6 +4876,10 @@ continuous_sensor_loop()
           ? JSON.parse(
               JSON.stringify(this._diagnostics.controllerInstallAttempt)
             )
+          : null,
+        controllerCommandPreparation: this._diagnostics
+          .controllerCommandPreparation
+          ? { ...this._diagnostics.controllerCommandPreparation }
           : null,
         controllerSlotMigration: this._diagnostics.controllerSlotMigration
           ? JSON.parse(
@@ -5783,27 +5810,57 @@ continuous_sensor_loop()
       const runtime = this._runtime;
       const router = runtime?.peripheralExtensions?.spikeprime;
       const api = router?.getControlCenterAPI?.();
+      if (!router || router.active !== this) {
+        this._recordControllerStartSkipped(
+          method,
+          "scratch-router-does-not-own-active-hub"
+        );
+        return null;
+      }
       if (
-        !router ||
-        router.active !== this ||
-        api !== runtime?.brickwrightSpikePrimeControl ||
         api?.extensionId !== "spikeprime" ||
         api?.hubRouterId !== router.instanceId ||
         typeof api.startSavedController !== "function" ||
         typeof api.getState !== "function"
       ) {
+        this._recordControllerStartSkipped(
+          method,
+          "registered-control-api-unavailable-or-mismatched"
+        );
         return null;
       }
-      const state = api.getState();
+      let state;
+      try {
+        state = api.getState();
+      } catch (error) {
+        this._recordControllerStartSkipped(
+          method,
+          "registered-control-state-unavailable"
+        );
+        return null;
+      }
       if (
         state.connected !== true ||
         state.protocol !== "spike3" ||
         state.effectiveHubModel !== "prime" ||
-        state.standaloneCapable !== true ||
+        state.standaloneCapable !== true
+      ) {
+        this._recordControllerStartSkipped(
+          method,
+          "active-hub-is-not-connected-prime-standalone"
+        );
+        return null;
+      }
+      if (
         !Number.isInteger(state.controllerSlot) ||
         state.controllerSlot < 0 ||
         state.controllerSlot > 19
       ) {
+        this._recordControllerStartSkipped(
+          method,
+          "no-controller-slot-registered-for-this-hub",
+          null
+        );
         return null;
       }
       const currentSessionProgramSlot =
@@ -5819,11 +5876,25 @@ continuous_sensor_loop()
         // Do not interrupt a known standalone program to make room for the
         // Brickwright controller. The normal readiness check below will
         // explain why this Scratch command cannot use the controller.
+        this._recordControllerStartSkipped(
+          method,
+          "different-program-already-running",
+          state.controllerSlot
+        );
         return null;
       }
       // startSavedController revalidates the slot against this physical hub's
       // identity and performs only ProgramFlow start + marker + hello. It does
       // not clear or upload a slot.
+      this._diagnostics.controllerCommandPreparation = {
+        timestamp: Date.now(),
+        sessionId: this._connectionSession,
+        commandName: method,
+        outcome: "starting-saved-controller",
+        reason: "registered-controller-slot",
+        controllerSlot: state.controllerSlot,
+        hubIdentityAvailable: Boolean(this._link?._device?.id),
+      };
       return api.startSavedController(state.controllerSlot);
     }
 
@@ -7185,10 +7256,17 @@ continuous_sensor_loop()
           { code: "ERR_CONTROLLER_BOOT_EVIDENCE_REQUIRED" }
         );
         this._diagnostics.controllerStatus = "not-verified";
-        this._recordDiagnosticEvent("controller-hello-not-sent", {
-          reason: "current-session-callback-ready-evidence-missing",
-        });
-        this._recordCommunicationError(error);
+        if (
+          this._controllerBootEvidenceWarningSession !== this._connectionSession
+        ) {
+          this._controllerBootEvidenceWarningSession = this._connectionSession;
+          this._recordDiagnosticEvent("controller-hello-not-sent", {
+            reason: "current-session-callback-ready-evidence-missing",
+          });
+          this._recordCommunicationError(error);
+        } else {
+          this._diagnostics.lastCommunicationError = error.message;
+        }
         return Promise.reject(error);
       }
       this._diagnostics.controllerStatus = "checking";
